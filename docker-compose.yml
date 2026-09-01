@@ -1,0 +1,28 @@
+services:
+  analysarr:
+    # Remplacez par "image: ghcr.io/<owner>/analysarr:latest" pour utiliser
+    # une image publiée plutôt que de reconstruire localement.
+    build: .
+    container_name: analysarr
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Seules ces deux variables sont à connaître : tout le reste (Emby,
+      # Sonarr, Radarr, qBittorrent, cross-seed...) se configure depuis
+      # l'assistant de configuration au premier lancement (aucun .env requis).
+      PORT: 8000
+      DATABASE_PATH: /data/analysarr.db
+    volumes:
+      # Base SQLite (config + cache de scan) : à conserver entre les redémarrages.
+      - analysarr-data:/data
+
+      # Montez ici les mêmes dossiers que ceux utilisés par Emby et
+      # qBittorrent, avec des points de montage identiques des deux côtés,
+      # pour que la détection de hardlinks fonctionne (os.stat().st_ino).
+      # Exemple si Emby et qBittorrent voient tous les deux /data sur l'hôte :
+      # - /srv/mediatheque:/data/media:ro
+      # - /srv/downloads:/data/downloads
+
+volumes:
+  analysarr-data:
