@@ -31,7 +31,12 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN se voit refuser la création d'un tout nouveau package GHCR
+          # sur un compte personnel (permission_denied: write_package), même avec
+          # `permissions: packages: write` et le repo réglé sur "Read and write
+          # permissions". CR_PAT est un token personnel (scope write:packages) qui
+          # contourne cette limitation pour le premier push.
+          password: ${{ secrets.CR_PAT }}
 
       - name: Extract metadata
         id: meta
