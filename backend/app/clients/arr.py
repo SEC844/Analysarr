@@ -47,10 +47,14 @@ class SonarrClient(ArrClient):
         return await self._get("/api/v3/episode", params={"seriesId": series_id})
 
     async def get_history_for_series(self, series_id: int) -> list[dict[str, Any]]:
-        return await self._get(
+        # Contrairement à /api/v3/history/movie (Radarr), /api/v3/history (Sonarr)
+        # est paginé et renvoie {"records": [...], "totalRecords": ..., ...}, pas
+        # une liste brute.
+        page = await self._get(
             "/api/v3/history",
             params={"seriesId": series_id, "pageSize": 250, "sortDirection": "descending"},
         )
+        return page.get("records", [])
 
     async def delete_episode_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/episodefile/{file_id}")
