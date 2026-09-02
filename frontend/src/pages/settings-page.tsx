@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
+import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
 import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
 import { Button } from "@/components/ui/button"
@@ -132,13 +133,14 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           />
         </TabsContent>
 
-        <TabsContent value="paths">
+        <TabsContent value="paths" className="space-y-6">
           <PathsCard
             embyLibraryPath={form.emby_library_path}
             onEmbyLibraryPathChange={(v) => set("emby_library_path", v)}
             qbittorrentDownloadPath={form.qbittorrent_download_path}
             onQbittorrentDownloadPathChange={(v) => set("qbittorrent_download_path", v)}
           />
+          <PathDiagnosticsPanel />
         </TabsContent>
 
         <TabsContent value="cross-seed">

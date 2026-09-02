@@ -1,3 +1,4 @@
+import type { DiagnosticsResult } from "@/types/diagnostics"
 import type {
   CrossSeedSearchResult,
   DeleteExecuteResult,
@@ -84,4 +85,8 @@ export function startScan(): Promise<{ started: boolean; message?: string }> {
 
 export function getScanStatus(): Promise<ScanRunRead | null> {
   return request<ScanRunRead | null>(`/api/scan/status`)
+}
+
+export function getPathDiagnostics(): Promise<DiagnosticsResult> {
+  return request<DiagnosticsResult>(`/api/scan/diagnostics`)
 }

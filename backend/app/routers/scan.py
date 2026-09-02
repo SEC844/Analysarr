@@ -2,13 +2,16 @@ import asyncio
 import json
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from app.database import engine
+from app.database import engine, get_session
 from app.models.media import ScanRun
+from app.models.settings import Settings
+from app.schemas.diagnostics import DiagnosticsResult
 from app.schemas.media import ScanRunRead
+from app.services.diagnostics import run_diagnostics
 from app.services.events import scan_events
 from app.services.scan import is_scan_running, run_scan
 
@@ -59,3 +62,16 @@ async def scan_stream() -> StreamingResponse:
             scan_events.unsubscribe(queue)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.get("/diagnostics", response_model=DiagnosticsResult)
+async def scan_diagnostics(session: Session = Depends(get_session)) -> DiagnosticsResult:
+    settings = session.get(Settings, 1)
+    if settings is None or not (settings.emby_url and settings.emby_api_key):
+        raise HTTPException(400, "Emby non configuré.")
+    if not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
+        raise HTTPException(400, "qBittorrent non configuré.")
+    try:
+        return await run_diagnostics(settings)
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
