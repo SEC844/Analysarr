@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, CheckCircle2, Clapperboard, HardDriveDownload, Loader2, Search, Tv, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,11 +11,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useCrossSeedSearchMutation, useMediaDetailQuery } from "@/hooks/use-media"
 import { useSettingsQuery } from "@/hooks/use-settings"
 import { posterUrl } from "@/lib/api"
-import { formatBytes } from "@/lib/format"
+import { formatBytes, formatDate, formatRatio } from "@/lib/format"
 
 export function MediaDetailPage() {
   const { id } = useParams<{ id: string }>()
   const mediaId = Number(id)
+  const navigate = useNavigate()
 
   const { data: media, isLoading, isError } = useMediaDetailQuery(mediaId)
   const { data: settings } = useSettingsQuery()
@@ -44,7 +45,7 @@ export function MediaDetailPage() {
     crossSeed.mutate(mediaId, {
       onSuccess: (result) => {
         if (result.triggered > 0) {
-          toast.success(`Recherche cross-seed déclenchée pour ${result.triggered} torrent(s).`)
+          toast.success(`Recherche cross-seed déclenchée (${result.triggered}).`)
         }
         if (result.errors.length > 0) {
           toast.error(result.errors.join(" · "))
@@ -56,7 +57,7 @@ export function MediaDetailPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
-      <Button variant="ghost" size="sm" render={<Link to="/" />} className="mb-4">
+      <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4">
         <ArrowLeft className="size-4" />
         Retour à la bibliothèque
       </Button>
@@ -84,7 +85,7 @@ export function MediaDetailPage() {
           )}
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {settings?.cross_seed.enabled && media.torrents.length > 0 && (
+            {settings?.cross_seed.enabled && (media.torrents.length > 0 || media.files.length > 0) && (
               <Button type="button" variant="secondary" disabled={crossSeed.isPending} onClick={handleCrossSeed}>
                 {crossSeed.isPending ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
                 Chercher un cross-seed
@@ -170,6 +171,18 @@ export function MediaDetailPage() {
                       </Badge>
                     ))}
                   </div>
+
+                  {(t.seeders !== null || t.leechers !== null || t.ratio !== null || t.completed_on) && (
+                    <p className="text-muted-foreground text-xs">
+                      {t.seeders !== null && t.leechers !== null && (
+                        <>
+                          {t.seeders} seeder{t.seeders > 1 ? "s" : ""} · {t.leechers} leecher{t.leechers > 1 ? "s" : ""}
+                        </>
+                      )}
+                      {t.ratio !== null && <> · Ratio {formatRatio(t.ratio)}</>}
+                      {formatDate(t.completed_on) && <> · Seedé depuis le {formatDate(t.completed_on)}</>}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>

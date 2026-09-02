@@ -87,6 +87,13 @@ class Torrent(SQLModel, table=True):
     # None = non évalué (chemins non configurés, ou fichier introuvable).
     is_hardlinked: Optional[bool] = None
 
+    # Données qBittorrent affichées sur la fiche détail (ratio, popularité, ancienneté).
+    ratio: Optional[float] = None
+    seeders: Optional[int] = None
+    leechers: Optional[int] = None
+    added_on: Optional[datetime] = None
+    completed_on: Optional[datetime] = None
+
     # JSON list [{"domain": str, "status": str}]
     trackers_json: str = "[]"
 

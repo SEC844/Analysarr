@@ -38,6 +38,11 @@ export interface TorrentRead {
   content_path: string | null
   size: number | null
   is_hardlinked: boolean | null
+  ratio: number | null
+  seeders: number | null
+  leechers: number | null
+  added_on: string | null
+  completed_on: string | null
   trackers: TrackerRead[]
 }
 

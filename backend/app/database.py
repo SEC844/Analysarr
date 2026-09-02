@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Iterator
 
+from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import DATABASE_PATH
@@ -13,11 +14,34 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
 )
 
+# Colonne présente dès qu'un déploiement a le schéma torrent le plus récent.
+# Sert uniquement à détecter un schéma obsolète, voir _reset_media_cache_if_stale().
+_CURRENT_TORRENT_MARKER_COLUMN = "ratio"
+
+
+def _reset_media_cache_if_stale() -> None:
+    """Media/MediaFile/Torrent/ScanRun sont un pur cache reconstruit à chaque
+    scan : ce projet n'a pas de migrations Alembic, et `create_all()` ne
+    modifie jamais une table déjà existante. Si le schéma attendu a changé
+    (nouvelle colonne sur Torrent), on recrée ces tables plutôt que de gérer
+    des ALTER TABLE colonne par colonne — sans jamais toucher `settings`, qui
+    contient la vraie configuration de l'utilisateur."""
+    inspector = inspect(engine)
+    if "torrent" not in inspector.get_table_names():
+        return  # première installation : create_all() suffira à tout créer
+    existing_columns = {col["name"] for col in inspector.get_columns("torrent")}
+    if _CURRENT_TORRENT_MARKER_COLUMN in existing_columns:
+        return  # schéma déjà à jour
+    with engine.begin() as conn:
+        for table in ("torrent", "mediafile", "scanrun", "media"):
+            conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
 
 def init_db() -> None:
     from app.models.media import Media, MediaFile, ScanRun, Torrent  # noqa: F401
     from app.models.settings import Settings  # noqa: F401
 
+    _reset_media_cache_if_stale()
     SQLModel.metadata.create_all(engine)
 
 

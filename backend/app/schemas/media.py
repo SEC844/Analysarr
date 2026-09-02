@@ -25,6 +25,11 @@ class TorrentRead(BaseModel):
     content_path: Optional[str]
     size: Optional[int]
     is_hardlinked: Optional[bool]
+    ratio: Optional[float]
+    seeders: Optional[int]
+    leechers: Optional[int]
+    added_on: Optional[datetime]
+    completed_on: Optional[datetime]
     trackers: list[TrackerRead]
 
 

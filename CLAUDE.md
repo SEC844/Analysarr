@@ -77,7 +77,7 @@ Un média `sain` doit donc être à la fois présent dans Emby et activement see
 - **Emby** : API REST classique (`/Items`, `/Items/{Id}/Images/Primary` pour les jaquettes)
 - **Sonarr / Radarr** : API REST v3 classique (séries/films, fichiers, historique)
 - **qBittorrent** : Web API v2 (`torrents/info`, `torrents/delete`, `torrents/trackers?hash=`)
-- **cross-seed** (optionnel) : mode daemon avec API HTTP — webhook `POST /api/webhook?apikey=<KEY>&infoHash=<HASH>` pour déclencher une recherche ciblée sur un torrent précis
+- **cross-seed** (optionnel) : mode daemon avec API HTTP — webhook `POST /api/webhook?apikey=<KEY>` (clé en query string, `infoHash` OU `path` en corps de requête `x-www-form-urlencoded`) pour déclencher une recherche ciblée. `infoHash` cible un torrent qBittorrent existant ; `path` (chemin d'un fichier Emby) permet de lancer une recherche même pour un média absent de qBittorrent (statut `manquant_qbit`), sans torrent existant pour s'appuyer dessus.
 
 ## Ce qu'on ne veut pas
 

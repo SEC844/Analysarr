@@ -98,7 +98,15 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
     return DeleteExecuteResult(steps=steps)
 
 
-async def trigger_cross_seed_search(settings: Settings, torrent_hashes: list[str]) -> CrossSeedSearchResult:
+async def trigger_cross_seed_search(
+    settings: Settings, torrent_hashes: list[str], file_paths: list[str] | None = None
+) -> CrossSeedSearchResult:
+    """Déclenche une recherche cross-seed par infoHash pour chaque torrent connu.
+
+    Si le média n'a AUCUN torrent en qBittorrent (statut manquant_qbit), on
+    recherche à la place à partir du chemin de ses fichiers Emby (`path`) :
+    l'API webhook de cross-seed accepte l'un ou l'autre. C'est ce qui permet
+    de lancer une recherche même pour un média jamais seedé."""
     if not (settings.cross_seed_enabled and settings.cross_seed_url and settings.cross_seed_api_key):
         return CrossSeedSearchResult(triggered=0, errors=["cross-seed n'est pas activé ou configuré."])
 
@@ -106,16 +114,21 @@ async def trigger_cross_seed_search(settings: Settings, torrent_hashes: list[str
     errors: list[str] = []
     triggered = 0
 
+    targets: list[tuple[str, dict[str, str]]] = [(h, {"infoHash": h}) for h in torrent_hashes]
+    if not targets:
+        targets = [(p, {"path": p}) for p in file_paths or []]
+
     async with httpx.AsyncClient(timeout=15.0) as client:
-        for h in torrent_hashes:
+        for label, body in targets:
             try:
                 resp = await client.post(
                     f"{base}/api/webhook",
-                    params={"apikey": settings.cross_seed_api_key, "infoHash": h},
+                    params={"apikey": settings.cross_seed_api_key},
+                    data=body,
                 )
                 resp.raise_for_status()
                 triggered += 1
             except httpx.HTTPError as exc:
-                errors.append(f"{h} : {exc}")
+                errors.append(f"{label} : {exc}")
 
     return CrossSeedSearchResult(triggered=triggered, errors=errors)

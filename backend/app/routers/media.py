@@ -96,6 +96,11 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
                 content_path=t.content_path,
                 size=t.size,
                 is_hardlinked=t.is_hardlinked,
+                ratio=t.ratio,
+                seeders=t.seeders,
+                leechers=t.leechers,
+                added_on=t.added_on,
+                completed_on=t.completed_on,
                 trackers=[TrackerRead(**d) for d in json.loads(t.trackers_json)],
             )
             for t in torrents
@@ -148,4 +153,5 @@ async def cross_seed_search(media_id: int, session: Session = Depends(get_sessio
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media_id)).all()
-    return await trigger_cross_seed_search(settings, [t.hash for t in torrents])
+    files = session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all()
+    return await trigger_cross_seed_search(settings, [t.hash for t in torrents], [f.path for f in files])

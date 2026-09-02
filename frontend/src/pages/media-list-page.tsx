@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 
 import { GRID_SIZE_CLASSES, GridSizeToggle, type GridSize } from "@/components/media/grid-size-toggle"
 import { MediaCard } from "@/components/media/media-card"
@@ -8,6 +8,7 @@ import { ScanButton } from "@/components/media/scan-button"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMediaListQuery } from "@/hooks/use-media"
+import { useScrollRestoration } from "@/hooks/use-scroll-restoration"
 import { cn } from "@/lib/utils"
 import type { MediaListParams } from "@/types/media"
 
@@ -23,10 +24,34 @@ function loadGridSize(): GridSize {
   return "medium"
 }
 
+// Les filtres vivent dans l'URL (pas un simple useState) : ils survivent ainsi
+// à un retour arrière depuis la fiche détail, et une bibliothèque filtrée
+// reste partageable/bookmarkable.
+function paramsToFilters(params: URLSearchParams): MediaListParams {
+  return {
+    status: (params.get("status") as MediaListParams["status"]) ?? undefined,
+    media_type: (params.get("type") as MediaListParams["media_type"]) ?? undefined,
+    search: params.get("q") ?? undefined,
+    sort: (params.get("sort") as MediaListParams["sort"]) ?? "title",
+  }
+}
+
+function filtersToParams(filters: MediaListParams): URLSearchParams {
+  const params = new URLSearchParams()
+  if (filters.status) params.set("status", filters.status)
+  if (filters.media_type) params.set("type", filters.media_type)
+  if (filters.search) params.set("q", filters.search)
+  if (filters.sort && filters.sort !== "title") params.set("sort", filters.sort)
+  return params
+}
+
 export function MediaListPage() {
-  const [filters, setFilters] = useState<MediaListParams>({ sort: "title" })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = paramsToFilters(searchParams)
   const [gridSize, setGridSize] = useState<GridSize>(loadGridSize)
   const { data, isLoading, isError } = useMediaListQuery(filters)
+
+  useScrollRestoration(!isLoading)
 
   const handleGridSizeChange = (size: GridSize) => {
     setGridSize(size)
@@ -53,7 +78,7 @@ export function MediaListPage() {
       </div>
 
       <div className="mb-6">
-        <MediaFilters value={filters} onChange={setFilters} />
+        <MediaFilters value={filters} onChange={(next) => setSearchParams(filtersToParams(next), { replace: true })} />
       </div>
 
       {isLoading && (

@@ -57,6 +57,13 @@ def _media_sources(item: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"Path": path, "Size": None}] if path else []
 
 
+def _epoch_to_datetime(value: Any) -> datetime | None:
+    """qBittorrent renvoie -1 (voire 0) pour un horodatage non défini."""
+    if not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc)
+
+
 async def run_scan() -> None:
     if _scan_lock.locked():
         return
@@ -367,6 +374,11 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
                 size=t.get("size"),
                 inode=first_inode[0] if first_inode else None,
                 device=first_inode[1] if first_inode else None,
+                ratio=t.get("ratio"),
+                seeders=t.get("num_seeds"),
+                leechers=t.get("num_leechs"),
+                added_on=_epoch_to_datetime(t.get("added_on")),
+                completed_on=_epoch_to_datetime(t.get("completion_on")),
                 trackers_json=json.dumps(domains),
             )
         )
@@ -468,7 +480,18 @@ def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_i
     orphan_torrents = [t for t in torrents if t.is_hardlinked is False]
     if orphan_torrents:
         statuses.add("orphelin_qbit")
-        reclaimable += sum(t.size or 0 for t in orphan_torrents)
+        # Plusieurs torrents orphelins peuvent être des copies cross-seed d'une
+        # même ancienne version (même inode entre eux) : supprimer l'un d'eux
+        # ne libère pas d'espace tant qu'un autre pointe encore vers ce même
+        # fichier. On ne compte donc chaque inode qu'une seule fois.
+        seen_inodes: set[tuple[int, int]] = set()
+        for t in orphan_torrents:
+            key = (t.inode, t.device) if t.inode is not None else None
+            if key is not None:
+                if key in seen_inodes:
+                    continue
+                seen_inodes.add(key)
+            reclaimable += t.size or 0
 
     all_domains = {d["domain"] for t in torrents for d in json.loads(t.trackers_json)}
     if len(all_domains) == 1:
