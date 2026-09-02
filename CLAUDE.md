@@ -40,6 +40,7 @@ Pour chaque torrent qBittorrent lié à un média, afficher les trackers sur les
 - Historique des actions
 - Notifications (Discord/ntfy/Gotify)
 - Statut de connexion par service affiché en permanence
+- Taux de rattachement torrent → média affiché après chaque scan (torrents qBittorrent rattachés à un média connu / total) : un écart signale un problème de correspondance plutôt qu'une vraie absence de contenu
 - Sélecteur de taille de grille (petite/moyenne/grande) sur la bibliothèque
 
 **Bonus (V2)**

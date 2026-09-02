@@ -53,7 +53,11 @@ export function MediaDetailPage() {
           toast.success(`Recherche cross-seed déclenchée (${result.triggered}).`)
         }
         if (result.errors.length > 0) {
-          toast.error(result.errors.join(" · "))
+          // Un message par fichier/torrent noierait l'écran dès qu'une série entière
+          // échoue de la même façon : on ne montre que le détail (après le premier " : "),
+          // dédupliqué, avec le nombre total d'échecs.
+          const details = [...new Set(result.errors.map((e) => e.split(" : ").slice(1).join(" : ") || e))]
+          toast.error(`${result.errors.length} échec(s) — ${details[0]}${details.length > 1 ? ` (+${details.length - 1} autre(s) type(s) d'erreur)` : ""}`)
         }
       },
       onError: (err) => toast.error(err instanceof Error ? err.message : "Échec de la recherche cross-seed."),

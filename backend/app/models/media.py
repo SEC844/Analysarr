@@ -116,3 +116,11 @@ class ScanRun(SQLModel, table=True):
     duplicate_count: int = 0
     orphan_count: int = 0
     tracker_unique_count: int = 0
+
+    # Taux de rattachement torrent -> média : combien de torrents qBittorrent
+    # existent réellement, contre combien ont pu être rattachés à un média
+    # connu. Un écart important signale un problème de correspondance (chemins
+    # non montés, torrent sans historique Sonarr/Radarr et hors des dossiers
+    # connus...) plutôt qu'une vraie absence de contenu.
+    qbittorrent_torrent_count: int = 0
+    qbittorrent_matched_count: int = 0

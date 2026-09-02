@@ -27,6 +27,21 @@ export function ScanButton() {
       {!isRunning && event?.type === "completed" && (
         <span className="text-muted-foreground text-sm">
           {event.media_count} médias · {event.duplicate_count} doublons · {event.orphan_count} orphelins
+          {event.qbittorrent_torrent_count !== undefined && event.qbittorrent_matched_count !== undefined && (
+            <>
+              {" · "}
+              <span
+                title="Torrents qBittorrent rattachés à un média connu, sur le total présent dans qBittorrent. Un écart peut signaler un problème de correspondance (chemins, historique Sonarr/Radarr...)."
+                className={
+                  event.qbittorrent_torrent_count - event.qbittorrent_matched_count > 0
+                    ? "text-amber-500 dark:text-amber-400"
+                    : undefined
+                }
+              >
+                {event.qbittorrent_matched_count}/{event.qbittorrent_torrent_count} torrents rattachés
+              </span>
+            </>
+          )}
         </span>
       )}
       <Button type="button" onClick={start} disabled={isRunning}>

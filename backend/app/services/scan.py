@@ -123,7 +123,7 @@ async def _run_scan_impl() -> None:
         return
 
     try:
-        results = await _collect(settings, run_id)
+        results, qbit_torrent_count = await _collect(settings, run_id)
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
         await _fail_scan(run_id, f"{type(exc).__name__} : {exc}")
         return
@@ -157,12 +157,16 @@ async def _run_scan_impl() -> None:
         run.duplicate_count = sum(1 for r in results if "doublon" in r.media.statuses.split(","))
         run.orphan_count = sum(1 for r in results if "orphelin_qbit" in r.media.statuses.split(","))
         run.tracker_unique_count = sum(1 for r in results if "tracker_unique" in r.media.statuses.split(","))
+        run.qbittorrent_torrent_count = qbit_torrent_count
+        run.qbittorrent_matched_count = sum(len(r.torrents) for r in results)
         session.add(run)
         session.commit()
         counts = {
             "media_count": run.media_count,
             "duplicate_count": run.duplicate_count,
             "orphan_count": run.orphan_count,
+            "qbittorrent_torrent_count": run.qbittorrent_torrent_count,
+            "qbittorrent_matched_count": run.qbittorrent_matched_count,
         }
 
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
@@ -180,7 +184,7 @@ async def _fail_scan(run_id: int, message: str) -> None:
     await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
 
 
-async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
+async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResult], int]:
     assert settings.emby_url and settings.emby_api_key
     assert settings.sonarr_url and settings.sonarr_api_key
     assert settings.radarr_url and settings.radarr_api_key
@@ -474,7 +478,7 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
         result.media.statuses = ",".join(sorted(statuses))
         result.media.reclaimable_bytes = reclaimable
 
-    return results
+    return results, len(torrents)
 
 
 def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_item: bool) -> tuple[set[str], int]:

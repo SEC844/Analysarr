@@ -67,6 +67,8 @@ class ScanRunRead(BaseModel):
     duplicate_count: int
     orphan_count: int
     tracker_unique_count: int
+    qbittorrent_torrent_count: int
+    qbittorrent_matched_count: int
 
 
 class DeletePreviewItem(BaseModel):

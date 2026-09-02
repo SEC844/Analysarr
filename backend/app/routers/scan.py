@@ -29,6 +29,8 @@ def _to_read(run: ScanRun) -> ScanRunRead:
         duplicate_count=run.duplicate_count,
         orphan_count=run.orphan_count,
         tracker_unique_count=run.tracker_unique_count,
+        qbittorrent_torrent_count=run.qbittorrent_torrent_count,
+        qbittorrent_matched_count=run.qbittorrent_matched_count,
     )
 
 

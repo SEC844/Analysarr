@@ -100,6 +100,8 @@ export interface ScanRunRead {
   duplicate_count: number
   orphan_count: number
   tracker_unique_count: number
+  qbittorrent_torrent_count: number
+  qbittorrent_matched_count: number
 }
 
 export interface ScanEvent {
@@ -110,4 +112,6 @@ export interface ScanEvent {
   media_count?: number
   duplicate_count?: number
   orphan_count?: number
+  qbittorrent_torrent_count?: number
+  qbittorrent_matched_count?: number
 }

@@ -128,6 +128,12 @@ async def trigger_cross_seed_search(
                 )
                 resp.raise_for_status()
                 triggered += 1
+            except httpx.HTTPStatusError as exc:
+                # Le corps de la réponse de cross-seed explique précisément le refus
+                # (ex : chemin hors de ses dataDirs configurés) — sans lui, l'erreur
+                # httpx générique ("400 Bad Request") ne dit rien d'exploitable.
+                detail = exc.response.text.strip()[:200] or exc.response.reason_phrase
+                errors.append(f"{label} : HTTP {exc.response.status_code} — {detail}")
             except httpx.HTTPError as exc:
                 errors.append(f"{label} : {exc}")
 

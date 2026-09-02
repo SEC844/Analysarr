@@ -14,24 +14,40 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
 )
 
-# Colonne présente dès qu'un déploiement a le schéma torrent le plus récent.
-# Sert uniquement à détecter un schéma obsolète, voir _reset_media_cache_if_stale().
-_CURRENT_TORRENT_MARKER_COLUMN = "ratio"
+# (table, colonne) présente dès que ce déploiement a le schéma le plus récent
+# pour cette table. Sert uniquement à détecter un schéma obsolète, voir
+# _reset_media_cache_if_stale() — ajouter une entrée à chaque nouvelle colonne
+# ajoutée sur Media/MediaFile/Torrent/ScanRun.
+_CURRENT_SCHEMA_MARKERS = [
+    ("torrent", "ratio"),
+    ("scanrun", "qbittorrent_torrent_count"),
+]
 
 
 def _reset_media_cache_if_stale() -> None:
     """Media/MediaFile/Torrent/ScanRun sont un pur cache reconstruit à chaque
     scan : ce projet n'a pas de migrations Alembic, et `create_all()` ne
     modifie jamais une table déjà existante. Si le schéma attendu a changé
-    (nouvelle colonne sur Torrent), on recrée ces tables plutôt que de gérer
-    des ALTER TABLE colonne par colonne — sans jamais toucher `settings`, qui
-    contient la vraie configuration de l'utilisateur."""
+    (nouvelle colonne sur l'une de ces tables), on les recrée plutôt que de
+    gérer des ALTER TABLE colonne par colonne — sans jamais toucher
+    `settings`, qui contient la vraie configuration de l'utilisateur."""
     inspector = inspect(engine)
-    if "torrent" not in inspector.get_table_names():
+    table_names = set(inspector.get_table_names())
+    if "torrent" not in table_names:
         return  # première installation : create_all() suffira à tout créer
-    existing_columns = {col["name"] for col in inspector.get_columns("torrent")}
-    if _CURRENT_TORRENT_MARKER_COLUMN in existing_columns:
-        return  # schéma déjà à jour
+
+    is_current = True
+    for table, marker_column in _CURRENT_SCHEMA_MARKERS:
+        if table not in table_names:
+            is_current = False
+            break
+        existing_columns = {col["name"] for col in inspector.get_columns(table)}
+        if marker_column not in existing_columns:
+            is_current = False
+            break
+    if is_current:
+        return
+
     with engine.begin() as conn:
         for table in ("torrent", "mediafile", "scanrun", "media"):
             conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
