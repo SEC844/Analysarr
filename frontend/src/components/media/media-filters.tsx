@@ -1,5 +1,6 @@
-import { Search } from "lucide-react"
+import { Search, X } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { MediaListParams } from "@/types/media"
@@ -26,6 +27,8 @@ const SORT_LABELS: Record<string, string> = {
 }
 
 export function MediaFilters({ value, onChange }: MediaFiltersProps) {
+  const hasActiveFilters = Boolean(value.status || value.media_type || value.search || (value.sort && value.sort !== "title"))
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative">
@@ -80,6 +83,13 @@ export function MediaFilters({ value, onChange }: MediaFiltersProps) {
           <SelectItem value="size">Espace récupérable</SelectItem>
         </SelectContent>
       </Select>
+
+      {hasActiveFilters && (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ sort: "title" })}>
+          <X className="size-4" />
+          Réinitialiser
+        </Button>
+      )}
     </div>
   )
 }

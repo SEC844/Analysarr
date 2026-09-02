@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { NavLink } from "react-router-dom"
+import { Link, NavLink } from "react-router-dom"
 
 import { cn } from "@/lib/utils"
 
@@ -13,7 +13,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="bg-background min-h-svh">
       <header className="border-border border-b">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <span className="text-lg font-semibold tracking-tight">Analysarr</span>
+          <Link to="/" className="text-lg font-semibold tracking-tight hover:opacity-80">
+            Analysarr
+          </Link>
           <nav className="flex gap-1">
             {NAV_LINKS.map((link) => (
               <NavLink

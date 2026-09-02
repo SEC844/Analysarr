@@ -1,11 +1,16 @@
+import os
+import stat as stat_module
+
 from app.clients.emby import EmbyClient
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.models.settings import Settings
-from app.schemas.diagnostics import DiagnosticsResult, PathCheck, PathDiagnostics
+from app.schemas.diagnostics import DiagnosticsResult, PathCheck, PathDiagnostics, TorrentDebug, TorrentFileDebug
 from app.services.hardlink import stat_inode
 from app.services.scan import _media_sources
 
 MAX_SAMPLES = 25
+MAX_TORRENT_MATCHES = 5
+MAX_FILES_PER_TORRENT = 30
 
 
 def _build_diag(checks: list[PathCheck]) -> PathDiagnostics:
@@ -41,3 +46,71 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
             emby_checks.append(PathCheck(label=m.get("Name", "?"), path=path, resolved=stat_inode(path) is not None))
 
     return DiagnosticsResult(qbittorrent=_build_diag(qbit_checks), emby=_build_diag(emby_checks))
+
+
+async def debug_torrents(settings: Settings, name_contains: str) -> list[TorrentDebug]:
+    """Interroge qBittorrent en direct pour les torrents dont le nom contient
+    `name_contains`, et détaille pour chacun : la réponse brute de
+    torrents/files, chaque chemin candidat reconstruit, et son statut de
+    résolution (existe / est un fichier régulier / inode). Sert à diagnostiquer
+    pourquoi un torrent connu de qBittorrent n'est rattaché à aucun média."""
+    needle = name_contains.lower()
+
+    async with QbittorrentClient(
+        settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
+    ) as qbit:
+        torrents = await qbit.get_torrents()
+        matches = [t for t in torrents if needle in t.get("name", "").lower()][:MAX_TORRENT_MATCHES]
+
+        results: list[TorrentDebug] = []
+        for t in matches:
+            save_path = t.get("save_path")
+            content_path = t.get("content_path")
+            files_error: str | None = None
+            try:
+                files = await qbit.get_files(t["hash"])
+            except Exception as exc:  # noqa: BLE001 - on veut voir l'erreur telle quelle, pas planter le diagnostic
+                files = []
+                files_error = f"{type(exc).__name__} : {exc}"
+
+            file_debugs: list[TorrentFileDebug] = []
+            candidates = files[:MAX_FILES_PER_TORRENT] if files else [{"name": None}]
+            for f in candidates:
+                rel = f.get("name")
+                resolved_path = os.path.join(save_path, rel) if rel and save_path else (content_path or save_path or "")
+                exists = False
+                is_regular = False
+                inode = None
+                device = None
+                try:
+                    st = os.stat(resolved_path)
+                    exists = True
+                    is_regular = stat_module.S_ISREG(st.st_mode)
+                    if is_regular:
+                        inode, device = st.st_ino, st.st_dev
+                except OSError:
+                    pass
+                file_debugs.append(
+                    TorrentFileDebug(
+                        relative_name=rel,
+                        resolved_path=resolved_path,
+                        exists=exists,
+                        is_regular_file=is_regular,
+                        inode=inode,
+                        device=device,
+                    )
+                )
+
+            results.append(
+                TorrentDebug(
+                    hash=t["hash"],
+                    name=t.get("name", ""),
+                    save_path=save_path,
+                    content_path=content_path,
+                    files_api_count=len(files),
+                    files_api_error=files_error,
+                    files=file_debugs,
+                )
+            )
+
+    return results

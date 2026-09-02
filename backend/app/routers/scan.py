@@ -9,9 +9,10 @@ from sqlmodel import Session, select
 from app.database import engine, get_session
 from app.models.media import ScanRun
 from app.models.settings import Settings
-from app.schemas.diagnostics import DiagnosticsResult
+from app.clients.qbittorrent import QbittorrentAuthError
+from app.schemas.diagnostics import DiagnosticsResult, TorrentDebug
 from app.schemas.media import ScanRunRead
-from app.services.diagnostics import run_diagnostics
+from app.services.diagnostics import debug_torrents, run_diagnostics
 from app.services.events import scan_events
 from app.services.scan import is_scan_running, run_scan
 
@@ -76,4 +77,21 @@ async def scan_diagnostics(session: Session = Depends(get_session)) -> Diagnosti
     try:
         return await run_diagnostics(settings)
     except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.get("/debug/torrents", response_model=list[TorrentDebug])
+async def scan_debug_torrents(
+    name_contains: str, session: Session = Depends(get_session)
+) -> list[TorrentDebug]:
+    """Diagnostic ponctuel (pas d'UI dédiée) : détaille le rattachement par
+    inode fichier par fichier pour les torrents qBittorrent dont le nom
+    contient `name_contains`. Utile pour comprendre pourquoi un torrent connu
+    de qBittorrent n'apparaît sur aucune fiche média."""
+    settings = session.get(Settings, 1)
+    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
+        raise HTTPException(400, "qBittorrent non configuré.")
+    try:
+        return await debug_torrents(settings, name_contains)
+    except QbittorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
