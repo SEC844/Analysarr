@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -310,19 +311,45 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
         ) as qbit:
             torrents = await qbit.get_torrents()
             trackers_by_hash: dict[str, list[dict[str, Any]]] = {}
+            files_by_hash: dict[str, list[dict[str, Any]]] = {}
             for t in torrents:
                 try:
                     trackers_by_hash[t["hash"]] = await qbit.get_trackers(t["hash"])
                 except Exception:  # noqa: BLE001
                     trackers_by_hash[t["hash"]] = []
+                try:
+                    files_by_hash[t["hash"]] = await qbit.get_files(t["hash"])
+                except Exception:  # noqa: BLE001
+                    files_by_hash[t["hash"]] = []
     except QbittorrentAuthError as exc:
         raise RuntimeError(f"Authentification qBittorrent refusée pendant le scan : {exc}") from exc
 
     torrent_rows: list[Torrent] = []
     torrent_content_paths: list[str | None] = []
+    # Inodes de CHAQUE fichier du torrent (pas un seul par torrent) : un pack
+    # saison est un torrent multi-fichiers dont `content_path` ne désigne que
+    # le dossier racine — comparer l'inode de ce dossier à celui d'un épisode
+    # ne peut jamais correspondre. Il faut regarder chaque fichier du torrent.
+    torrent_file_inodes: list[list[tuple[int, int]]] = []
     for t in torrents:
         content_path = t.get("content_path") or t.get("save_path")
-        inode = stat_inode(content_path)
+        save_path = t.get("save_path")
+
+        file_paths: list[str] = []
+        files = files_by_hash.get(t["hash"], [])
+        for f in files:
+            rel = f.get("name")
+            if rel and save_path:
+                file_paths.append(os.path.join(save_path, rel))
+        if not file_paths and content_path:
+            # repli si l'API torrents/files a échoué ou n'a rien renvoyé
+            file_paths.append(content_path)
+
+        resolved = [stat_inode(p) for p in file_paths]
+        resolved_inodes = [r for r in resolved if r is not None]
+        torrent_file_inodes.append(resolved_inodes)
+
+        first_inode = resolved_inodes[0] if resolved_inodes else None
 
         domains = []
         for tr in trackers_by_hash.get(t["hash"], []):
@@ -338,8 +365,8 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
                 save_path=t.get("save_path"),
                 content_path=t.get("content_path"),
                 size=t.get("size"),
-                inode=inode[0] if inode else None,
-                device=inode[1] if inode else None,
+                inode=first_inode[0] if first_inode else None,
+                device=first_inode[1] if first_inode else None,
                 trackers_json=json.dumps(domains),
             )
         )
@@ -355,16 +382,23 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
             if f.inode is not None:
                 emby_inode_to_index[(f.inode, f.device)] = i
 
+    def _match_emby_inode(pos: int) -> int | None:
+        for key in torrent_file_inodes[pos]:
+            index = emby_inode_to_index.get(key)
+            if index is not None:
+                return index
+        return None
+
     indices: list[int | None] = [None] * len(torrent_rows)
     protected: list[bool] = [False] * len(torrent_rows)
     inode_to_index: dict[tuple[int, int], int] = dict(emby_inode_to_index)
     unresolved: list[int] = []
 
-    # Passe 1 : rattachement direct — inode Emby actuel, puis historique
-    # Sonarr/Radarr, puis chemin racine du média en dernier recours.
+    # Passe 1 : rattachement direct — inode Emby actuel (n'importe lequel des
+    # fichiers du torrent), puis historique Sonarr/Radarr, puis chemin racine
+    # du média en dernier recours.
     for pos, torrent_row in enumerate(torrent_rows):
-        key = (torrent_row.inode, torrent_row.device) if torrent_row.inode is not None else None
-        index = emby_inode_to_index.get(key) if key else None
+        index = _match_emby_inode(pos)
         is_protected = index is not None
 
         if index is None:
@@ -379,27 +413,28 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
         if index is not None:
             indices[pos] = index
             protected[pos] = is_protected
-            if key and key not in inode_to_index:
-                inode_to_index[key] = index
+            for key in torrent_file_inodes[pos]:
+                inode_to_index.setdefault(key, index)
         else:
             unresolved.append(pos)
 
     # Passe 2 : copies cross-seed d'un torrent déjà rattaché — cross-seed (pas
     # Sonarr/Radarr) les a ajoutées, donc aucune trace dans l'historique, mais
-    # elles partagent l'inode d'un torrent que la passe 1 a su identifier.
+    # elles partagent au moins un fichier (même inode) avec un torrent que la
+    # passe 1 a su identifier.
     for pos in unresolved:
-        torrent_row = torrent_rows[pos]
-        key = (torrent_row.inode, torrent_row.device) if torrent_row.inode is not None else None
-        index = inode_to_index.get(key) if key else None
-        if index is not None:
-            indices[pos] = index
-            protected[pos] = False  # sinon la passe 1 l'aurait déjà marqué protégé
+        for key in torrent_file_inodes[pos]:
+            index = inode_to_index.get(key)
+            if index is not None:
+                indices[pos] = index
+                protected[pos] = False  # sinon la passe 1 l'aurait déjà marqué protégé
+                break
 
     for pos, torrent_row in enumerate(torrent_rows):
         index = indices[pos]
         if index is None:
             continue
-        torrent_row.is_hardlinked = None if torrent_row.inode is None else protected[pos]
+        torrent_row.is_hardlinked = None if not torrent_file_inodes[pos] else protected[pos]
         results[index].torrents.append(torrent_row)
 
     # --- Calcul des statuts -------------------------------------------

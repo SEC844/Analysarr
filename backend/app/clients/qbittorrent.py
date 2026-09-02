@@ -58,6 +58,14 @@ class QbittorrentClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_files(self, torrent_hash: str) -> list[dict[str, Any]]:
+        """Liste des fichiers du torrent, avec leur chemin relatif à `save_path`.
+        Indispensable pour les torrents multi-fichiers (pack saison, intégrale) :
+        `content_path` n'y désigne que le dossier racine, pas un fichier précis."""
+        resp = await self.client.get("/api/v2/torrents/files", params={"hash": torrent_hash})
+        resp.raise_for_status()
+        return resp.json()
+
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:
             return
