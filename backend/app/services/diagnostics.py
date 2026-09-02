@@ -18,7 +18,7 @@ from app.services.scan import _episode_label, _media_sources
 
 MAX_SAMPLES = 25
 MAX_TORRENT_MATCHES = 5
-MAX_FILES_PER_TORRENT = 30
+MAX_FILES_PER_TORRENT = 500
 MAX_SERIES_MATCHES = 3
 
 
