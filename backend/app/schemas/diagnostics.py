@@ -37,3 +37,17 @@ class TorrentDebug(BaseModel):
     files_api_count: int
     files_api_error: Optional[str]
     files: list[TorrentFileDebug]
+
+
+class PathStat(BaseModel):
+    path: str
+    exists: bool
+    is_regular_file: bool
+    inode: Optional[int]
+    device: Optional[int]
+
+
+class EmbyFileDebug(BaseModel):
+    item_name: str
+    episode_label: Optional[str]
+    stat: PathStat

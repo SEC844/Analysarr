@@ -4,13 +4,38 @@ import stat as stat_module
 from app.clients.emby import EmbyClient
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.models.settings import Settings
-from app.schemas.diagnostics import DiagnosticsResult, PathCheck, PathDiagnostics, TorrentDebug, TorrentFileDebug
+from app.schemas.diagnostics import (
+    DiagnosticsResult,
+    EmbyFileDebug,
+    PathCheck,
+    PathDiagnostics,
+    PathStat,
+    TorrentDebug,
+    TorrentFileDebug,
+)
 from app.services.hardlink import stat_inode
-from app.services.scan import _media_sources
+from app.services.scan import _episode_label, _media_sources
 
 MAX_SAMPLES = 25
 MAX_TORRENT_MATCHES = 5
 MAX_FILES_PER_TORRENT = 30
+MAX_SERIES_MATCHES = 3
+
+
+def _stat_path(path: str) -> PathStat:
+    exists = False
+    is_regular = False
+    inode = None
+    device = None
+    try:
+        st = os.stat(path)
+        exists = True
+        is_regular = stat_module.S_ISREG(st.st_mode)
+        if is_regular:
+            inode, device = st.st_ino, st.st_dev
+    except OSError:
+        pass
+    return PathStat(path=path, exists=exists, is_regular_file=is_regular, inode=inode, device=device)
 
 
 def _build_diag(checks: list[PathCheck]) -> PathDiagnostics:
@@ -78,26 +103,15 @@ async def debug_torrents(settings: Settings, name_contains: str) -> list[Torrent
             for f in candidates:
                 rel = f.get("name")
                 resolved_path = os.path.join(save_path, rel) if rel and save_path else (content_path or save_path or "")
-                exists = False
-                is_regular = False
-                inode = None
-                device = None
-                try:
-                    st = os.stat(resolved_path)
-                    exists = True
-                    is_regular = stat_module.S_ISREG(st.st_mode)
-                    if is_regular:
-                        inode, device = st.st_ino, st.st_dev
-                except OSError:
-                    pass
+                stat_result = _stat_path(resolved_path)
                 file_debugs.append(
                     TorrentFileDebug(
                         relative_name=rel,
                         resolved_path=resolved_path,
-                        exists=exists,
-                        is_regular_file=is_regular,
-                        inode=inode,
-                        device=device,
+                        exists=stat_result.exists,
+                        is_regular_file=stat_result.is_regular_file,
+                        inode=stat_result.inode,
+                        device=stat_result.device,
                     )
                 )
 
@@ -112,5 +126,31 @@ async def debug_torrents(settings: Settings, name_contains: str) -> list[Torrent
                     files=file_debugs,
                 )
             )
+
+    return results
+
+
+async def debug_emby_series_files(settings: Settings, title_contains: str) -> list[EmbyFileDebug]:
+    """Détaille, pour les séries Emby dont le titre contient `title_contains`,
+    le chemin et l'inode réels de chaque fichier d'épisode — pour comparer
+    directement contre ceux calculés par debug_torrents() et trouver quel(s)
+    torrent(s) sont réellement hardlinkés au fichier actuellement actif."""
+    needle = title_contains.lower()
+    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+    series_list = await emby.get_library_items("Series")
+    matches = [s for s in series_list if needle in s.get("Name", "").lower()][:MAX_SERIES_MATCHES]
+
+    results: list[EmbyFileDebug] = []
+    for series in matches:
+        episodes = await emby.get_episodes(series["Id"])
+        for episode in episodes:
+            label = _episode_label(episode)
+            for source in _media_sources(episode):
+                path = source.get("Path")
+                if not path:
+                    continue
+                results.append(
+                    EmbyFileDebug(item_name=series.get("Name", "?"), episode_label=label, stat=_stat_path(path))
+                )
 
     return results
