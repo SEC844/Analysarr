@@ -41,6 +41,11 @@ export function MediaDetailPage() {
 
   const TypeIcon = media.media_type === "movie" ? Clapperboard : Tv
 
+  // Poids réellement occupé sur le disque : les fichiers actuels (pas les
+  // doublons ni les torrents orphelins, déjà comptés dans "récupérables").
+  const currentFiles = media.files.filter((f) => f.is_current)
+  const totalSize = (currentFiles.length > 0 ? currentFiles : media.files).reduce((sum, f) => sum + (f.size ?? 0), 0)
+
   const handleCrossSeed = () => {
     crossSeed.mutate(mediaId, {
       onSuccess: (result) => {
@@ -74,7 +79,10 @@ export function MediaDetailPage() {
         <div className="flex-1 space-y-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{media.title}</h1>
-            <p className="text-muted-foreground text-sm">{media.year}</p>
+            <p className="text-muted-foreground text-sm">
+              {media.year}
+              {totalSize > 0 && <> · {formatBytes(totalSize)}</>}
+            </p>
           </div>
           <StatusBadgeList statuses={media.statuses} />
           {media.reclaimable_bytes > 0 && (

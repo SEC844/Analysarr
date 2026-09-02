@@ -57,6 +57,20 @@ def _media_sources(item: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"Path": path, "Size": None}] if path else []
 
 
+def _is_usable_root(root_path: str, qbittorrent_download_path: str | None) -> bool:
+    """Faux si `root_path` est trop générique pour servir de repli de rattachement
+    par chemin — c'est-à-dire s'il est égal à, ou un ancêtre de, la racine des
+    téléchargements qBittorrent elle-même. Un tel chemin correspondrait par
+    préfixe à N'IMPORTE QUEL torrent, quel que soit son média réel."""
+    if not qbittorrent_download_path:
+        return True
+    normalized_root = root_path.rstrip("/\\")
+    normalized_qbit = qbittorrent_download_path.rstrip("/\\")
+    if normalized_root == normalized_qbit:
+        return False
+    return not (normalized_qbit.startswith(normalized_root + "/") or normalized_qbit.startswith(normalized_root + "\\"))
+
+
 def _epoch_to_datetime(value: Any) -> datetime | None:
     """qBittorrent renvoie -1 (voire 0) pour un horodatage non défini."""
     if not isinstance(value, (int, float)) or value <= 0:
@@ -418,7 +432,12 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
         if index is None:
             content_path = torrent_content_paths[pos]
             for i, result in enumerate(results):
-                if result.root_path and content_path and content_path.startswith(result.root_path):
+                if (
+                    result.root_path
+                    and _is_usable_root(result.root_path, settings.qbittorrent_download_path)
+                    and content_path
+                    and content_path.startswith(result.root_path)
+                ):
                     index = i
                     break
 

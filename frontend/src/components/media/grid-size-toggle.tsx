@@ -1,5 +1,3 @@
-import { Square } from "lucide-react"
-
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -11,15 +9,28 @@ export const GRID_SIZE_CLASSES: Record<GridSize, string> = {
   large: "grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
 }
 
-// Le pictogramme est un carré dessiné à la taille réelle qu'auront les
-// cartes, plutôt qu'une icône de "densité de grille" dont la signification
-// (plus de carrés = plus petit ou plus grand ?) n'est pas évidente au premier
-// coup d'œil.
-const OPTIONS: { value: GridSize; iconSize: string; label: string }[] = [
-  { value: "large", iconSize: "size-4.5", label: "Grande" },
-  { value: "medium", iconSize: "size-3.5", label: "Moyenne" },
-  { value: "small", iconSize: "size-2.5", label: "Petite" },
+// Un seul carré, une grille de 4, une grille de 9 — toutes dans le même
+// encombrement : le pictogramme montre directement le résultat (nombre de
+// cartes par rangée), pas une métaphore à interpréter.
+const OPTIONS: { value: GridSize; cells: number; label: string }[] = [
+  { value: "large", cells: 1, label: "Grande" },
+  { value: "medium", cells: 4, label: "Moyenne" },
+  { value: "small", cells: 9, label: "Petite" },
 ]
+
+function GridSizeIcon({ cells }: { cells: number }) {
+  const cols = Math.sqrt(cells)
+  return (
+    <span
+      className="grid size-3.5 gap-0.5"
+      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${cols}, 1fr)` }}
+    >
+      {Array.from({ length: cells }).map((_, i) => (
+        <span key={i} className="rounded-[1px] bg-current" />
+      ))}
+    </span>
+  )
+}
 
 export function GridSizeToggle({ value, onChange }: { value: GridSize; onChange: (size: GridSize) => void }) {
   return (
@@ -37,7 +48,7 @@ export function GridSizeToggle({ value, onChange }: { value: GridSize; onChange:
             aria-label={`Taille des cartes : ${option.label}`}
             aria-pressed={active}
           >
-            <Square className={option.iconSize} />
+            <GridSizeIcon cells={option.cells} />
           </Button>
         )
       })}
