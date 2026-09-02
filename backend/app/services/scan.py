@@ -189,6 +189,8 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
 
     # --- Films -----------------------------------------------------------
     for movie in movies:
+        if not movie.get("hasFile"):
+            continue  # pas encore téléchargé : rien à analyser pour ce film
         media = Media(
             media_type=MediaType.movie,
             title=movie.get("title") or "Sans titre",
@@ -223,6 +225,8 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
 
     # --- Séries ------------------------------------------------------------
     for series in series_list:
+        if not (series.get("statistics") or {}).get("episodeFileCount"):
+            continue  # aucun épisode téléchargé : rien à analyser pour cette série
         media = Media(
             media_type=MediaType.series,
             title=series.get("title") or "Sans titre",
@@ -265,9 +269,17 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
         results.append(result)
 
     # --- Correspondance torrent -> média via l'historique Sonarr/Radarr ---
+    # (indexé par id Radarr/Sonarr, pas par position : certains films/séries
+    # sans fichier ont été exclus de `results` plus haut)
     await progress("historique")
+    radarr_id_to_index = {r.media.radarr_id: i for i, r in enumerate(results) if r.media.radarr_id is not None}
+    sonarr_id_to_index = {r.media.sonarr_id: i for i, r in enumerate(results) if r.media.sonarr_id is not None}
+
     hash_to_index: dict[str, int] = {}
-    for i, movie in enumerate(movies):
+    for movie in movies:
+        index = radarr_id_to_index.get(movie.get("id"))
+        if index is None:
+            continue
         try:
             history = await radarr.get_history_for_movie(movie["id"])
         except Exception:  # noqa: BLE001 - un échec d'historique ne doit pas interrompre le scan
@@ -275,10 +287,12 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
         for event in history:
             download_id = event.get("downloadId")
             if download_id:
-                hash_to_index[download_id.lower()] = i
+                hash_to_index[download_id.lower()] = index
 
-    movie_count = len(movies)
-    for j, series in enumerate(series_list):
+    for series in series_list:
+        index = sonarr_id_to_index.get(series.get("id"))
+        if index is None:
+            continue
         try:
             history = await sonarr.get_history_for_series(series["id"])
         except Exception:  # noqa: BLE001
@@ -286,7 +300,7 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
         for event in history:
             download_id = event.get("downloadId")
             if download_id:
-                hash_to_index[download_id.lower()] = movie_count + j
+                hash_to_index[download_id.lower()] = index
 
     # --- Torrents qBittorrent ------------------------------------------
     await progress("qbittorrent")
@@ -304,6 +318,8 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
     except QbittorrentAuthError as exc:
         raise RuntimeError(f"Authentification qBittorrent refusée pendant le scan : {exc}") from exc
 
+    torrent_rows: list[Torrent] = []
+    torrent_content_paths: list[str | None] = []
     for t in torrents:
         content_path = t.get("content_path") or t.get("save_path")
         inode = stat_inode(content_path)
@@ -314,45 +330,88 @@ async def _collect(settings: Settings, run_id: int) -> list[MediaBuildResult]:
             if domain:
                 domains.append({"domain": domain, "status": status_label(tr.get("status", -1))})
 
-        torrent_row = Torrent(
-            media_id=0,
-            hash=t["hash"],
-            name=t.get("name", ""),
-            save_path=t.get("save_path"),
-            content_path=t.get("content_path"),
-            size=t.get("size"),
-            inode=inode[0] if inode else None,
-            device=inode[1] if inode else None,
-            trackers_json=json.dumps(domains),
+        torrent_rows.append(
+            Torrent(
+                media_id=0,
+                hash=t["hash"],
+                name=t.get("name", ""),
+                save_path=t.get("save_path"),
+                content_path=t.get("content_path"),
+                size=t.get("size"),
+                inode=inode[0] if inode else None,
+                device=inode[1] if inode else None,
+                trackers_json=json.dumps(domains),
+            )
         )
+        torrent_content_paths.append(content_path)
 
-        index = hash_to_index.get(t["hash"].lower())
+    # Index des inodes des fichiers Emby actuels -> média. C'est le signal le
+    # plus fiable pour repérer un torrent protégé, quel que soit son chemin de
+    # stockage réel — notamment les copies cross-seed, qui vivent souvent en
+    # dehors des dossiers gérés par Sonarr/Radarr.
+    emby_inode_to_index: dict[tuple[int, int], int] = {}
+    for i, result in enumerate(results):
+        for f in result.files:
+            if f.inode is not None:
+                emby_inode_to_index[(f.inode, f.device)] = i
+
+    indices: list[int | None] = [None] * len(torrent_rows)
+    protected: list[bool] = [False] * len(torrent_rows)
+    inode_to_index: dict[tuple[int, int], int] = dict(emby_inode_to_index)
+    unresolved: list[int] = []
+
+    # Passe 1 : rattachement direct — inode Emby actuel, puis historique
+    # Sonarr/Radarr, puis chemin racine du média en dernier recours.
+    for pos, torrent_row in enumerate(torrent_rows):
+        key = (torrent_row.inode, torrent_row.device) if torrent_row.inode is not None else None
+        index = emby_inode_to_index.get(key) if key else None
+        is_protected = index is not None
+
         if index is None:
-            # repli : le torrent contient-il le dossier racine d'un média connu ?
+            index = hash_to_index.get(torrent_row.hash.lower())
+        if index is None:
+            content_path = torrent_content_paths[pos]
             for i, result in enumerate(results):
                 if result.root_path and content_path and content_path.startswith(result.root_path):
                     index = i
                     break
 
         if index is not None:
-            target = results[index]
-            media_inodes = {(f.inode, f.device) for f in target.files if f.inode is not None}
-            if torrent_row.inode is None or not media_inodes:
-                torrent_row.is_hardlinked = None
-            else:
-                torrent_row.is_hardlinked = (torrent_row.inode, torrent_row.device) in media_inodes
-            target.torrents.append(torrent_row)
+            indices[pos] = index
+            protected[pos] = is_protected
+            if key and key not in inode_to_index:
+                inode_to_index[key] = index
+        else:
+            unresolved.append(pos)
+
+    # Passe 2 : copies cross-seed d'un torrent déjà rattaché — cross-seed (pas
+    # Sonarr/Radarr) les a ajoutées, donc aucune trace dans l'historique, mais
+    # elles partagent l'inode d'un torrent que la passe 1 a su identifier.
+    for pos in unresolved:
+        torrent_row = torrent_rows[pos]
+        key = (torrent_row.inode, torrent_row.device) if torrent_row.inode is not None else None
+        index = inode_to_index.get(key) if key else None
+        if index is not None:
+            indices[pos] = index
+            protected[pos] = False  # sinon la passe 1 l'aurait déjà marqué protégé
+
+    for pos, torrent_row in enumerate(torrent_rows):
+        index = indices[pos]
+        if index is None:
+            continue
+        torrent_row.is_hardlinked = None if torrent_row.inode is None else protected[pos]
+        results[index].torrents.append(torrent_row)
 
     # --- Calcul des statuts -------------------------------------------
     for result in results:
-        statuses, reclaimable = compute_statuses(result.files, result.torrents)
+        statuses, reclaimable = compute_statuses(result.files, result.torrents, bool(result.media.emby_item_id))
         result.media.statuses = ",".join(sorted(statuses))
         result.media.reclaimable_bytes = reclaimable
 
     return results
 
 
-def compute_statuses(files: list[MediaFile], torrents: list[Torrent]) -> tuple[set[str], int]:
+def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_item: bool) -> tuple[set[str], int]:
     statuses: set[str] = set()
     reclaimable = 0
 
@@ -379,5 +438,18 @@ def compute_statuses(files: list[MediaFile], torrents: list[Torrent]) -> tuple[s
     all_domains = {d["domain"] for t in torrents for d in json.loads(t.trackers_json)}
     if len(all_domains) == 1:
         statuses.add("tracker_unique")
+
+    # Un média sain doit être présent à la fois dans Emby et dans qBittorrent
+    # (activement protégé par un torrent, cross-seedé ou non).
+    if not has_emby_item:
+        statuses.add("manquant_emby")
+
+    has_active_torrent = any(t.is_hardlinked is True for t in torrents)
+    has_unresolved_torrent = any(t.is_hardlinked is None for t in torrents)
+    if not has_active_torrent and not has_unresolved_torrent:
+        # Sans torrent actif confirmé : soit aucun torrent du tout, soit tous
+        # orphelins. Si le hardlink n'a pas pu être évalué (chemins non
+        # montés), on ne se prononce pas plutôt que de faux positifs en masse.
+        statuses.add("manquant_qbit")
 
     return statuses, reclaimable

@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Copy, Radio } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Copy, Radio, Tv2, Wifi } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -19,6 +19,16 @@ const STATUS_CONFIG: Record<MediaStatus, { label: string; icon: typeof Copy; cla
     label: "Tracker unique",
     icon: Radio,
     className: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  },
+  manquant_emby: {
+    label: "Absent d'Emby",
+    icon: Tv2,
+    className: "bg-destructive/10 text-destructive",
+  },
+  manquant_qbit: {
+    label: "Non seedé",
+    icon: Wifi,
+    className: "bg-destructive/10 text-destructive",
   },
 }
 

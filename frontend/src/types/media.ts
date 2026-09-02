@@ -1,4 +1,4 @@
-export type MediaStatus = "doublon" | "orphelin_qbit" | "tracker_unique"
+export type MediaStatus = "doublon" | "orphelin_qbit" | "tracker_unique" | "manquant_emby" | "manquant_qbit"
 export type MediaTypeFilter = "movie" | "series"
 
 export interface MediaListItem {

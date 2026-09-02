@@ -89,7 +89,7 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
     # complet alors que les éléments concernés viennent d'être supprimés.
     remaining_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     remaining_torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
-    statuses, reclaimable = compute_statuses(list(remaining_files), list(remaining_torrents))
+    statuses, reclaimable = compute_statuses(list(remaining_files), list(remaining_torrents), bool(media.emby_item_id))
     media.statuses = ",".join(sorted(statuses))
     media.reclaimable_bytes = reclaimable
     session.add(media)

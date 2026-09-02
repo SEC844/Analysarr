@@ -16,6 +16,8 @@ const STATUS_LABELS: Record<string, string> = {
   doublon: "Doublon",
   orphelin_qbit: "Orphelin qBit",
   tracker_unique: "Tracker unique",
+  manquant_emby: "Absent d'Emby",
+  manquant_qbit: "Non seedé",
 }
 const SORT_LABELS: Record<string, string> = {
   title: "Titre (A-Z)",
@@ -63,6 +65,8 @@ export function MediaFilters({ value, onChange }: MediaFiltersProps) {
           <SelectItem value="doublon">Doublon</SelectItem>
           <SelectItem value="orphelin_qbit">Orphelin qBit</SelectItem>
           <SelectItem value="tracker_unique">Tracker unique</SelectItem>
+          <SelectItem value="manquant_emby">Absent d'Emby</SelectItem>
+          <SelectItem value="manquant_qbit">Non seedé</SelectItem>
         </SelectContent>
       </Select>
 

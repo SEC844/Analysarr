@@ -27,7 +27,8 @@ Pour chaque torrent qBittorrent lié à un média, afficher les trackers sur les
 
 **Noyau (V1)**
 - Scan périodique + à la demande, cache local (pas d'appel API à chaque affichage)
-- Carte média (jaquette + statuts) : `sain`, `doublon`, `orphelin_qbit`, `tracker_unique`
+- Carte média (jaquette + statuts) : `sain`, `doublon`, `orphelin_qbit`, `tracker_unique`, `manquant_emby`, `manquant_qbit`
+- Seuls les médias effectivement téléchargés sont affichés (un film/une série demandé(e) mais pas encore présent(e) dans Sonarr/Radarr n'apparaît pas dans l'interface)
 - Fiche détail : tous les fichiers liés (Emby, Sonarr/Radarr, torrents qBit avec leurs trackers, cross-seed si activé)
 - Suppression cascade avec preview avant action puis exécution, gestion d'erreur si une étape échoue
 - Bouton "chercher un cross-seed" (visible seulement si cross-seed activé)
@@ -39,6 +40,7 @@ Pour chaque torrent qBittorrent lié à un média, afficher les trackers sur les
 - Historique des actions
 - Notifications (Discord/ntfy/Gotify)
 - Statut de connexion par service affiché en permanence
+- Sélecteur de taille de grille (petite/moyenne/grande) sur la bibliothèque
 
 **Bonus (V2)**
 - Règles pour ignorer les faux doublons volontaires (ex: garder VF + VOSTFR)
@@ -59,11 +61,16 @@ Pour chaque torrent qBittorrent lié à un média, afficher les trackers sur les
 
 - **Média** : entité logique (film ou série) regroupant 1 entrée Sonarr/Radarr, 1 item Emby (si trouvé), N torrents qBittorrent, N entrées cross-seed (si activé).
 - **Groupe de hardlinks** : fichiers partageant le même inode (`os.stat().st_ino` sur les chemins qBittorrent et Emby vus depuis le conteneur). Sert à détecter si un fichier de téléchargement est encore protégé par un lien vers la bibliothèque.
-- **Statuts** :
-  - `sain` — fichiers cohérents, hardlinks valides
+- **Correspondance torrent → média** : l'inode est le signal principal (pas l'historique Sonarr/Radarr ni le chemin de stockage). Un torrent dont le contenu partage l'inode d'un fichier Emby actuel est rattaché à ce média et marqué protégé, quel que soit son dossier de stockage réel — indispensable pour les copies cross-seed, qui vivent souvent hors des dossiers gérés par Sonarr/Radarr et que Sonarr/Radarr n'ont jamais "grabbed" (donc absentes de leur historique). Repli en deux passes : (1) rattachement direct par inode Emby actuel, sinon historique Sonarr/Radarr, sinon chemin racine du média ; (2) tout torrent encore non rattaché qui partage l'inode d'un torrent déjà identifié en passe 1 hérite du même média (cas typique : la copie cross-seed d'un ancien fichier orphelin).
+- **Statuts** (cumulables, un média peut en porter plusieurs à la fois) :
+  - `sain` — aucun des statuts ci-dessous ne s'applique
   - `doublon` — plusieurs fichiers Emby pour le même média (upgrade Sonarr/Radarr sans nettoyage de l'ancien)
-  - `orphelin_qbit` — torrent(s) sans hardlink valide vers un fichier Emby actuel
+  - `orphelin_qbit` — torrent(s) sans hardlink valide vers un fichier Emby actuel (ex : ancienne version remplacée par un upgrade Radarr/Sonarr, y compris ses éventuelles copies cross-seed)
   - `tracker_unique` — un seul tracker distinct détecté sur l'ensemble des torrents du groupe de hardlinks
+  - `manquant_emby` — le média n'a pas été retrouvé dans Emby
+  - `manquant_qbit` — aucun torrent activement protégé (hardlink confirmé) n'a été trouvé dans qBittorrent pour ce média
+
+Un média `sain` doit donc être à la fois présent dans Emby et activement seedé (protégé) dans qBittorrent, sans torrent orphelin.
 
 ## Intégrations externes
 
