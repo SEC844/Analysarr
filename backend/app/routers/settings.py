@@ -1,11 +1,14 @@
+import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.database import get_session
 from app.models.settings import Settings
 from app.schemas.settings import (
+    BrowseEntry,
+    BrowseResult,
     ConnectionTestRequest,
     ConnectionTestResult,
     CrossSeedRead,
@@ -72,6 +75,7 @@ def _to_read(s: Settings | None) -> SettingsRead:
             enabled=s.cross_seed_enabled,
             url=s.cross_seed_url,
             api_key_set=bool(s.cross_seed_api_key),
+            library_path=s.cross_seed_library_path,
         ),
     )
 
@@ -98,6 +102,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     row.qbittorrent_download_path = payload.qbittorrent_download_path
     row.cross_seed_enabled = payload.cross_seed_enabled
     row.cross_seed_url = payload.cross_seed_url
+    row.cross_seed_library_path = payload.cross_seed_library_path
 
     # Champs sensibles : une valeur vide/absente conserve la valeur en base
     # (le frontend ne reçoit jamais la vraie clé, donc "vide" veut dire
@@ -127,3 +132,36 @@ async def test_connection(service: str, payload: ConnectionTestRequest) -> Conne
     if tester is None:
         raise HTTPException(status_code=404, detail=f"Service inconnu : {service}")
     return await tester(payload)
+
+
+@router.get("/browse", response_model=BrowseResult)
+def browse_filesystem(path: str = Query("/", description="Chemin absolu à parcourir")) -> BrowseResult:
+    """Liste les sous-dossiers d'un chemin, vu depuis le conteneur Analysarr —
+    permet de choisir un chemin de bibliothèque/téléchargement en cliquant
+    plutôt qu'en le tapant à l'aveugle (façon navigateur de fichiers Unraid).
+    Uniquement des dossiers : ces champs de réglages ne servent qu'à choisir
+    un point de montage, jamais un fichier précis."""
+    normalized = os.path.normpath(path) if path else "/"
+    if not os.path.isabs(normalized):
+        raise HTTPException(400, "Le chemin doit être absolu.")
+    if not os.path.isdir(normalized):
+        raise HTTPException(404, f"Dossier introuvable : {normalized}")
+
+    try:
+        names = sorted(os.listdir(normalized), key=str.lower)
+    except PermissionError as exc:
+        raise HTTPException(403, f"Accès refusé : {exc}") from exc
+    except OSError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    directories: list[BrowseEntry] = []
+    for name in names:
+        full = os.path.join(normalized, name)
+        try:
+            if os.path.isdir(full):
+                directories.append(BrowseEntry(name=name, path=full))
+        except OSError:
+            continue  # lien symbolique cassé ou inaccessible : on l'ignore plutôt que d'échouer toute la liste
+
+    parent = os.path.dirname(normalized.rstrip("/\\")) if normalized not in ("/", os.path.sep) else None
+    return BrowseResult(path=normalized, parent=parent or None, directories=directories)

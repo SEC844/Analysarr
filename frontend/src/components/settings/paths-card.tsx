@@ -1,3 +1,4 @@
+import { PathBrowserButton } from "@/components/settings/path-browser-dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,13 +29,16 @@ export function PathsCard({
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="emby-library-path">Dossier de la bibliothèque Emby</Label>
-          <Input
-            id="emby-library-path"
-            placeholder="/data/media"
-            value={embyLibraryPath}
-            onChange={(e) => onEmbyLibraryPathChange(e.target.value)}
-            autoComplete="off"
-          />
+          <div className="flex gap-2">
+            <Input
+              id="emby-library-path"
+              placeholder="/data/media"
+              value={embyLibraryPath}
+              onChange={(e) => onEmbyLibraryPathChange(e.target.value)}
+              autoComplete="off"
+            />
+            <PathBrowserButton value={embyLibraryPath} onSelect={onEmbyLibraryPathChange} />
+          </div>
           <p className="text-muted-foreground text-sm">
             Le point de montage du volume de bibliothèque dans le conteneur Analysarr.
           </p>
@@ -42,13 +46,16 @@ export function PathsCard({
 
         <div className="space-y-1.5">
           <Label htmlFor="qbit-download-path">Dossier de téléchargement qBittorrent</Label>
-          <Input
-            id="qbit-download-path"
-            placeholder="/data/downloads"
-            value={qbittorrentDownloadPath}
-            onChange={(e) => onQbittorrentDownloadPathChange(e.target.value)}
-            autoComplete="off"
-          />
+          <div className="flex gap-2">
+            <Input
+              id="qbit-download-path"
+              placeholder="/data/downloads"
+              value={qbittorrentDownloadPath}
+              onChange={(e) => onQbittorrentDownloadPathChange(e.target.value)}
+              autoComplete="off"
+            />
+            <PathBrowserButton value={qbittorrentDownloadPath} onSelect={onQbittorrentDownloadPathChange} />
+          </div>
           <p className="text-muted-foreground text-sm">
             Le point de montage du volume de téléchargement dans le conteneur Analysarr.
           </p>

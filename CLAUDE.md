@@ -12,6 +12,7 @@ Rien de comparable n'existe : Cleanuparr gère la santé des files de téléchar
 Personne ne doit éditer un `.env` ou taper une commande pour configurer l'app.
 - Au premier lancement (aucune config en base), afficher un wizard d'onboarding qui demande : URL + clé API Emby, URL + clé API Sonarr, URL + clé API Radarr, URL + identifiants qBittorrent, et les chemins de dossiers utiles (bibliothèque Emby, dossier de téléchargement qBittorrent) tels que vus **depuis le conteneur** (après montage des volumes).
 - Chaque champ a un bouton "Tester la connexion" avec retour immédiat clair (succès/échec + message d'erreur brut de l'API).
+- Chaque champ de chemin a un bouton "Parcourir" qui ouvre un navigateur de dossiers (façon Unraid, `GET /api/settings/browse?path=`) listant les sous-dossiers du conteneur Analysarr — évite de taper un chemin à l'aveugle.
 - Toute la config est stockée en base SQLite, modifiable à tout moment depuis un écran Réglages. Seuls le port d'écoute et le chemin de la base SQLite restent des variables d'environnement (détails d'infra Docker classiques, pas de la config applicative).
 
 ### 2. cross-seed est optionnel, jamais un prérequis
@@ -81,7 +82,7 @@ Un média `sain` doit donc être à la fois présent dans Emby et activement see
 - **Emby** : API REST classique (`/Items`, `/Items/{Id}/Images/Primary` pour les jaquettes)
 - **Sonarr / Radarr** : API REST v3 classique (séries/films, fichiers, historique)
 - **qBittorrent** : Web API v2 (`torrents/info`, `torrents/delete`, `torrents/trackers?hash=`)
-- **cross-seed** (optionnel) : mode daemon avec API HTTP — webhook `POST /api/webhook?apikey=<KEY>` (clé en query string, `infoHash` OU `path` en corps de requête `x-www-form-urlencoded`) pour déclencher une recherche ciblée. `infoHash` cible un torrent qBittorrent existant ; `path` (chemin d'un fichier Emby) permet de lancer une recherche même pour un média absent de qBittorrent (statut `manquant_qbit`), sans torrent existant pour s'appuyer dessus.
+- **cross-seed** (optionnel) : mode daemon avec API HTTP — webhook `POST /api/webhook?apikey=<KEY>` (clé en query string, `infoHash` OU `path` en corps de requête `x-www-form-urlencoded`) pour déclencher une recherche ciblée. `infoHash` cible un torrent qBittorrent existant ; `path` (chemin d'un fichier Emby) permet de lancer une recherche même pour un média absent de qBittorrent (statut `manquant_qbit`), sans torrent existant pour s'appuyer dessus. Chaque requête inclut `ignoreExcludeRecentSearch=true` (équivalent HTTP du flag CLI `--ignore-timestamps`) pour qu'une recherche déclenchée manuellement ne soit jamais ignorée en silence parce que cross-seed a déjà cherché récemment. Si le conteneur cross-seed monte la bibliothèque à un chemin différent d'Analysarr/Emby (réglage optionnel `cross_seed_library_path`), le `path` envoyé est traduit du préfixe `emby_library_path` vers ce chemin avant l'appel — sinon cross-seed rejette une requête `path` avec `400 "A valid infoHash or an accessible path must be provided"` même quand le fichier existe bel et bien.
 
 ## Ce qu'on ne veut pas
 

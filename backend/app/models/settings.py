@@ -32,6 +32,13 @@ class Settings(SQLModel, table=True):
     cross_seed_enabled: bool = False
     cross_seed_url: Optional[str] = None
     cross_seed_api_key: Optional[str] = None
+    # Le dossier de bibliothèque (emby_library_path) tel que vu depuis le
+    # CONTENEUR cross-seed, qui peut monter le même volume à un chemin
+    # différent (ex: /media côté Analysarr/Emby, /data/media côté cross-seed).
+    # Sert à traduire les chemins Emby avant de les envoyer au webhook
+    # `path=` — sans quoi cross-seed rejette un chemin qu'il ne peut pas
+    # résoudre sur son propre système de fichiers.
+    cross_seed_library_path: Optional[str] = None
 
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

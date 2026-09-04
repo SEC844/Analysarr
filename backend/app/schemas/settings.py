@@ -25,6 +25,7 @@ class CrossSeedRead(BaseModel):
     enabled: bool = False
     url: Optional[str] = None
     api_key_set: bool = False
+    library_path: Optional[str] = None
 
 
 class SettingsRead(BaseModel):
@@ -61,6 +62,7 @@ class SettingsWrite(BaseModel):
     cross_seed_enabled: bool = False
     cross_seed_url: Optional[str] = None
     cross_seed_api_key: Optional[str] = None
+    cross_seed_library_path: Optional[str] = None
 
 
 class ConnectionTestRequest(BaseModel):
@@ -73,3 +75,14 @@ class ConnectionTestRequest(BaseModel):
 class ConnectionTestResult(BaseModel):
     success: bool
     message: str
+
+
+class BrowseEntry(BaseModel):
+    name: str
+    path: str
+
+
+class BrowseResult(BaseModel):
+    path: str
+    parent: Optional[str]
+    directories: list[BrowseEntry]

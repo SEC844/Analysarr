@@ -11,6 +11,7 @@ import type {
   ScanRunRead,
 } from "@/types/media"
 import type {
+  BrowseResult,
   ConnectionTestRequest,
   ConnectionTestResult,
   ServiceName,
@@ -25,7 +26,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(body || `Erreur HTTP ${res.status}`)
+    // FastAPI renvoie {"detail": "..."} — sans ça, l'erreur affichée à
+    // l'utilisateur est le JSON brut plutôt que le message lisible.
+    let message = body
+    try {
+      const parsed = JSON.parse(body)
+      if (typeof parsed?.detail === "string") message = parsed.detail
+    } catch {
+      // corps non-JSON : on garde le texte brut
+    }
+    throw new Error(message || `Erreur HTTP ${res.status}`)
   }
   return res.json() as Promise<T>
 }
@@ -39,6 +49,10 @@ export function saveSettings(payload: SettingsWrite): Promise<SettingsRead> {
     method: "PUT",
     body: JSON.stringify(payload),
   })
+}
+
+export function browseFilesystem(path: string): Promise<BrowseResult> {
+  return request<BrowseResult>(`/api/settings/browse?path=${encodeURIComponent(path)}`)
 }
 
 export function testConnection(

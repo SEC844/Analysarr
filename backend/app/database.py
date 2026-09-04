@@ -55,11 +55,32 @@ def _reset_media_cache_if_stale() -> None:
             conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
 
+# Colonnes ajoutées à `settings` après la création initiale de la table.
+# Contrairement au cache média, `settings` contient la config utilisateur et
+# ne doit JAMAIS être recréée/vidée — on ajoute juste les colonnes
+# manquantes une par une avec ALTER TABLE.
+_SETTINGS_NEW_COLUMNS = [
+    ("cross_seed_library_path", "VARCHAR"),
+]
+
+
+def _ensure_settings_columns() -> None:
+    inspector = inspect(engine)
+    if "settings" not in inspector.get_table_names():
+        return  # première installation : create_all() créera le schéma complet
+    existing_columns = {col["name"] for col in inspector.get_columns("settings")}
+    with engine.begin() as conn:
+        for column, sql_type in _SETTINGS_NEW_COLUMNS:
+            if column not in existing_columns:
+                conn.execute(text(f"ALTER TABLE settings ADD COLUMN {column} {sql_type}"))
+
+
 def init_db() -> None:
     from app.models.media import Media, MediaFile, ScanRun, Torrent  # noqa: F401
     from app.models.settings import Settings  # noqa: F401
 
     _reset_media_cache_if_stale()
+    _ensure_settings_columns()
     SQLModel.metadata.create_all(engine)
 
 

@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react"
 
 import { ConnectionTestAlert } from "@/components/settings/connection-test-alert"
+import { PathBrowserButton } from "@/components/settings/path-browser-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +18,8 @@ interface CrossSeedCardProps {
   apiKey: string
   onApiKeyChange: (value: string) => void
   apiKeySet: boolean
+  libraryPath: string
+  onLibraryPathChange: (value: string) => void
 }
 
 export function CrossSeedCard({
@@ -27,6 +30,8 @@ export function CrossSeedCard({
   apiKey,
   onApiKeyChange,
   apiKeySet,
+  libraryPath,
+  onLibraryPathChange,
 }: CrossSeedCardProps) {
   const test = useConnectionTest("cross_seed")
 
@@ -86,6 +91,26 @@ export function CrossSeedCard({
           </Button>
 
           <ConnectionTestAlert result={test.data} />
+
+          <div className="space-y-1.5 border-t pt-4">
+            <Label htmlFor="cross-seed-library-path">Bibliothèque vue depuis cross-seed</Label>
+            <div className="flex gap-2">
+              <Input
+                id="cross-seed-library-path"
+                placeholder="/data/media"
+                value={libraryPath}
+                onChange={(e) => onLibraryPathChange(e.target.value)}
+                autoComplete="off"
+              />
+              <PathBrowserButton value={libraryPath} onSelect={onLibraryPathChange} />
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Optionnel — à remplir seulement si le conteneur cross-seed monte le même dossier de bibliothèque à un
+              chemin différent de celui d'Analysarr (onglet Chemins). Sans ça, une recherche cross-seed lancée sur
+              un média jamais seedé peut échouer avec « accessible path must be provided » — cross-seed ne
+              retrouve pas le fichier sur son propre système de fichiers.
+            </p>
+          </div>
         </CardContent>
       )}
     </Card>

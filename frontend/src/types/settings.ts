@@ -18,6 +18,7 @@ export interface CrossSeedRead {
   enabled: boolean
   url: string | null
   api_key_set: boolean
+  library_path: string | null
 }
 
 export interface SettingsRead {
@@ -45,9 +46,21 @@ export interface SettingsWrite {
   cross_seed_enabled: boolean
   cross_seed_url: string
   cross_seed_api_key: string
+  cross_seed_library_path: string
 }
 
 export type ServiceName = "emby" | "sonarr" | "radarr" | "qbittorrent" | "cross_seed"
+
+export interface BrowseEntry {
+  name: string
+  path: string
+}
+
+export interface BrowseResult {
+  path: string
+  parent: string | null
+  directories: BrowseEntry[]
+}
 
 export interface ConnectionTestRequest {
   url?: string
@@ -77,6 +90,7 @@ export function emptySettingsWrite(): SettingsWrite {
     cross_seed_enabled: false,
     cross_seed_url: "",
     cross_seed_api_key: "",
+    cross_seed_library_path: "",
   }
 }
 
@@ -96,6 +110,7 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     cross_seed_enabled: s.cross_seed.enabled,
     cross_seed_url: s.cross_seed.url ?? "",
     cross_seed_api_key: "",
+    cross_seed_library_path: s.cross_seed.library_path ?? "",
   }
 }
 
