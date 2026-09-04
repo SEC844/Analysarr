@@ -56,7 +56,20 @@ def build_delete_preview(session: Session, media: Media) -> DeletePreview:
 
     items = [DeletePreviewItem(kind="duplicate_file", label=f.path, size=f.size) for f in duplicate_files]
     items += [DeletePreviewItem(kind="orphan_torrent", label=t.name, size=t.size) for t in orphan_torrents]
-    total = sum(item.size or 0 for item in items)
+
+    total = sum(f.size or 0 for f in duplicate_files)
+    # Plusieurs torrents orphelins peuvent être des copies cross-seed d'une
+    # même ancienne version (même inode entre eux, même octet sur le disque) :
+    # les supprimer tous ne libère l'espace qu'une seule fois, pas une fois
+    # par torrent. Même logique que compute_statuses dans scan.py.
+    seen_inodes: set[tuple[int, int]] = set()
+    for t in orphan_torrents:
+        key = (t.inode, t.device) if t.inode is not None else None
+        if key is not None:
+            if key in seen_inodes:
+                continue
+            seen_inodes.add(key)
+        total += t.size or 0
 
     return DeletePreview(items=items, total_reclaimable_bytes=total)
 

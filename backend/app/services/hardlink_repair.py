@@ -1,3 +1,4 @@
+import errno
 import os
 
 from sqlmodel import Session, select
@@ -105,21 +106,46 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     return HardlinkRepairPreview(items=items, unmatched_torrents=unmatched)
 
 
+def _relink(current_path: str, torrent_file_path: str) -> None:
+    """Remplace `current_path` par un hardlink vers `torrent_file_path`, SANS
+    jamais supprimer l'original avant d'être certain que le lien peut être
+    créé : le nouveau lien est d'abord créé à côté (fichier temporaire), et
+    seul un `os.replace()` — atomique — vient ensuite écraser l'original. Si
+    `os.link()` échoue (ex: ERRNO 18 EXDEV — `current_path` et
+    `torrent_file_path` sont sur des systèmes de fichiers différents, ce que
+    `os.stat().st_dev` ne garantit pas toujours de détecter à l'avance), le
+    fichier de la bibliothèque n'a alors subi AUCUNE modification."""
+    tmp_path = f"{current_path}.analysarr-tmp"
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+    try:
+        os.link(torrent_file_path, tmp_path)
+    except OSError as exc:
+        if exc.errno == errno.EXDEV:
+            raise OSError(
+                errno.EXDEV,
+                "Hardlink impossible : le torrent et le fichier de la bibliothèque sont sur des systèmes de "
+                "fichiers différents (le montage du dossier de téléchargement ne couvre pas le même disque que "
+                "celui de la bibliothèque) — aucune modification effectuée.",
+            ) from exc
+        raise
+    os.replace(tmp_path, current_path)
+
+
 async def execute_repair(session: Session, media: Media, settings: Settings) -> HardlinkRepairResult:
-    """Pour chaque paire identifiée par `build_repair_preview` : supprime le
+    """Pour chaque paire identifiée par `build_repair_preview` : remplace le
     fichier actuellement suivi par la bibliothèque (une copie séparée, non
-    protégée) et le remplace par un hardlink vers le fichier du torrent —
-    qui, lui, est réellement seedé. Après coup, le torrent protège enfin le
-    fichier que la bibliothèque sert."""
+    protégée) par un hardlink vers le fichier du torrent — qui, lui, est
+    réellement seedé. Après coup, le torrent protège enfin le fichier que la
+    bibliothèque sert. Voir `_relink` : l'original n'est jamais perdu si la
+    création du lien échoue."""
     preview = await build_repair_preview(session, media, settings)
 
     steps: list[HardlinkRepairStepResult] = []
     for item in preview.items:
         label = item.episode_label or item.current_path
         try:
-            if os.path.exists(item.current_path):
-                os.remove(item.current_path)
-            os.link(item.torrent_file_path, item.current_path)
+            _relink(item.current_path, item.torrent_file_path)
             steps.append(HardlinkRepairStepResult(media_file_id=item.media_file_id, label=label, success=True))
         except OSError as exc:
             steps.append(

@@ -45,7 +45,7 @@ def _to_list_item(media: Media) -> MediaListItem:
 
 @router.get("", response_model=MediaListResponse)
 def list_media(
-    status: Optional[str] = Query(None, description="doublon | orphelin_qbit | tracker_unique | sain"),
+    status: Optional[str] = Query(None, description="doublon | orphelin_qbit | non_hardlink | tracker_unique | sain"),
     media_type: Optional[str] = Query(None, description="movie | series"),
     search: Optional[str] = None,
     sort: str = Query("title", description="title | year | size"),

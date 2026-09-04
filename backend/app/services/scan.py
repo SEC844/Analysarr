@@ -622,6 +622,13 @@ def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_i
                 seen_inodes.add(key)
             reclaimable += t.size or 0
 
+    repairable_torrents = [t for t in torrents if t.is_hardlinked is False and t.repairable]
+    if repairable_torrents:
+        # Contrairement à orphelin_qbit, ce média EST bien seedé — juste pas
+        # protégé par hardlink. Statut distinct pour ne pas afficher "non
+        # seedé" à tort, avec son propre filtre et son action de réparation.
+        statuses.add("non_hardlink")
+
     all_domains = {d["domain"] for t in torrents for d in json.loads(t.trackers_json)}
     if len(all_domains) == 1:
         statuses.add("tracker_unique")
@@ -633,10 +640,11 @@ def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_i
 
     has_active_torrent = any(t.is_hardlinked is True for t in torrents)
     has_unresolved_torrent = any(t.is_hardlinked is None for t in torrents)
-    if not has_active_torrent and not has_unresolved_torrent:
-        # Sans torrent actif confirmé : soit aucun torrent du tout, soit tous
-        # orphelins. Si le hardlink n'a pas pu être évalué (chemins non
-        # montés), on ne se prononce pas plutôt que de faux positifs en masse.
+    if not has_active_torrent and not has_unresolved_torrent and not repairable_torrents:
+        # Sans torrent actif confirmé ni torrent réparable (donc bien seedé) :
+        # soit aucun torrent du tout, soit tous orphelins. Si le hardlink n'a
+        # pas pu être évalué (chemins non montés), on ne se prononce pas
+        # plutôt que de faux positifs en masse.
         statuses.add("manquant_qbit")
 
     return statuses, reclaimable

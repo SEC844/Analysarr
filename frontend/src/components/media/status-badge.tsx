@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Copy, Radio, Tv2, Wifi } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Copy, Link2, Radio, Tv2, Wifi } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -14,6 +14,11 @@ const STATUS_CONFIG: Record<MediaStatus, { label: string; icon: typeof Copy; cla
     label: "Orphelin qBit",
     icon: AlertTriangle,
     className: "bg-destructive/10 text-destructive",
+  },
+  non_hardlink: {
+    label: "Non hardlink",
+    icon: Link2,
+    className: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   },
   tracker_unique: {
     label: "Tracker unique",

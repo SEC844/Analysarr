@@ -16,6 +16,7 @@ const STATUS_LABELS: Record<string, string> = {
   sain: "Sain",
   doublon: "Doublon",
   orphelin_qbit: "Orphelin qBit",
+  non_hardlink: "Non hardlink",
   tracker_unique: "Tracker unique",
   manquant_emby: "Absent d'Emby",
   manquant_qbit: "Non seedé",
@@ -77,6 +78,7 @@ export function MediaFilters({ value, onChange }: MediaFiltersProps) {
           <SelectItem value="sain">Sain</SelectItem>
           <SelectItem value="doublon">Doublon</SelectItem>
           <SelectItem value="orphelin_qbit">Orphelin qBit</SelectItem>
+          <SelectItem value="non_hardlink">Non hardlink</SelectItem>
           <SelectItem value="tracker_unique">Tracker unique</SelectItem>
           <SelectItem value="manquant_emby">Absent d'Emby</SelectItem>
           <SelectItem value="manquant_qbit">Non seedé</SelectItem>
