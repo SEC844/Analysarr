@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from app.clients.emby import EmbyClient
+from app.clients.qbittorrent import QbittorrentAuthError
 from app.database import get_session
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
@@ -13,6 +14,8 @@ from app.schemas.media import (
     CrossSeedSearchResult,
     DeleteExecuteResult,
     DeletePreview,
+    HardlinkRepairPreview,
+    HardlinkRepairResult,
     MediaDetail,
     MediaFileRead,
     MediaListItem,
@@ -21,6 +24,7 @@ from app.schemas.media import (
     TrackerRead,
 )
 from app.services.cascade_delete import build_delete_preview, execute_delete, trigger_cross_seed_search
+from app.services.hardlink_repair import build_repair_preview, execute_repair
 
 router = APIRouter()
 
@@ -96,6 +100,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
                 content_path=t.content_path,
                 size=t.size,
                 is_hardlinked=t.is_hardlinked,
+                matched_by_name=t.matched_by_name,
                 ratio=t.ratio,
                 seeders=t.seeders,
                 leechers=t.leechers,
@@ -155,3 +160,31 @@ async def cross_seed_search(media_id: int, session: Session = Depends(get_sessio
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media_id)).all()
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all()
     return await trigger_cross_seed_search(settings, [t.hash for t in torrents], [f.path for f in files])
+
+
+@router.post("/{media_id}/hardlink-repair/preview", response_model=HardlinkRepairPreview)
+async def hardlink_repair_preview(media_id: int, session: Session = Depends(get_session)) -> HardlinkRepairPreview:
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
+        raise HTTPException(400, "qBittorrent non configuré.")
+    try:
+        return await build_repair_preview(session, media, settings)
+    except QbittorrentAuthError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.post("/{media_id}/hardlink-repair/execute", response_model=HardlinkRepairResult)
+async def hardlink_repair_execute(media_id: int, session: Session = Depends(get_session)) -> HardlinkRepairResult:
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
+        raise HTTPException(400, "qBittorrent non configuré.")
+    try:
+        return await execute_repair(session, media, settings)
+    except QbittorrentAuthError as exc:
+        raise HTTPException(502, str(exc)) from exc

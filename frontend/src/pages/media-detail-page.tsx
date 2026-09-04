@@ -3,6 +3,7 @@ import { ArrowLeft, CheckCircle2, Clapperboard, HardDriveDownload, Loader2, Sear
 import { toast } from "sonner"
 
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
+import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -103,6 +104,7 @@ export function MediaDetailPage() {
                 Chercher un cross-seed
               </Button>
             )}
+            {media.torrents.some((t) => t.is_hardlinked === false) && <HardlinkRepairDialog mediaId={media.id} />}
             <DeleteCascadeDialog mediaId={media.id} />
           </div>
         </div>
@@ -175,6 +177,11 @@ export function MediaDetailPage() {
                     {t.is_hardlinked === null && (
                       <Badge variant="outline">
                         <HardDriveDownload className="size-3" /> Non évalué
+                      </Badge>
+                    )}
+                    {t.matched_by_name && (
+                      <Badge variant="outline" title="Rattaché par similarité de titre, pas par hardlink ni historique Sonarr/Radarr">
+                        Rattaché par nom
                       </Badge>
                     )}
                     {t.trackers.map((tr, i) => (

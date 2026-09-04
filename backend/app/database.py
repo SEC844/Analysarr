@@ -21,6 +21,7 @@ engine = create_engine(
 _CURRENT_SCHEMA_MARKERS = [
     ("torrent", "ratio"),
     ("scanrun", "qbittorrent_torrent_count"),
+    ("torrent", "matched_by_name"),
 ]
 
 

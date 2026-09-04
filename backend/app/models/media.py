@@ -87,6 +87,12 @@ class Torrent(SQLModel, table=True):
     # None = non évalué (chemins non configurés, ou fichier introuvable).
     is_hardlinked: Optional[bool] = None
 
+    # True si ce torrent n'a été rattaché à son média que par similarité de
+    # titre (ni inode, ni historique Sonarr/Radarr, ni chemin) — typiquement un
+    # ajout manuel antérieur à la mise en place du hardlink sur le serveur.
+    # Rattachement heuristique : is_hardlinked reste False pour ces torrents.
+    matched_by_name: bool = False
+
     # Données qBittorrent affichées sur la fiche détail (ratio, popularité, ancienneté).
     ratio: Optional[float] = None
     seeders: Optional[int] = None

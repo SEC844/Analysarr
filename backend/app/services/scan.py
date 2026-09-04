@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -76,6 +77,42 @@ def _epoch_to_datetime(value: Any) -> datetime | None:
     if not isinstance(value, (int, float)) or value <= 0:
         return None
     return datetime.fromtimestamp(value, tz=timezone.utc)
+
+
+# Tags de release à ignorer pour le rattachement par similarité de titre
+# (passe 3) : qualité, source, codec, audio, langue, groupe. Volontairement
+# large plutôt qu'exhaustif — un tag non reconnu qui reste dans les mots ne
+# fait qu'empêcher un match plutôt que d'en créer un faux.
+_RELEASE_TAG_PATTERN = re.compile(
+    r"\b("
+    r"\d{3,4}p|4k|8k|"
+    r"web[-.]?dl|webrip|web|bluray|blu-ray|bdrip|brrip|hdtv|dvdrip|hdrip|remux|"
+    r"x264|x265|h264|h265|hevc|avc|xvid|"
+    r"aac\d?|ac3|ac-3|eac3|dts(-?hd)?|ddp?\d(\.\d)?|truehd|flac|mp3|"
+    r"multi|vostfr|vfi|vff|vf2|vf|french|truefrench|english|"
+    r"integrale|complete|complet|repack|proper|internal|limited|extended|uncut|"
+    r"amzn|nf|dsnp|hmax|atvp|itunes|ma"
+    r")\b",
+    re.IGNORECASE,
+)
+_SEASON_EPISODE_PATTERN = re.compile(r"\bs\d{1,2}(e\d{1,3})?\b", re.IGNORECASE)
+
+
+def _normalize_words(text: str) -> list[str]:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).split()
+
+
+def _normalize_release_words(name: str) -> list[str]:
+    """Réduit un nom de release qBittorrent à la liste de mots probablement
+    issus du titre, en retirant extension, numérotation saison/épisode et tags
+    qualité/codec/langue/groupe — pour un rattachement approximatif par
+    préfixe de titre quand ni l'inode ni l'historique Sonarr/Radarr n'ont
+    permis de rattacher le torrent à un média (typiquement un ajout manuel
+    antérieur à la mise en place du hardlink sur le serveur)."""
+    base = os.path.splitext(name)[0]
+    base = _SEASON_EPISODE_PATTERN.sub(" ", base)
+    base = _RELEASE_TAG_PATTERN.sub(" ", base)
+    return _normalize_words(base)
 
 
 async def run_scan() -> None:
@@ -464,6 +501,38 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                 indices[pos] = index
                 protected[pos] = False  # sinon la passe 1 l'aurait déjà marqué protégé
                 break
+
+    # Passe 3 : repli par similarité de titre — pour les torrents encore non
+    # identifiés (ni inode, ni historique, ni chemin), typiquement des ajouts
+    # manuels antérieurs à la mise en place du hardlink sur le serveur (le
+    # torrent existe bel et bien et concerne ce média, mais son fichier n'a
+    # jamais été lié au fichier de la bibliothèque). Rattachement heuristique
+    # uniquement : jamais marqué protégé, ce qui laisse orphelin_qbit/
+    # manquant_qbit s'appliquer normalement — mais rend le torrent visible sur
+    # la bonne fiche, avec une action de réparation possible.
+    still_unresolved = [pos for pos in unresolved if indices[pos] is None]
+    if still_unresolved:
+        media_titles = [(i, _normalize_words(r.media.title)) for i, r in enumerate(results) if r.media.title]
+        for pos in still_unresolved:
+            release_words = _normalize_release_words(torrent_rows[pos].name)
+            if not release_words:
+                continue
+            best: tuple[int, int] | None = None  # (longueur du titre, index média)
+            for i, title_words in media_titles:
+                n = len(title_words)
+                if n == 0 or n > len(release_words) or release_words[:n] != title_words:
+                    continue
+                media = results[i].media
+                if media.media_type == MediaType.movie and (
+                    not media.year or str(media.year) not in torrent_rows[pos].name
+                ):
+                    continue  # titre de film trop générique sans confirmation par l'année
+                if best is None or n > best[0]:
+                    best = (n, i)
+            if best is not None:
+                indices[pos] = best[1]
+                protected[pos] = False
+                torrent_rows[pos].matched_by_name = True
 
     for pos, torrent_row in enumerate(torrent_rows):
         index = indices[pos]

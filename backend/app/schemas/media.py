@@ -25,6 +25,7 @@ class TorrentRead(BaseModel):
     content_path: Optional[str]
     size: Optional[int]
     is_hardlinked: Optional[bool]
+    matched_by_name: bool
     ratio: Optional[float]
     seeders: Optional[int]
     leechers: Optional[int]
@@ -96,3 +97,34 @@ class DeleteExecuteResult(BaseModel):
 class CrossSeedSearchResult(BaseModel):
     triggered: int
     errors: list[str]
+
+
+class HardlinkRepairItem(BaseModel):
+    media_file_id: int
+    episode_label: Optional[str]
+    current_path: str
+    current_exists: bool
+    torrent_id: int
+    torrent_name: str
+    torrent_file_path: str
+    size: Optional[int]
+
+
+class HardlinkRepairPreview(BaseModel):
+    items: list[HardlinkRepairItem]
+    # Torrents orphelins pour lesquels aucun fichier de la bibliothèque n'a pu
+    # être apparié avec certitude (ex : torrent multi-fichiers ambigu pour un
+    # film, fichier introuvable sur disque) — affichés pour transparence, mais
+    # non réparables automatiquement.
+    unmatched_torrents: list[str]
+
+
+class HardlinkRepairStepResult(BaseModel):
+    media_file_id: int
+    label: str
+    success: bool
+    error: Optional[str] = None
+
+
+class HardlinkRepairResult(BaseModel):
+    steps: list[HardlinkRepairStepResult]

@@ -3,6 +3,8 @@ import type {
   CrossSeedSearchResult,
   DeleteExecuteResult,
   DeletePreview,
+  HardlinkRepairPreview,
+  HardlinkRepairResult,
   MediaDetail,
   MediaListParams,
   MediaListResponse,
@@ -77,6 +79,14 @@ export function deleteExecute(id: number): Promise<DeleteExecuteResult> {
 
 export function crossSeedSearch(id: number): Promise<CrossSeedSearchResult> {
   return request<CrossSeedSearchResult>(`/api/media/${id}/cross-seed-search`, { method: "POST" })
+}
+
+export function hardlinkRepairPreview(id: number): Promise<HardlinkRepairPreview> {
+  return request<HardlinkRepairPreview>(`/api/media/${id}/hardlink-repair/preview`, { method: "POST" })
+}
+
+export function hardlinkRepairExecute(id: number): Promise<HardlinkRepairResult> {
+  return request<HardlinkRepairResult>(`/api/media/${id}/hardlink-repair/execute`, { method: "POST" })
 }
 
 export function startScan(): Promise<{ started: boolean; message?: string }> {

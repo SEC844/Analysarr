@@ -38,6 +38,7 @@ export interface TorrentRead {
   content_path: string | null
   size: number | null
   is_hardlinked: boolean | null
+  matched_by_name: boolean
   ratio: number | null
   seeders: number | null
   leechers: number | null
@@ -79,6 +80,33 @@ export interface DeleteExecuteResult {
 export interface CrossSeedSearchResult {
   triggered: number
   errors: string[]
+}
+
+export interface HardlinkRepairItem {
+  media_file_id: number
+  episode_label: string | null
+  current_path: string
+  current_exists: boolean
+  torrent_id: number
+  torrent_name: string
+  torrent_file_path: string
+  size: number | null
+}
+
+export interface HardlinkRepairPreview {
+  items: HardlinkRepairItem[]
+  unmatched_torrents: string[]
+}
+
+export interface HardlinkRepairStepResult {
+  media_file_id: number
+  label: string
+  success: boolean
+  error: string | null
+}
+
+export interface HardlinkRepairResult {
+  steps: HardlinkRepairStepResult[]
 }
 
 export interface MediaListParams {
