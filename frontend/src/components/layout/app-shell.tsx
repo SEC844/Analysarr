@@ -12,7 +12,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="bg-background min-h-svh">
       <header className="border-border border-b">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6">
           <Link to="/" className="text-lg font-semibold tracking-tight hover:opacity-80">
             Analysarr
           </Link>

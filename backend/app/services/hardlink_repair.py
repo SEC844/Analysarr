@@ -51,8 +51,19 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     current_files = session.exec(
         select(MediaFile).where(MediaFile.media_id == media.id, MediaFile.is_current == True)  # noqa: E712
     ).all()
+    # Seuls les torrents rattachés par similarité de titre (matched_by_name)
+    # sont éligibles : jamais vus par Sonarr/Radarr, ils ne peuvent pas être
+    # une ancienne version remplacée par un upgrade (auquel cas l'historique
+    # les aurait rattachés) — c'est la même série/le même film, juste jamais
+    # hardlinké. Un vrai orphelin (matched_by_name=False) n'est pas réparable :
+    # il concerne un fichier qui n'est plus du tout celui suivi par la
+    # bibliothèque, le proposer ici remplacerait le bon fichier par le mauvais.
     orphan_torrents = session.exec(
-        select(Torrent).where(Torrent.media_id == media.id, Torrent.is_hardlinked == False)  # noqa: E712
+        select(Torrent).where(
+            Torrent.media_id == media.id,
+            Torrent.is_hardlinked == False,  # noqa: E712
+            Torrent.matched_by_name == True,  # noqa: E712
+        )
     ).all()
 
     if not orphan_torrents or not current_files:

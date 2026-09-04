@@ -42,7 +42,12 @@ def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile]
             candidates = sorted(group_files, key=lambda f: f.size or 0, reverse=True)[1:]
         duplicate_files.extend(candidates)
 
-    orphan_torrents = [t for t in torrents if t.is_hardlinked is False]
+    # Les torrents rattachés seulement par similarité de titre (matched_by_name)
+    # ne sont pas de vrais orphelins : ce sont des copies non hardlinkées du
+    # contenu actuellement suivi (voir compute_statuses dans scan.py) — les
+    # supprimer perdrait le fichier même que "Réparer les hardlinks" propose
+    # d'utiliser pour protéger le média.
+    orphan_torrents = [t for t in torrents if t.is_hardlinked is False and not t.matched_by_name]
 
     return duplicate_files, orphan_torrents
 

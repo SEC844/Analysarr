@@ -37,8 +37,18 @@ export function MediaFilters({ value, onChange }: MediaFiltersProps) {
           placeholder="Rechercher un titre..."
           value={value.search ?? ""}
           onChange={(e) => onChange({ ...value, search: e.target.value || undefined })}
-          className="w-56 pl-8"
+          className={value.search ? "w-56 pl-8 pr-8" : "w-56 pl-8"}
         />
+        {value.search && (
+          <button
+            type="button"
+            onClick={() => onChange({ ...value, search: undefined })}
+            aria-label="Effacer la recherche"
+            className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+          >
+            <X className="size-4" />
+          </button>
+        )}
       </div>
 
       <Select

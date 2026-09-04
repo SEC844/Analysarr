@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowLeft, CheckCircle2, Clapperboard, HardDriveDownload, Loader2, Search, Tv, XCircle } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Clapperboard, HardDriveDownload, Link2, Loader2, Search, Tv, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
@@ -25,7 +25,7 @@ export function MediaDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="mt-4 h-64 w-full" />
       </div>
@@ -34,7 +34,7 @@ export function MediaDetailPage() {
 
   if (isError || !media) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         <p className="text-destructive">Média introuvable.</p>
       </div>
     )
@@ -66,7 +66,7 @@ export function MediaDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4">
         <ArrowLeft className="size-4" />
         Retour à la bibliothèque
@@ -104,7 +104,9 @@ export function MediaDetailPage() {
                 Chercher un cross-seed
               </Button>
             )}
-            {media.torrents.some((t) => t.is_hardlinked === false) && <HardlinkRepairDialog mediaId={media.id} />}
+            {media.torrents.some((t) => t.is_hardlinked === false && t.matched_by_name) && (
+              <HardlinkRepairDialog mediaId={media.id} />
+            )}
             <DeleteCascadeDialog mediaId={media.id} />
           </div>
         </div>
@@ -169,7 +171,16 @@ export function MediaDetailPage() {
                         <CheckCircle2 className="size-3" /> Protégé (hardlink)
                       </Badge>
                     )}
-                    {t.is_hardlinked === false && (
+                    {t.is_hardlinked === false && t.matched_by_name && (
+                      <Badge
+                        variant="outline"
+                        className="border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        title="Même contenu que la bibliothèque, mais pas hardlinké — réparable"
+                      >
+                        <Link2 className="size-3" /> Non hardlink
+                      </Badge>
+                    )}
+                    {t.is_hardlinked === false && !t.matched_by_name && (
                       <Badge variant="outline" className="border-transparent bg-destructive/10 text-destructive">
                         <XCircle className="size-3" /> Orphelin
                       </Badge>
@@ -177,11 +188,6 @@ export function MediaDetailPage() {
                     {t.is_hardlinked === null && (
                       <Badge variant="outline">
                         <HardDriveDownload className="size-3" /> Non évalué
-                      </Badge>
-                    )}
-                    {t.matched_by_name && (
-                      <Badge variant="outline" title="Rattaché par similarité de titre, pas par hardlink ni historique Sonarr/Radarr">
-                        Rattaché par nom
                       </Badge>
                     )}
                     {t.trackers.map((tr, i) => (

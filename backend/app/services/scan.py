@@ -569,7 +569,14 @@ def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_i
             sizes = sorted((f.size or 0 for f in group_files), reverse=True)
             reclaimable += sum(sizes[1:])
 
-    orphan_torrents = [t for t in torrents if t.is_hardlinked is False]
+    # Un torrent rattaché seulement par similarité de titre (matched_by_name)
+    # n'a jamais été vu par Sonarr/Radarr : il ne peut donc pas s'agir d'une
+    # ancienne version remplacée par un upgrade (ils l'auraient alors rattaché
+    # via l'historique). C'est en réalité la MÊME série/le même film que celui
+    # suivi par la bibliothèque, simplement jamais hardlinké (ex : ajout
+    # manuel antérieur à la mise en place du hardlink sur le serveur) — pas un
+    # vrai orphelin à supprimer, mais un candidat à la réparation de hardlink.
+    orphan_torrents = [t for t in torrents if t.is_hardlinked is False and not t.matched_by_name]
     if orphan_torrents:
         statuses.add("orphelin_qbit")
         # Plusieurs torrents orphelins peuvent être des copies cross-seed d'une

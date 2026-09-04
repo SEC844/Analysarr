@@ -1,6 +1,7 @@
 import json
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlmodel import Session, select
@@ -174,6 +175,8 @@ async def hardlink_repair_preview(media_id: int, session: Session = Depends(get_
         return await build_repair_preview(session, media, settings)
     except QbittorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"qBittorrent injoignable : {exc}") from exc
 
 
 @router.post("/{media_id}/hardlink-repair/execute", response_model=HardlinkRepairResult)
