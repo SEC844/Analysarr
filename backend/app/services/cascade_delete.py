@@ -7,7 +7,6 @@ from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
-    CrossSeedSearchResult,
     DeleteExecuteResult,
     DeletePreview,
     DeletePreviewItem,
@@ -113,78 +112,3 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
     session.commit()
 
     return DeleteExecuteResult(steps=steps)
-
-
-def _translate_path_for_cross_seed(path: str, settings: Settings) -> str:
-    """Traduit un chemin vu depuis Analysarr/Emby (`emby_library_path`) vers
-    le même chemin vu depuis le conteneur cross-seed (`cross_seed_library_path`)
-    — les deux conteneurs peuvent monter le même volume à un endroit
-    différent. Sans traduction, cross-seed reçoit un chemin qu'il ne peut pas
-    résoudre sur son propre système de fichiers et rejette la requête (HTTP
-    400 "A valid infoHash or an accessible path must be provided"), même si
-    le chemin est parfaitement valide côté Analysarr."""
-    if not settings.emby_library_path or not settings.cross_seed_library_path:
-        return path
-    from_prefix = settings.emby_library_path.rstrip("/\\")
-    to_prefix = settings.cross_seed_library_path.rstrip("/\\")
-    if path == from_prefix:
-        return to_prefix
-    for sep in ("/", "\\"):
-        if path.startswith(from_prefix + sep):
-            return to_prefix + sep + path[len(from_prefix) + 1 :]
-    return path
-
-
-async def trigger_cross_seed_search(
-    settings: Settings, torrent_hashes: list[str], file_paths: list[str] | None = None
-) -> CrossSeedSearchResult:
-    """Déclenche une recherche cross-seed par infoHash pour chaque torrent connu.
-
-    Si le média n'a AUCUN torrent en qBittorrent (statut manquant_qbit), on
-    recherche à la place à partir du chemin de ses fichiers Emby (`path`),
-    traduit vers le système de fichiers de cross-seed si un chemin dédié est
-    configuré (voir `_translate_path_for_cross_seed`) : l'API webhook de
-    cross-seed accepte l'un ou l'autre. C'est ce qui permet de lancer une
-    recherche même pour un média jamais seedé.
-
-    `ignoreExcludeRecentSearch=true` : sans ça, cross-seed ignore
-    silencieusement toute requête pour un torrent/chemin déjà cherché
-    récemment (équivalent HTTP du flag CLI `--ignore-timestamps`) — une
-    recherche déclenchée manuellement depuis la fiche média doit toujours
-    s'exécuter, pas être ignorée en silence."""
-    if not (settings.cross_seed_enabled and settings.cross_seed_url and settings.cross_seed_api_key):
-        return CrossSeedSearchResult(triggered=0, errors=["cross-seed n'est pas activé ou configuré."])
-
-    base = settings.cross_seed_url.rstrip("/")
-    errors: list[str] = []
-    triggered = 0
-
-    targets: list[tuple[str, dict[str, str]]] = [
-        (h, {"infoHash": h, "ignoreExcludeRecentSearch": "true"}) for h in torrent_hashes
-    ]
-    if not targets:
-        targets = [
-            (p, {"path": _translate_path_for_cross_seed(p, settings), "ignoreExcludeRecentSearch": "true"})
-            for p in file_paths or []
-        ]
-
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        for label, body in targets:
-            try:
-                resp = await client.post(
-                    f"{base}/api/webhook",
-                    params={"apikey": settings.cross_seed_api_key},
-                    data=body,
-                )
-                resp.raise_for_status()
-                triggered += 1
-            except httpx.HTTPStatusError as exc:
-                # Le corps de la réponse de cross-seed explique précisément le refus
-                # (ex : chemin hors de ses dataDirs configurés) — sans lui, l'erreur
-                # httpx générique ("400 Bad Request") ne dit rien d'exploitable.
-                detail = exc.response.text.strip()[:200] or exc.response.reason_phrase
-                errors.append(f"{label} : HTTP {exc.response.status_code} — {detail}")
-            except httpx.HTTPError as exc:
-                errors.append(f"{label} : {exc}")
-
-    return CrossSeedSearchResult(triggered=triggered, errors=errors)

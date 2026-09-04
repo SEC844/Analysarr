@@ -20,9 +20,11 @@ import { StatusBadgeList } from "@/components/media/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCrossSeedSearchMutation, useMediaDetailQuery } from "@/hooks/use-media"
 import { useSettingsQuery } from "@/hooks/use-settings"
+import type { CrossSeedSearchScope } from "@/lib/api"
 import { posterUrl } from "@/lib/api"
 import { formatBytes, formatDate, formatRatio } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -148,22 +150,25 @@ export function MediaDetailPage() {
   const currentFiles = media.files.filter((f) => f.is_current)
   const totalSize = (currentFiles.length > 0 ? currentFiles : media.files).reduce((sum, f) => sum + (f.size ?? 0), 0)
 
-  const handleCrossSeed = () => {
-    crossSeed.mutate(mediaId, {
-      onSuccess: (result) => {
-        if (result.triggered > 0) {
-          toast.success(`Recherche cross-seed déclenchée (${result.triggered}).`)
-        }
-        if (result.errors.length > 0) {
-          // Un message par fichier/torrent noierait l'écran dès qu'une série entière
-          // échoue de la même façon : on ne montre que le détail (après le premier " : "),
-          // dédupliqué, avec le nombre total d'échecs.
-          const details = [...new Set(result.errors.map((e) => e.split(" : ").slice(1).join(" : ") || e))]
-          toast.error(`${result.errors.length} échec(s) — ${details[0]}${details.length > 1 ? ` (+${details.length - 1} autre(s) type(s) d'erreur)` : ""}`)
-        }
+  const handleCrossSeed = (scope: CrossSeedSearchScope = "episode") => {
+    crossSeed.mutate(
+      { id: mediaId, scope },
+      {
+        onSuccess: (result) => {
+          if (result.triggered > 0) {
+            toast.success(`Recherche cross-seed déclenchée (${result.triggered}).`)
+          }
+          if (result.errors.length > 0) {
+            // Un message par fichier/torrent noierait l'écran dès qu'une série entière
+            // échoue de la même façon : on ne montre que le détail (après le premier " : "),
+            // dédupliqué, avec le nombre total d'échecs.
+            const details = [...new Set(result.errors.map((e) => e.split(" : ").slice(1).join(" : ") || e))]
+            toast.error(`${result.errors.length} échec(s) — ${details[0]}${details.length > 1 ? ` (+${details.length - 1} autre(s) type(s) d'erreur)` : ""}`)
+          }
+        },
+        onError: (err) => toast.error(err instanceof Error ? err.message : "Échec de la recherche cross-seed."),
       },
-      onError: (err) => toast.error(err instanceof Error ? err.message : "Échec de la recherche cross-seed."),
-    })
+    )
   }
 
   return (
@@ -199,12 +204,28 @@ export function MediaDetailPage() {
           )}
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {settings?.cross_seed.enabled && (media.torrents.length > 0 || media.files.length > 0) && (
-              <Button type="button" variant="secondary" disabled={crossSeed.isPending} onClick={handleCrossSeed}>
-                {crossSeed.isPending ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
-                Chercher un cross-seed
-              </Button>
-            )}
+            {settings?.cross_seed.enabled &&
+              (media.torrents.length > 0 || media.files.length > 0) &&
+              (media.media_type === "series" ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger render={<Button type="button" variant="secondary" disabled={crossSeed.isPending} />}>
+                    {crossSeed.isPending ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+                    Chercher un cross-seed
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => handleCrossSeed("episode")}>
+                      Par épisode
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleCrossSeed("season")}>Par saison</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleCrossSeed("series")}>Série intégrale</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button type="button" variant="secondary" disabled={crossSeed.isPending} onClick={() => handleCrossSeed("episode")}>
+                  {crossSeed.isPending ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+                  Chercher un cross-seed
+                </Button>
+              ))}
             {media.torrents.some((t) => t.is_hardlinked === false && t.repairable) && (
               <HardlinkRepairDialog mediaId={media.id} />
             )}

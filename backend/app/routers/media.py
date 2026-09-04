@@ -24,7 +24,8 @@ from app.schemas.media import (
     TorrentRead,
     TrackerRead,
 )
-from app.services.cascade_delete import build_delete_preview, execute_delete, trigger_cross_seed_search
+from app.services.cascade_delete import build_delete_preview, execute_delete
+from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
 
 router = APIRouter()
@@ -152,16 +153,22 @@ async def delete_execute(media_id: int, session: Session = Depends(get_session))
 
 
 @router.post("/{media_id}/cross-seed-search", response_model=CrossSeedSearchResult)
-async def cross_seed_search(media_id: int, session: Session = Depends(get_session)) -> CrossSeedSearchResult:
+async def cross_seed_search(
+    media_id: int,
+    scope: str = Query("episode", description="episode | season | series (season/series : séries uniquement)"),
+    session: Session = Depends(get_session),
+) -> CrossSeedSearchResult:
     media = session.get(Media, media_id)
     if media is None:
         raise HTTPException(404, "Média introuvable.")
+    if scope not in ("episode", "season", "series"):
+        raise HTTPException(400, "scope invalide : episode | season | series.")
     settings = session.get(Settings, 1)
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media_id)).all()
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all()
-    return await trigger_cross_seed_search(settings, [t.hash for t in torrents], [f.path for f in files])
+    return await trigger_cross_seed_search(settings, [t.hash for t in torrents], list(files), scope=scope)
 
 
 @router.post("/{media_id}/hardlink-repair/preview", response_model=HardlinkRepairPreview)

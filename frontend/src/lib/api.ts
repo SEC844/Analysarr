@@ -91,8 +91,10 @@ export function deleteExecute(id: number): Promise<DeleteExecuteResult> {
   return request<DeleteExecuteResult>(`/api/media/${id}/delete/execute`, { method: "POST" })
 }
 
-export function crossSeedSearch(id: number): Promise<CrossSeedSearchResult> {
-  return request<CrossSeedSearchResult>(`/api/media/${id}/cross-seed-search`, { method: "POST" })
+export type CrossSeedSearchScope = "episode" | "season" | "series"
+
+export function crossSeedSearch(id: number, scope: CrossSeedSearchScope = "episode"): Promise<CrossSeedSearchResult> {
+  return request<CrossSeedSearchResult>(`/api/media/${id}/cross-seed-search?scope=${scope}`, { method: "POST" })
 }
 
 export function hardlinkRepairPreview(id: number): Promise<HardlinkRepairPreview> {

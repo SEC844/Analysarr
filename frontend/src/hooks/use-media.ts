@@ -8,6 +8,7 @@ import {
   hardlinkRepairExecute,
   hardlinkRepairPreview,
   listMedia,
+  type CrossSeedSearchScope,
 } from "@/lib/api"
 import type { MediaListParams } from "@/types/media"
 
@@ -41,7 +42,9 @@ export function useDeleteExecuteMutation() {
 }
 
 export function useCrossSeedSearchMutation() {
-  return useMutation({ mutationFn: (id: number) => crossSeedSearch(id) })
+  return useMutation({
+    mutationFn: ({ id, scope }: { id: number; scope?: CrossSeedSearchScope }) => crossSeedSearch(id, scope),
+  })
 }
 
 export function useHardlinkRepairPreviewMutation() {

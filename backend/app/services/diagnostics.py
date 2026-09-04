@@ -130,6 +130,28 @@ async def debug_torrents(settings: Settings, name_contains: str) -> list[Torrent
     return results
 
 
+async def debug_emby_movies(settings: Settings, title_contains: str) -> list[EmbyFileDebug]:
+    """Détaille, pour les films Emby dont le titre contient `title_contains`,
+    le chemin et l'inode/device réels du fichier — pour comparer directement
+    contre ceux calculés par debug_torrents() et déterminer si un torrent
+    donné est vraiment sur le même système de fichiers que la bibliothèque
+    (`device` identique) ou non, sans deviner."""
+    needle = title_contains.lower()
+    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+    movies = await emby.get_library_items("Movie")
+    matches = [m for m in movies if needle in m.get("Name", "").lower()][:MAX_SERIES_MATCHES]
+
+    results: list[EmbyFileDebug] = []
+    for movie in matches:
+        for source in _media_sources(movie):
+            path = source.get("Path")
+            if not path:
+                continue
+            results.append(EmbyFileDebug(item_name=movie.get("Name", "?"), episode_label=None, stat=_stat_path(path)))
+
+    return results
+
+
 async def debug_emby_series_files(settings: Settings, title_contains: str) -> list[EmbyFileDebug]:
     """Détaille, pour les séries Emby dont le titre contient `title_contains`,
     le chemin et l'inode réels de chaque fichier d'épisode — pour comparer

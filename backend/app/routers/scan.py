@@ -12,7 +12,7 @@ from app.models.settings import Settings
 from app.clients.qbittorrent import QbittorrentAuthError
 from app.schemas.diagnostics import DiagnosticsResult, EmbyFileDebug, TorrentDebug
 from app.schemas.media import ScanRunRead
-from app.services.diagnostics import debug_emby_series_files, debug_torrents, run_diagnostics
+from app.services.diagnostics import debug_emby_movies, debug_emby_series_files, debug_torrents, run_diagnostics
 from app.services.events import scan_events
 from app.services.scan import is_scan_running, run_scan
 
@@ -109,3 +109,17 @@ async def scan_debug_emby_series(
     if settings is None or not (settings.emby_url and settings.emby_api_key):
         raise HTTPException(400, "Emby non configuré.")
     return await debug_emby_series_files(settings, title_contains)
+
+
+@router.get("/debug/emby-movies", response_model=list[EmbyFileDebug])
+async def scan_debug_emby_movies(
+    title_contains: str, session: Session = Depends(get_session)
+) -> list[EmbyFileDebug]:
+    """Diagnostic ponctuel : détaille le chemin et l'inode/device réels du
+    fichier pour les films Emby dont le titre contient `title_contains`. À
+    comparer avec /debug/torrents pour vérifier si un torrent est vraiment
+    sur le même système de fichiers que la bibliothèque (device identique)."""
+    settings = session.get(Settings, 1)
+    if settings is None or not (settings.emby_url and settings.emby_api_key):
+        raise HTTPException(400, "Emby non configuré.")
+    return await debug_emby_movies(settings, title_contains)
