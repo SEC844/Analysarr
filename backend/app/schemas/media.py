@@ -26,6 +26,7 @@ class TorrentRead(BaseModel):
     size: Optional[int]
     is_hardlinked: Optional[bool]
     matched_by_name: bool
+    repairable: bool
     ratio: Optional[float]
     seeders: Optional[int]
     leechers: Optional[int]

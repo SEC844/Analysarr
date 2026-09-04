@@ -47,9 +47,8 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
         <DialogHeader>
           <DialogTitle>Réparation des hardlinks</DialogTitle>
           <DialogDescription>
-            Pour chaque fichier concerné : supprime la copie actuellement suivie par la bibliothèque (non protégée)
-            et la remplace par un hardlink vers le fichier du torrent qBittorrent correspondant, qui devient alors
-            la seule copie sur le disque.
+            Confirmez pour réparer automatiquement chaque fichier ci-dessous : la copie non protégée est remplacée
+            par un hardlink vers le fichier du torrent — aucune étape manuelle à faire.
           </DialogDescription>
         </DialogHeader>
 

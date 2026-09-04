@@ -39,6 +39,7 @@ export interface TorrentRead {
   size: number | null
   is_hardlinked: boolean | null
   matched_by_name: boolean
+  repairable: boolean
   ratio: number | null
   seeders: number | null
   leechers: number | null

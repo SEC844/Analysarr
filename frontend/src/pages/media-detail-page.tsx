@@ -1,5 +1,17 @@
+import { useState, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowLeft, CheckCircle2, Clapperboard, HardDriveDownload, Link2, Loader2, Search, Tv, XCircle } from "lucide-react"
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  Clapperboard,
+  HardDriveDownload,
+  Link2,
+  Loader2,
+  Search,
+  Tv,
+  XCircle,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
@@ -13,6 +25,95 @@ import { useCrossSeedSearchMutation, useMediaDetailQuery } from "@/hooks/use-med
 import { useSettingsQuery } from "@/hooks/use-settings"
 import { posterUrl } from "@/lib/api"
 import { formatBytes, formatDate, formatRatio } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import type { MediaFileRead } from "@/types/media"
+
+// Section repliable au niveau carte (fichiers Emby / torrents qBittorrent) —
+// fermée par défaut pour ne pas noyer la fiche sous une série à 177 épisodes.
+function CollapsibleCard({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: ReactNode
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <Card className="mt-6 first:mt-8">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="w-full text-left" aria-expanded={open}>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>{title}</CardTitle>
+          <ChevronDown className={cn("text-muted-foreground size-4 shrink-0 transition-transform", open && "rotate-180")} />
+        </CardHeader>
+      </button>
+      {open && <CardContent>{children}</CardContent>}
+    </Card>
+  )
+}
+
+// Sous-section par saison, à l'intérieur de la carte "Fichiers Emby" — plus
+// discrète (pas de carte imbriquée), fermée par défaut elle aussi.
+function SeasonGroup({ title, children }: { title: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border-border border-b last:border-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 py-2 text-left text-sm font-medium"
+        aria-expanded={open}
+      >
+        {title}
+        <ChevronDown className={cn("text-muted-foreground size-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && <ul className="divide-border divide-y pb-2 text-sm">{children}</ul>}
+    </div>
+  )
+}
+
+function seasonLabel(episodeLabel: string | null): string | null {
+  const match = episodeLabel?.match(/^S(\d+)/)
+  return match ? `Saison ${parseInt(match[1], 10)}` : null
+}
+
+function groupBySeason(files: MediaFileRead[]): { season: string; season_number: number; files: MediaFileRead[] }[] {
+  const groups = new Map<string, { season_number: number; files: MediaFileRead[] }>()
+  for (const f of files) {
+    const label = seasonLabel(f.episode_label)
+    const key = label ?? "Autres fichiers"
+    const number = label ? parseInt(label.replace(/\D/g, ""), 10) : Number.MAX_SAFE_INTEGER
+    if (!groups.has(key)) groups.set(key, { season_number: number, files: [] })
+    groups.get(key)!.files.push(f)
+  }
+  return [...groups.entries()]
+    .map(([season, g]) => ({ season, season_number: g.season_number, files: g.files }))
+    .sort((a, b) => a.season_number - b.season_number)
+}
+
+function FileRow({ f }: { f: MediaFileRead }) {
+  return (
+    <li className="flex items-start justify-between gap-3 py-2">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          {f.episode_label && (
+            <Badge variant="outline" className="shrink-0">
+              {f.episode_label}
+            </Badge>
+          )}
+          {f.is_current && (
+            <Badge variant="outline" className="shrink-0 border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              Fichier actuel
+            </Badge>
+          )}
+        </div>
+        <p className="mt-1 break-all">{f.path}</p>
+      </div>
+      <span className="text-muted-foreground shrink-0">{formatBytes(f.size)}</span>
+    </li>
+  )
+}
 
 export function MediaDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -104,7 +205,7 @@ export function MediaDetailPage() {
                 Chercher un cross-seed
               </Button>
             )}
-            {media.torrents.some((t) => t.is_hardlinked === false && t.matched_by_name) && (
+            {media.torrents.some((t) => t.is_hardlinked === false && t.repairable) && (
               <HardlinkRepairDialog mediaId={media.id} />
             )}
             <DeleteCascadeDialog mediaId={media.id} />
@@ -112,108 +213,89 @@ export function MediaDetailPage() {
         </div>
       </div>
 
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle>Fichiers Emby ({media.files.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {media.files.length === 0 ? (
-            <p className="text-muted-foreground text-sm">Aucun fichier trouvé dans Emby pour ce média.</p>
-          ) : (
-            <ul className="divide-border divide-y text-sm">
-              {media.files.map((f) => (
-                <li key={f.id} className="flex items-start justify-between gap-3 py-2">
+      <CollapsibleCard title={`Fichiers Emby (${media.files.length})`}>
+        {media.files.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Aucun fichier trouvé dans Emby pour ce média.</p>
+        ) : media.media_type === "series" ? (
+          groupBySeason(media.files).map((group) => (
+            <SeasonGroup key={group.season} title={`${group.season} (${group.files.length})`}>
+              {group.files.map((f) => (
+                <FileRow key={f.id} f={f} />
+              ))}
+            </SeasonGroup>
+          ))
+        ) : (
+          <ul className="divide-border divide-y text-sm">
+            {media.files.map((f) => (
+              <FileRow key={f.id} f={f} />
+            ))}
+          </ul>
+        )}
+      </CollapsibleCard>
+
+      <CollapsibleCard title={`Torrents qBittorrent (${media.torrents.length})`}>
+        {media.torrents.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Aucun torrent associé à ce média.</p>
+        ) : (
+          <ul className="divide-border divide-y text-sm">
+            {media.torrents.map((t) => (
+              <li key={t.id} className="space-y-2 py-3">
+                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      {f.episode_label && (
-                        <Badge variant="outline" className="shrink-0">
-                          {f.episode_label}
-                        </Badge>
-                      )}
-                      {f.is_current && (
-                        <Badge variant="outline" className="shrink-0 border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                          Fichier actuel
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="mt-1 break-all">{f.path}</p>
+                    <p className="break-all font-medium">{t.name}</p>
+                    <p className="text-muted-foreground break-all text-xs">{t.content_path ?? t.save_path}</p>
                   </div>
-                  <span className="text-muted-foreground shrink-0">{formatBytes(f.size)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                  <span className="text-muted-foreground shrink-0">{formatBytes(t.size)}</span>
+                </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Torrents qBittorrent ({media.torrents.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {media.torrents.length === 0 ? (
-            <p className="text-muted-foreground text-sm">Aucun torrent associé à ce média.</p>
-          ) : (
-            <ul className="divide-border divide-y text-sm">
-              {media.torrents.map((t) => (
-                <li key={t.id} className="space-y-2 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="break-all font-medium">{t.name}</p>
-                      <p className="text-muted-foreground break-all text-xs">{t.content_path ?? t.save_path}</p>
-                    </div>
-                    <span className="text-muted-foreground shrink-0">{formatBytes(t.size)}</span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {t.is_hardlinked === true && (
-                      <Badge variant="outline" className="border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                        <CheckCircle2 className="size-3" /> Protégé (hardlink)
-                      </Badge>
-                    )}
-                    {t.is_hardlinked === false && t.matched_by_name && (
-                      <Badge
-                        variant="outline"
-                        className="border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                        title="Même contenu que la bibliothèque, mais pas hardlinké — réparable"
-                      >
-                        <Link2 className="size-3" /> Non hardlink
-                      </Badge>
-                    )}
-                    {t.is_hardlinked === false && !t.matched_by_name && (
-                      <Badge variant="outline" className="border-transparent bg-destructive/10 text-destructive">
-                        <XCircle className="size-3" /> Orphelin
-                      </Badge>
-                    )}
-                    {t.is_hardlinked === null && (
-                      <Badge variant="outline">
-                        <HardDriveDownload className="size-3" /> Non évalué
-                      </Badge>
-                    )}
-                    {t.trackers.map((tr, i) => (
-                      <Badge key={i} variant="secondary">
-                        {tr.domain} · {tr.status}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  {(t.seeders !== null || t.leechers !== null || t.ratio !== null || t.completed_on) && (
-                    <p className="text-muted-foreground text-xs">
-                      {t.seeders !== null && t.leechers !== null && (
-                        <>
-                          {t.seeders} seeder{t.seeders > 1 ? "s" : ""} · {t.leechers} leecher{t.leechers > 1 ? "s" : ""}
-                        </>
-                      )}
-                      {t.ratio !== null && <> · Ratio {formatRatio(t.ratio)}</>}
-                      {formatDate(t.completed_on) && <> · Seedé depuis le {formatDate(t.completed_on)}</>}
-                    </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {t.is_hardlinked === true && (
+                    <Badge variant="outline" className="border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="size-3" /> Protégé (hardlink)
+                    </Badge>
                   )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                  {t.is_hardlinked === false && t.repairable && (
+                    <Badge
+                      variant="outline"
+                      className="border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                      title="Même contenu que la bibliothèque, mais pas hardlinké — réparable"
+                    >
+                      <Link2 className="size-3" /> Non hardlink
+                    </Badge>
+                  )}
+                  {t.is_hardlinked === false && !t.repairable && (
+                    <Badge variant="outline" className="border-transparent bg-destructive/10 text-destructive">
+                      <XCircle className="size-3" /> Orphelin
+                    </Badge>
+                  )}
+                  {t.is_hardlinked === null && (
+                    <Badge variant="outline">
+                      <HardDriveDownload className="size-3" /> Non évalué
+                    </Badge>
+                  )}
+                  {t.trackers.map((tr, i) => (
+                    <Badge key={i} variant="secondary">
+                      {tr.domain} · {tr.status}
+                    </Badge>
+                  ))}
+                </div>
+
+                {(t.seeders !== null || t.leechers !== null || t.ratio !== null || t.completed_on) && (
+                  <p className="text-muted-foreground text-xs">
+                    {t.seeders !== null && t.leechers !== null && (
+                      <>
+                        {t.seeders} seeder{t.seeders > 1 ? "s" : ""} · {t.leechers} leecher{t.leechers > 1 ? "s" : ""}
+                      </>
+                    )}
+                    {t.ratio !== null && <> · Ratio {formatRatio(t.ratio)}</>}
+                    {formatDate(t.completed_on) && <> · Seedé depuis le {formatDate(t.completed_on)}</>}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CollapsibleCard>
     </div>
   )
 }

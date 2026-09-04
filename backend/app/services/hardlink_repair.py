@@ -1,10 +1,9 @@
 import os
-import re
 
 from sqlmodel import Session, select
 
 from app.clients.qbittorrent import QbittorrentClient
-from app.models.media import Media, MediaFile, Torrent
+from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
     HardlinkRepairItem,
@@ -12,16 +11,7 @@ from app.schemas.media import (
     HardlinkRepairResult,
     HardlinkRepairStepResult,
 )
-from app.services.hardlink import stat_inode
-
-_EPISODE_PATTERN = re.compile(r"s(\d{1,2})e(\d{1,3})", re.IGNORECASE)
-
-
-def _episode_label_from_filename(name: str) -> str | None:
-    match = _EPISODE_PATTERN.search(name)
-    if not match:
-        return None
-    return f"S{int(match.group(1)):02d}E{int(match.group(2)):02d}"
+from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 
 
 async def _resolve_torrent_files(qbit: QbittorrentClient, torrent: Torrent) -> list[tuple[str, int | None]]:
@@ -48,84 +38,68 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     tente d'apparier un de ses fichiers avec le fichier actuellement suivi par
     Emby/Sonarr/Radarr pour le même épisode (ou, pour un film, le fichier
     unique) — la paire que `execute_repair` remplacera par un hardlink."""
-    current_files = session.exec(
-        select(MediaFile).where(MediaFile.media_id == media.id, MediaFile.is_current == True)  # noqa: E712
-    ).all()
-    # Seuls les torrents rattachés par similarité de titre (matched_by_name)
-    # sont éligibles : jamais vus par Sonarr/Radarr, ils ne peuvent pas être
-    # une ancienne version remplacée par un upgrade (auquel cas l'historique
-    # les aurait rattachés) — c'est la même série/le même film, juste jamais
-    # hardlinké. Un vrai orphelin (matched_by_name=False) n'est pas réparable :
-    # il concerne un fichier qui n'est plus du tout celui suivi par la
-    # bibliothèque, le proposer ici remplacerait le bon fichier par le mauvais.
+    all_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
+    # Seuls les torrents "repairable" sont éligibles : leur contenu (même
+    # épisode/média, même taille en octets) a déjà été vérifié identique à un
+    # fichier actuellement suivi par la bibliothèque au moment du scan (voir
+    # compute_statuses/_collect dans scan.py) — un vrai orphelin (contenu
+    # différent, ex : ancienne qualité remplacée par un upgrade) n'est pas
+    # réparable : le proposer ici remplacerait le bon fichier par le mauvais.
     orphan_torrents = session.exec(
         select(Torrent).where(
             Torrent.media_id == media.id,
             Torrent.is_hardlinked == False,  # noqa: E712
-            Torrent.matched_by_name == True,  # noqa: E712
+            Torrent.repairable == True,  # noqa: E712
         )
     ).all()
 
-    if not orphan_torrents or not current_files:
+    by_episode, current_single = resolve_current_files(list(all_files), media.media_type)
+    if not orphan_torrents or (not by_episode and current_single is None):
         return HardlinkRepairPreview(items=[], unmatched_torrents=[t.name for t in orphan_torrents])
 
     items: list[HardlinkRepairItem] = []
     matched_torrent_ids: set[int] = set()
 
     async with QbittorrentClient(settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password) as qbit:
-        by_episode: dict[str, tuple[Torrent, str, int | None]] = {}
-        single_file_by_torrent: dict[int, tuple[str, int | None]] = {}
-        resolvable_torrents: set[int] = set()
-
         for t in orphan_torrents:
             torrent_files = await _resolve_torrent_files(qbit, t)
             existing = [(p, size) for p, size in torrent_files if os.path.isfile(p)]
             if not existing:
                 continue
-            resolvable_torrents.add(t.id)
-            if len(existing) == 1:
-                single_file_by_torrent[t.id] = existing[0]
+
             for path, size in existing:
-                label = _episode_label_from_filename(os.path.basename(path))
-                if label and label not in by_episode:
-                    by_episode[label] = (t, path, size)
+                if media.media_type == MediaType.series:
+                    label = episode_label_from_filename(os.path.basename(path))
+                    current = by_episode.get(label) if label else None
+                else:
+                    current = current_single
 
-        for f in current_files:
-            if f.episode_label:
-                match = by_episode.get(f.episode_label)
-                if not match:
+                # Même vérification de contenu qu'au scan (même taille en
+                # octets) : une source différente entre-temps (torrent modifié,
+                # fichier remplacé) ne doit pas produire une réparation erronée.
+                if current is None or size is None or current.size != size:
                     continue
-                torrent, torrent_path, size = match
-            elif len(current_files) == 1 and len(orphan_torrents) == 1:
-                # Film : un seul fichier actuel, un seul torrent orphelin candidat —
-                # apparié seulement si ce torrent n'a qu'un seul fichier, pour ne
-                # pas deviner lequel correspond parmi d'éventuels extras/bonus.
-                single = single_file_by_torrent.get(orphan_torrents[0].id)
-                if not single:
-                    continue
-                torrent = orphan_torrents[0]
-                torrent_path, size = single
-            else:
-                continue
 
-            current_inode = stat_inode(f.path)
-            torrent_inode = stat_inode(torrent_path)
-            if current_inode is not None and current_inode == torrent_inode:
-                continue  # déjà hardlinké (sécurité, ne devrait pas arriver ici)
+                current_inode = stat_inode(current.path)
+                torrent_inode = stat_inode(path)
+                if current_inode is not None and current_inode == torrent_inode:
+                    continue  # déjà hardlinké (sécurité, ne devrait pas arriver ici)
 
-            items.append(
-                HardlinkRepairItem(
-                    media_file_id=f.id,
-                    episode_label=f.episode_label,
-                    current_path=f.path,
-                    current_exists=current_inode is not None,
-                    torrent_id=torrent.id,
-                    torrent_name=torrent.name,
-                    torrent_file_path=torrent_path,
-                    size=size,
+                items.append(
+                    HardlinkRepairItem(
+                        media_file_id=current.id,
+                        episode_label=current.episode_label,
+                        current_path=current.path,
+                        current_exists=current_inode is not None,
+                        torrent_id=t.id,
+                        torrent_name=t.name,
+                        torrent_file_path=path,
+                        size=size,
+                    )
                 )
-            )
-            matched_torrent_ids.add(torrent.id)
+                matched_torrent_ids.add(t.id)
+                if media.media_type == MediaType.movie:
+                    break  # un seul fichier actuel pour un film, inutile de continuer
 
     unmatched = [t.name for t in orphan_torrents if t.id not in matched_torrent_ids]
     return HardlinkRepairPreview(items=items, unmatched_torrents=unmatched)

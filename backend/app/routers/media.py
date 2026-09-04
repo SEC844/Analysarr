@@ -102,6 +102,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
                 size=t.size,
                 is_hardlinked=t.is_hardlinked,
                 matched_by_name=t.matched_by_name,
+                repairable=t.repairable,
                 ratio=t.ratio,
                 seeders=t.seeders,
                 leechers=t.leechers,

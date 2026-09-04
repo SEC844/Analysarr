@@ -91,7 +91,19 @@ class Torrent(SQLModel, table=True):
     # titre (ni inode, ni historique Sonarr/Radarr, ni chemin) — typiquement un
     # ajout manuel antérieur à la mise en place du hardlink sur le serveur.
     # Rattachement heuristique : is_hardlinked reste False pour ces torrents.
+    # (Purement informatif — voir `repairable` pour la classification réelle
+    # non hardlink vs orphelin, qui ne se fie pas à cette provenance.)
     matched_by_name: bool = False
+
+    # True si is_hardlinked=False MAIS qu'un fichier de ce torrent a le MÊME
+    # contenu qu'un fichier actuellement suivi par la bibliothèque (même
+    # épisode/même média, taille en octets identique) : c'est une copie non
+    # hardlinkée du fichier actuel, pas une ancienne version — réparable
+    # automatiquement. Ne dépend PAS de la façon dont le torrent a été
+    # rattaché (historique Sonarr/Radarr ou similarité de titre) : seul le
+    # contenu fait foi. False = torrent sans lien de contenu avec un fichier
+    # actuel (vrai orphelin, ex: ancienne qualité remplacée par un upgrade).
+    repairable: bool = False
 
     # Données qBittorrent affichées sur la fiche détail (ratio, popularité, ancienneté).
     ratio: Optional[float] = None

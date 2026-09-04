@@ -15,7 +15,7 @@ from app.database import engine
 from app.models.media import Media, MediaFile, MediaType, ScanRun, ScanStatus, Torrent
 from app.models.settings import Settings
 from app.services.events import scan_events
-from app.services.hardlink import stat_inode
+from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.trackers import extract_tracker_domain, status_label
 
 _scan_lock = asyncio.Lock()
@@ -393,23 +393,34 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
     # le dossier racine — comparer l'inode de ce dossier à celui d'un épisode
     # ne peut jamais correspondre. Il faut regarder chaque fichier du torrent.
     torrent_file_inodes: list[list[tuple[int, int]]] = []
+    # (nom de fichier, taille annoncée par qBittorrent) pour chaque fichier du
+    # torrent — sert à détecter, pour un torrent non hardlinké, s'il s'agit
+    # tout de même du même contenu qu'un fichier actuel (même épisode, même
+    # taille en octets) plutôt qu'une ancienne version : voir plus bas.
+    torrent_file_details: list[list[tuple[str, int | None]]] = []
     for t in torrents:
         content_path = t.get("content_path") or t.get("save_path")
         save_path = t.get("save_path")
 
-        file_paths: list[str] = []
+        file_entries: list[tuple[str, int | None]] = []
         files = files_by_hash.get(t["hash"], [])
         for f in files:
             rel = f.get("name")
             if rel and save_path:
-                file_paths.append(os.path.join(save_path, rel))
-        if not file_paths and content_path:
+                file_entries.append((os.path.join(save_path, rel), f.get("size")))
+        if not file_entries and content_path:
             # repli si l'API torrents/files a échoué ou n'a rien renvoyé
-            file_paths.append(content_path)
+            file_entries.append((content_path, t.get("size")))
 
-        resolved = [stat_inode(p) for p in file_paths]
-        resolved_inodes = [r for r in resolved if r is not None]
+        resolved_inodes: list[tuple[int, int]] = []
+        file_details: list[tuple[str, int | None]] = []
+        for path, size in file_entries:
+            inode = stat_inode(path)
+            if inode is not None:
+                resolved_inodes.append(inode)
+            file_details.append((os.path.basename(path), size))
         torrent_file_inodes.append(resolved_inodes)
+        torrent_file_details.append(file_details)
 
         first_inode = resolved_inodes[0] if resolved_inodes else None
 
@@ -539,6 +550,28 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
         if index is None:
             continue
         torrent_row.is_hardlinked = None if not torrent_file_inodes[pos] else protected[pos]
+
+        if torrent_row.is_hardlinked is False:
+            # Non hardlinké : vrai orphelin (ancienne version remplacée par un
+            # upgrade), ou simple copie non hardlinkée du fichier actuel (ex :
+            # ajout antérieur à la mise en place du hardlink sur le serveur) ?
+            # La provenance du rattachement (historique vs nom) ne le dit pas
+            # de façon fiable — seul le contenu fait foi : même épisode/même
+            # média ET même taille en octets qu'un fichier actuellement suivi
+            # par la bibliothèque = quasi certainement le même fichier.
+            by_episode, current_single = resolve_current_files(results[index].files, results[index].media.media_type)
+            for name, size in torrent_file_details[pos]:
+                if size is None:
+                    continue
+                if results[index].media.media_type == MediaType.series:
+                    label = episode_label_from_filename(name)
+                    current = by_episode.get(label) if label else None
+                else:
+                    current = current_single
+                if current is not None and current.size == size:
+                    torrent_row.repairable = True
+                    break
+
         results[index].torrents.append(torrent_row)
 
     # --- Calcul des statuts -------------------------------------------
@@ -569,14 +602,11 @@ def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_i
             sizes = sorted((f.size or 0 for f in group_files), reverse=True)
             reclaimable += sum(sizes[1:])
 
-    # Un torrent rattaché seulement par similarité de titre (matched_by_name)
-    # n'a jamais été vu par Sonarr/Radarr : il ne peut donc pas s'agir d'une
-    # ancienne version remplacée par un upgrade (ils l'auraient alors rattaché
-    # via l'historique). C'est en réalité la MÊME série/le même film que celui
-    # suivi par la bibliothèque, simplement jamais hardlinké (ex : ajout
-    # manuel antérieur à la mise en place du hardlink sur le serveur) — pas un
-    # vrai orphelin à supprimer, mais un candidat à la réparation de hardlink.
-    orphan_torrents = [t for t in torrents if t.is_hardlinked is False and not t.matched_by_name]
+    # Un torrent "repairable" a le même contenu (même épisode/média, même
+    # taille en octets) qu'un fichier actuellement suivi par la bibliothèque,
+    # juste non hardlinké — pas un vrai orphelin à supprimer, mais un
+    # candidat à la réparation de hardlink (voir _collect ci-dessus).
+    orphan_torrents = [t for t in torrents if t.is_hardlinked is False and not t.repairable]
     if orphan_torrents:
         statuses.add("orphelin_qbit")
         # Plusieurs torrents orphelins peuvent être des copies cross-seed d'une
