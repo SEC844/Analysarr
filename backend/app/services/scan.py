@@ -27,6 +27,12 @@ class MediaBuildResult:
     files: list[MediaFile] = field(default_factory=list)
     torrents: list[Torrent] = field(default_factory=list)
     root_path: str | None = None
+    # Titres alternatifs (titre original Radarr, alternateTitles Radarr/Sonarr)
+    # — utilisés par la passe 3 de rattachement par nom (voir plus bas) : un
+    # torrent nommé d'après le titre original anglais ("Vantage Point") doit
+    # matcher un média dont Radarr affiche le titre localisé ("Angles
+    # d'attaque"), pas seulement le titre principal.
+    alt_titles: list[str] = field(default_factory=list)
 
 
 def is_scan_running() -> bool:
@@ -96,6 +102,7 @@ _RELEASE_TAG_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SEASON_EPISODE_PATTERN = re.compile(r"\bs\d{1,2}(e\d{1,3})?\b", re.IGNORECASE)
+_YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 
 def _normalize_words(text: str) -> list[str]:
@@ -262,7 +269,13 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             tmdb_id=movie.get("tmdbId"),
             imdb_id=movie.get("imdbId"),
         )
-        result = MediaBuildResult(media=media, root_path=movie.get("path"))
+        alt_titles = [movie.get("originalTitle")]
+        alt_titles += [a.get("title") for a in movie.get("alternateTitles") or []]
+        result = MediaBuildResult(
+            media=media,
+            root_path=movie.get("path"),
+            alt_titles=[t for t in alt_titles if t and t != media.title],
+        )
 
         current_path = (movie.get("movieFile") or {}).get("path")
 
@@ -297,7 +310,12 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             sonarr_id=series.get("id"),
             tvdb_id=series.get("tvdbId"),
         )
-        result = MediaBuildResult(media=media, root_path=series.get("path"))
+        alt_titles = [a.get("title") for a in series.get("alternateTitles") or []]
+        result = MediaBuildResult(
+            media=media,
+            root_path=series.get("path"),
+            alt_titles=[t for t in alt_titles if t and t != media.title],
+        )
 
         tvdb_key = str(series.get("tvdbId")) if series.get("tvdbId") else None
         emby_item = emby_series_by_tvdb.get(tvdb_key) if tvdb_key else None
@@ -523,7 +541,16 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
     # la bonne fiche, avec une action de réparation possible.
     still_unresolved = [pos for pos in unresolved if indices[pos] is None]
     if still_unresolved:
-        media_titles = [(i, _normalize_words(r.media.title)) for i, r in enumerate(results) if r.media.title]
+        # Titre principal ET titres alternatifs (titre original Radarr,
+        # alternateTitles Radarr/Sonarr) : un torrent nommé d'après le titre
+        # original anglais ("Vantage Point") doit pouvoir matcher un média
+        # dont Radarr affiche le titre localisé ("Angles d'attaque").
+        media_titles: list[tuple[int, list[str]]] = []
+        for i, r in enumerate(results):
+            if r.media.title:
+                media_titles.append((i, _normalize_words(r.media.title)))
+            for alt in r.alt_titles:
+                media_titles.append((i, _normalize_words(alt)))
         for pos in still_unresolved:
             release_words = _normalize_release_words(torrent_rows[pos].name)
             if not release_words:
@@ -534,10 +561,18 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                 if n == 0 or n > len(release_words) or release_words[:n] != title_words:
                     continue
                 media = results[i].media
-                if media.media_type == MediaType.movie and (
-                    not media.year or str(media.year) not in torrent_rows[pos].name
-                ):
-                    continue  # titre de film trop générique sans confirmation par l'année
+                if media.media_type == MediaType.movie and media.year:
+                    # Un titre de film court/générique ("Dune", "Avatar") peut
+                    # préfixer aussi bien le film que sa suite/son remake — si
+                    # UNE année apparaît dans le nom du torrent, elle doit
+                    # correspondre à celle du média. Si le nom n'en contient
+                    # aucune (fréquent, ex: "Vantage.Point.1080p...-FHD"), on
+                    # ne peut simplement pas trancher par l'année : le titre
+                    # (éventuellement un titre alternatif, voir alt_titles)
+                    # fait alors seul foi.
+                    year_in_name = _YEAR_PATTERN.search(torrent_rows[pos].name)
+                    if year_in_name and int(year_in_name.group(1)) != media.year:
+                        continue
                 if best is None or n > best[0]:
                     best = (n, i)
             if best is not None:
