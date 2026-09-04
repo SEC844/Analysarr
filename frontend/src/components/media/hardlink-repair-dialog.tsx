@@ -61,42 +61,45 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
             )}
 
             {preview && preview.items.length === 0 && (
-              <p className="text-muted-foreground py-4 text-sm">
-                Rien à réparer pour ce média.
-                {preview.unmatched_torrents.length > 0 && (
-                  <>
-                    {" "}
-                    ({preview.unmatched_torrents.length} torrent(s) orphelin(s) sans fichier correspondant trouvé
-                    avec certitude.)
-                  </>
-                )}
-              </p>
+              <p className="text-muted-foreground py-4 text-sm">Rien à réparer automatiquement pour ce média.</p>
             )}
 
             {preview && preview.items.length > 0 && (
-              <div className="space-y-2">
-                <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
-                  {preview.items.map((item) => (
-                    <li
-                      key={item.media_file_id}
-                      className="border-border flex items-start justify-between gap-2 border-b py-1.5 last:border-0"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-muted-foreground text-xs">
-                          {item.episode_label ?? "Fichier"} — depuis {item.torrent_name}
-                        </p>
-                        <p className="break-all">{item.current_path}</p>
-                      </div>
-                      <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(item.size)}</span>
-                    </li>
-                  ))}
-                </ul>
-                {preview.unmatched_torrents.length > 0 && (
-                  <p className="text-muted-foreground text-xs">
-                    {preview.unmatched_torrents.length} torrent(s) orphelin(s) non réparable(s) automatiquement.
-                  </p>
-                )}
-              </div>
+              <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
+                {preview.items.map((item) => (
+                  <li
+                    key={item.media_file_id}
+                    className="border-border flex items-start justify-between gap-2 border-b py-1.5 last:border-0"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-muted-foreground text-xs">
+                        {item.episode_label ?? "Fichier"} — depuis {item.torrent_name}
+                      </p>
+                      <p className="break-all">{item.current_path}</p>
+                    </div>
+                    <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(item.size)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {preview && preview.already_protected_torrents.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                Déjà protégé(s) par un autre torrent hardlinké, rien à faire :{" "}
+                {preview.already_protected_torrents.join(", ")}
+              </p>
+            )}
+            {preview && preview.cross_filesystem_torrents.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                Même contenu, mais sur un disque différent de la bibliothèque — hardlink physiquement impossible
+                (nécessite de revoir le montage du dossier de téléchargement) :{" "}
+                {preview.cross_filesystem_torrents.join(", ")}
+              </p>
+            )}
+            {preview && preview.unmatched_torrents.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                Sans fichier correspondant trouvé avec certitude : {preview.unmatched_torrents.join(", ")}
+              </p>
             )}
           </>
         )}

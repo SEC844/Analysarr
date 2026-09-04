@@ -38,7 +38,23 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     """Pour chaque torrent orphelin (is_hardlinked=False) rattaché à ce média,
     tente d'apparier un de ses fichiers avec le fichier actuellement suivi par
     Emby/Sonarr/Radarr pour le même épisode (ou, pour un film, le fichier
-    unique) — la paire que `execute_repair` remplacera par un hardlink."""
+    unique) — la paire que `execute_repair` remplacera par un hardlink.
+
+    Deux cas sont écartés des réparations proposées (mais toujours reportés,
+    pour transparence) :
+    - déjà protégé : un AUTRE torrent hardlink déjà ce fichier (groupe de
+      hardlinks valide, ex : plusieurs copies cross-seed d'un même film déjà
+      liées entre elles et à la bibliothèque). Le proposer ici romprait ce
+      hardlink fonctionnel pour le remplacer par un lien vers CE torrent —
+      aucun gain de protection, juste un risque pour rien.
+    - systèmes de fichiers différents : le contenu correspond bien, mais le
+      fichier du torrent et celui de la bibliothèque sont sur des disques/
+      montages distincts (`st_dev` différent). `os.link()` échoue toujours
+      avec EXDEV dans ce cas, quel que soit le sens du lien — ce n'est pas
+      un choix de code à inverser, c'est une limite du système de fichiers.
+      Seul un changement d'infrastructure (monter le dossier de
+      téléchargement sur le même disque que la bibliothèque) peut le
+      résoudre ; inutile de tenter et d'échouer à chaque fois."""
     all_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     # Seuls les torrents "repairable" sont éligibles : leur contenu (même
     # épisode/média, même taille en octets) a déjà été vérifié identique à un
@@ -53,13 +69,24 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
             Torrent.repairable == True,  # noqa: E712
         )
     ).all()
+    protected_torrents = session.exec(
+        select(Torrent).where(Torrent.media_id == media.id, Torrent.is_hardlinked == True)  # noqa: E712
+    ).all()
+    protected_inodes = {(t.inode, t.device) for t in protected_torrents if t.inode is not None and t.device is not None}
 
     by_episode, current_single = resolve_current_files(list(all_files), media.media_type)
     if not orphan_torrents or (not by_episode and current_single is None):
-        return HardlinkRepairPreview(items=[], unmatched_torrents=[t.name for t in orphan_torrents])
+        return HardlinkRepairPreview(
+            items=[],
+            unmatched_torrents=[t.name for t in orphan_torrents],
+            already_protected_torrents=[],
+            cross_filesystem_torrents=[],
+        )
 
     items: list[HardlinkRepairItem] = []
     matched_torrent_ids: set[int] = set()
+    already_protected: list[str] = []
+    cross_filesystem: list[str] = []
 
     async with QbittorrentClient(settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password) as qbit:
         for t in orphan_torrents:
@@ -82,9 +109,20 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
                     continue
 
                 current_inode = stat_inode(current.path)
+
+                if current_inode is not None and current_inode in protected_inodes:
+                    if t.name not in already_protected:
+                        already_protected.append(t.name)
+                    continue
+
                 torrent_inode = stat_inode(path)
                 if current_inode is not None and current_inode == torrent_inode:
                     continue  # déjà hardlinké (sécurité, ne devrait pas arriver ici)
+
+                if current_inode is not None and torrent_inode is not None and current_inode[1] != torrent_inode[1]:
+                    if t.name not in cross_filesystem:
+                        cross_filesystem.append(t.name)
+                    continue
 
                 items.append(
                     HardlinkRepairItem(
@@ -102,8 +140,17 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
                 if media.media_type == MediaType.movie:
                     break  # un seul fichier actuel pour un film, inutile de continuer
 
-    unmatched = [t.name for t in orphan_torrents if t.id not in matched_torrent_ids]
-    return HardlinkRepairPreview(items=items, unmatched_torrents=unmatched)
+    unmatched = [
+        t.name
+        for t in orphan_torrents
+        if t.id not in matched_torrent_ids and t.name not in already_protected and t.name not in cross_filesystem
+    ]
+    return HardlinkRepairPreview(
+        items=items,
+        unmatched_torrents=unmatched,
+        already_protected_torrents=already_protected,
+        cross_filesystem_torrents=cross_filesystem,
+    )
 
 
 def _relink(current_path: str, torrent_file_path: str) -> None:

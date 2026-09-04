@@ -97,6 +97,8 @@ export interface HardlinkRepairItem {
 export interface HardlinkRepairPreview {
   items: HardlinkRepairItem[]
   unmatched_torrents: string[]
+  already_protected_torrents: string[]
+  cross_filesystem_torrents: string[]
 }
 
 export interface HardlinkRepairStepResult {

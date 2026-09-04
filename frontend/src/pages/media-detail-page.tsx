@@ -126,7 +126,7 @@ export function MediaDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="mt-4 h-64 w-full" />
       </div>
@@ -135,7 +135,7 @@ export function MediaDetailPage() {
 
   if (isError || !media) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
         <p className="text-destructive">Média introuvable.</p>
       </div>
     )
@@ -167,7 +167,7 @@ export function MediaDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
       <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4">
         <ArrowLeft className="size-4" />
         Retour à la bibliothèque
