@@ -138,6 +138,8 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
           apiKey={form.cross_seed_api_key}
           onApiKeyChange={(v) => set("cross_seed_api_key", v)}
           apiKeySet={existing.cross_seed.api_key_set}
+          libraryPath={form.cross_seed_library_path}
+          onLibraryPathChange={(v) => set("cross_seed_library_path", v)}
         />
       )}
 
