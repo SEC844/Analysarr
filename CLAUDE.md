@@ -41,7 +41,8 @@ Pour chaque torrent qBittorrent lié à un média, afficher les trackers sur les
 - Historique des actions
 - Notifications (Discord/ntfy/Gotify)
 - Statut de connexion par service affiché en permanence
-- Taux de rattachement torrent → média affiché après chaque scan (torrents qBittorrent rattachés à un média connu / total) : un écart signale un problème de correspondance plutôt qu'une vraie absence de contenu
+- Taux de rattachement torrent → média affiché après chaque scan (torrents qBittorrent rattachés à un média connu / total) : un écart signale un problème de correspondance plutôt qu'une vraie absence de contenu. `GET /api/scan/debug/unmatched-torrents` liste concrètement les torrents non rattachés (hash + nom), plutôt que de se fier seulement au chiffre agrégé.
+- Diagnostic des chemins (Réglages → Chemins) : vérifie côté qBittorrent chaque fichier individuel du torrent (comme le scan lui-même), pas seulement `content_path`/`save_path` — un torrent multi-fichiers (pack saison, film avec extras) a un `content_path` qui est un DOSSIER, jamais un fichier régulier, donc toujours "non résolu" si on ne regarde que lui alors que le scan le matche très bien via ses fichiers individuels.
 - Sélecteur de taille de grille (petite/moyenne/grande) sur la bibliothèque
 
 **Bonus (V2)**

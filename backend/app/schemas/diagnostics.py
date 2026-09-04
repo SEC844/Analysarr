@@ -51,3 +51,9 @@ class EmbyFileDebug(BaseModel):
     item_name: str
     episode_label: Optional[str]
     stat: PathStat
+
+
+class UnmatchedTorrent(BaseModel):
+    hash: str
+    name: str
+    save_path: Optional[str]

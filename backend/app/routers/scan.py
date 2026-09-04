@@ -10,9 +10,15 @@ from app.database import engine, get_session
 from app.models.media import ScanRun
 from app.models.settings import Settings
 from app.clients.qbittorrent import QbittorrentAuthError
-from app.schemas.diagnostics import DiagnosticsResult, EmbyFileDebug, TorrentDebug
+from app.schemas.diagnostics import DiagnosticsResult, EmbyFileDebug, TorrentDebug, UnmatchedTorrent
 from app.schemas.media import ScanRunRead
-from app.services.diagnostics import debug_emby_movies, debug_emby_series_files, debug_torrents, run_diagnostics
+from app.services.diagnostics import (
+    debug_emby_movies,
+    debug_emby_series_files,
+    debug_torrents,
+    list_unmatched_torrents,
+    run_diagnostics,
+)
 from app.services.events import scan_events
 from app.services.scan import is_scan_running, run_scan
 
@@ -123,3 +129,19 @@ async def scan_debug_emby_movies(
     if settings is None or not (settings.emby_url and settings.emby_api_key):
         raise HTTPException(400, "Emby non configuré.")
     return await debug_emby_movies(settings, title_contains)
+
+
+@router.get("/debug/unmatched-torrents", response_model=list[UnmatchedTorrent])
+async def scan_debug_unmatched_torrents(session: Session = Depends(get_session)) -> list[UnmatchedTorrent]:
+    """Diagnostic ponctuel : liste les torrents qBittorrent qui n'ont été
+    rattachés à AUCUN média lors du dernier scan (complément exact de
+    qbittorrent_matched_count / qbittorrent_torrent_count) — pour savoir
+    concrètement lesquels échappent au rattachement plutôt que de se fier
+    seulement au chiffre agrégé."""
+    settings = session.get(Settings, 1)
+    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
+        raise HTTPException(400, "qBittorrent non configuré.")
+    try:
+        return await list_unmatched_torrents(session, settings)
+    except QbittorrentAuthError as exc:
+        raise HTTPException(502, str(exc)) from exc
