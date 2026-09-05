@@ -1,8 +1,15 @@
 import { useCallback, useRef, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { startScan } from "@/lib/api"
+import { getScanHistory, startScan } from "@/lib/api"
 import type { ScanEvent } from "@/types/media"
+
+export function useScanHistoryQuery() {
+  return useQuery({
+    queryKey: ["scan", "history"],
+    queryFn: () => getScanHistory(),
+  })
+}
 
 export function useScanRunner() {
   const queryClient = useQueryClient()

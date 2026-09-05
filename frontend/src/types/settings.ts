@@ -21,6 +21,11 @@ export interface CrossSeedRead {
   library_path: string | null
 }
 
+export interface ScheduleRead {
+  enabled: boolean
+  interval_minutes: number | null
+}
+
 export interface SettingsRead {
   configured: boolean
   emby: ServiceApiKeyRead
@@ -29,6 +34,7 @@ export interface SettingsRead {
   qbittorrent: QbittorrentRead
   paths: PathsRead
   cross_seed: CrossSeedRead
+  schedule: ScheduleRead
 }
 
 export interface SettingsWrite {
@@ -47,6 +53,8 @@ export interface SettingsWrite {
   cross_seed_url: string
   cross_seed_api_key: string
   cross_seed_library_path: string
+  scan_schedule_enabled: boolean
+  scan_schedule_interval_minutes: number | null
 }
 
 export type ServiceName = "emby" | "sonarr" | "radarr" | "qbittorrent" | "cross_seed"
@@ -91,6 +99,8 @@ export function emptySettingsWrite(): SettingsWrite {
     cross_seed_url: "",
     cross_seed_api_key: "",
     cross_seed_library_path: "",
+    scan_schedule_enabled: false,
+    scan_schedule_interval_minutes: null,
   }
 }
 
@@ -111,6 +121,8 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     cross_seed_url: s.cross_seed.url ?? "",
     cross_seed_api_key: "",
     cross_seed_library_path: s.cross_seed.library_path ?? "",
+    scan_schedule_enabled: s.schedule.enabled,
+    scan_schedule_interval_minutes: s.schedule.interval_minutes,
   }
 }
 

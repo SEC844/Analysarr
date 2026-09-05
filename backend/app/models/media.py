@@ -142,3 +142,7 @@ class ScanRun(SQLModel, table=True):
     # connus...) plutôt qu'une vraie absence de contenu.
     qbittorrent_torrent_count: int = 0
     qbittorrent_matched_count: int = 0
+
+    # "manual" (bouton/API) ou "scheduled" (planificateur) — distingue les
+    # deux dans l'historique des scans.
+    trigger: str = "manual"

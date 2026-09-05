@@ -23,6 +23,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("scanrun", "qbittorrent_torrent_count"),
     ("torrent", "matched_by_name"),
     ("torrent", "repairable"),
+    ("scanrun", "trigger"),
 ]
 
 
@@ -61,6 +62,8 @@ def _reset_media_cache_if_stale() -> None:
 # manquantes une par une avec ALTER TABLE.
 _SETTINGS_NEW_COLUMNS = [
     ("cross_seed_library_path", "VARCHAR"),
+    ("scan_schedule_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("scan_schedule_interval_minutes", "INTEGER"),
 ]
 
 
@@ -76,6 +79,8 @@ def _ensure_settings_columns() -> None:
 
 
 def init_db() -> None:
+    from app.models.auth import Session as AuthSession  # noqa: F401
+    from app.models.auth import User  # noqa: F401
     from app.models.media import Media, MediaFile, ScanRun, Torrent  # noqa: F401
     from app.models.settings import Settings  # noqa: F401
 

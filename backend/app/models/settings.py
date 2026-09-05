@@ -40,5 +40,8 @@ class Settings(SQLModel, table=True):
     # résoudre sur son propre système de fichiers.
     cross_seed_library_path: Optional[str] = None
 
+    scan_schedule_enabled: bool = False
+    scan_schedule_interval_minutes: Optional[int] = None
+
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

@@ -38,6 +38,7 @@ def _to_read(run: ScanRun) -> ScanRunRead:
         tracker_unique_count=run.tracker_unique_count,
         qbittorrent_torrent_count=run.qbittorrent_torrent_count,
         qbittorrent_matched_count=run.qbittorrent_matched_count,
+        trigger=run.trigger,
     )
 
 
@@ -54,6 +55,12 @@ def scan_status() -> Optional[ScanRunRead]:
     with Session(engine) as session:
         run = session.exec(select(ScanRun).order_by(ScanRun.started_at.desc())).first()
         return _to_read(run) if run else None
+
+
+@router.get("/history", response_model=list[ScanRunRead])
+def scan_history(limit: int = 50, session: Session = Depends(get_session)) -> list[ScanRunRead]:
+    runs = session.exec(select(ScanRun).order_by(ScanRun.started_at.desc()).limit(limit)).all()
+    return [_to_read(r) for r in runs]
 
 
 @router.get("/stream")

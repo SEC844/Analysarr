@@ -1,3 +1,10 @@
+import type {
+  AuthStatus,
+  ChangePasswordRequest,
+  CurrentUser,
+  LoginRequest,
+  SetupRequest,
+} from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
 import type {
   CrossSeedSearchResult,
@@ -25,6 +32,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!res.ok) {
+    // Session expirée/absente en cours d'usage (pas sur les appels d'auth
+    // eux-mêmes, où un 401 est une réponse normale à afficher dans le
+    // formulaire) : on revient à l'accueil, qui réévaluera /api/auth/status
+    // et affichera l'écran de connexion.
+    if (res.status === 401 && !path.startsWith("/api/auth/")) {
+      window.location.assign("/")
+    }
     const body = await res.text()
     // FastAPI renvoie {"detail": "..."} — sans ça, l'erreur affichée à
     // l'utilisateur est le JSON brut plutôt que le message lisible.
@@ -37,7 +51,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message || `Erreur HTTP ${res.status}`)
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
+}
+
+export function getAuthStatus(): Promise<AuthStatus> {
+  return request<AuthStatus>("/api/auth/status")
+}
+
+export function setupAdmin(payload: SetupRequest): Promise<CurrentUser> {
+  return request<CurrentUser>("/api/auth/setup", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function login(payload: LoginRequest): Promise<CurrentUser> {
+  return request<CurrentUser>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function logout(): Promise<void> {
+  return request<void>("/api/auth/logout", { method: "POST" })
+}
+
+export function getCurrentUser(): Promise<CurrentUser> {
+  return request<CurrentUser>("/api/auth/me")
+}
+
+export function changePassword(payload: ChangePasswordRequest): Promise<CurrentUser> {
+  return request<CurrentUser>("/api/auth/password", { method: "PUT", body: JSON.stringify(payload) })
 }
 
 export function getSettings(): Promise<SettingsRead> {
@@ -115,4 +154,8 @@ export function getScanStatus(): Promise<ScanRunRead | null> {
 
 export function getPathDiagnostics(): Promise<DiagnosticsResult> {
   return request<DiagnosticsResult>(`/api/scan/diagnostics`)
+}
+
+export function getScanHistory(limit = 50): Promise<ScanRunRead[]> {
+  return request<ScanRunRead[]>(`/api/scan/history?limit=${limit}`)
 }

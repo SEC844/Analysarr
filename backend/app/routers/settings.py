@@ -14,11 +14,13 @@ from app.schemas.settings import (
     CrossSeedRead,
     PathsRead,
     QbittorrentRead,
+    ScheduleRead,
     ServiceApiKeyRead,
     SettingsRead,
     SettingsWrite,
 )
 from app.services.connection_test import TESTERS
+from app.services.scheduler import configure_scan_schedule
 
 router = APIRouter()
 
@@ -55,6 +57,7 @@ def _to_read(s: Settings | None) -> SettingsRead:
             qbittorrent=QbittorrentRead(),
             paths=PathsRead(),
             cross_seed=CrossSeedRead(),
+            schedule=ScheduleRead(),
         )
 
     return SettingsRead(
@@ -76,6 +79,10 @@ def _to_read(s: Settings | None) -> SettingsRead:
             url=s.cross_seed_url,
             api_key_set=bool(s.cross_seed_api_key),
             library_path=s.cross_seed_library_path,
+        ),
+        schedule=ScheduleRead(
+            enabled=s.scan_schedule_enabled,
+            interval_minutes=s.scan_schedule_interval_minutes,
         ),
     )
 
@@ -103,6 +110,8 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     row.cross_seed_enabled = payload.cross_seed_enabled
     row.cross_seed_url = payload.cross_seed_url
     row.cross_seed_library_path = payload.cross_seed_library_path
+    row.scan_schedule_enabled = payload.scan_schedule_enabled
+    row.scan_schedule_interval_minutes = payload.scan_schedule_interval_minutes
 
     # Champs sensibles : une valeur vide/absente conserve la valeur en base
     # (le frontend ne reçoit jamais la vraie clé, donc "vide" veut dire
@@ -123,6 +132,9 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     session.add(row)
     session.commit()
     session.refresh(row)
+
+    configure_scan_schedule(row.scan_schedule_interval_minutes if row.scan_schedule_enabled else None)
+
     return _to_read(row)
 
 

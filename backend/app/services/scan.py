@@ -122,14 +122,14 @@ def _normalize_release_words(name: str) -> list[str]:
     return _normalize_words(base)
 
 
-async def run_scan() -> None:
+async def run_scan(trigger: str = "manual") -> None:
     if _scan_lock.locked():
         return
     async with _scan_lock:
-        await _run_scan_impl()
+        await _run_scan_impl(trigger)
 
 
-async def _run_scan_impl() -> None:
+async def _run_scan_impl(trigger: str = "manual") -> None:
     with Session(engine) as session:
         settings = session.get(Settings, 1)
         if settings is not None:
@@ -137,7 +137,7 @@ async def _run_scan_impl() -> None:
             # (sinon SQLAlchemy expire l'instance à la fermeture et tout accès lève
             # DetachedInstanceError).
             session.expunge(settings)
-        run = ScanRun(status=ScanStatus.running)
+        run = ScanRun(status=ScanStatus.running, trigger=trigger)
         session.add(run)
         session.commit()
         session.refresh(run)

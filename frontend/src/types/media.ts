@@ -86,18 +86,18 @@ export interface CrossSeedSearchResult {
 export interface HardlinkRepairItem {
   media_file_id: number
   episode_label: string | null
-  current_path: string
-  current_exists: boolean
   torrent_id: number
   torrent_name: string
-  torrent_file_path: string
+  direction: "torrent_to_library" | "library_to_torrent"
+  source_path: string
+  target_path: string
+  target_exists: boolean
   size: number | null
 }
 
 export interface HardlinkRepairPreview {
   items: HardlinkRepairItem[]
   unmatched_torrents: string[]
-  already_protected_torrents: string[]
   cross_filesystem_torrents: string[]
 }
 
@@ -133,6 +133,7 @@ export interface ScanRunRead {
   tracker_unique_count: number
   qbittorrent_torrent_count: number
   qbittorrent_matched_count: number
+  trigger: "manual" | "scheduled"
 }
 
 export interface ScanEvent {

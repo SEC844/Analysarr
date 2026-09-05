@@ -28,6 +28,11 @@ class CrossSeedRead(BaseModel):
     library_path: Optional[str] = None
 
 
+class ScheduleRead(BaseModel):
+    enabled: bool = False
+    interval_minutes: Optional[int] = None
+
+
 class SettingsRead(BaseModel):
     configured: bool
     emby: ServiceApiKeyRead
@@ -36,6 +41,7 @@ class SettingsRead(BaseModel):
     qbittorrent: QbittorrentRead
     paths: PathsRead
     cross_seed: CrossSeedRead
+    schedule: ScheduleRead
 
 
 class SettingsWrite(BaseModel):
@@ -63,6 +69,9 @@ class SettingsWrite(BaseModel):
     cross_seed_url: Optional[str] = None
     cross_seed_api_key: Optional[str] = None
     cross_seed_library_path: Optional[str] = None
+
+    scan_schedule_enabled: bool = False
+    scan_schedule_interval_minutes: Optional[int] = None
 
 
 class ConnectionTestRequest(BaseModel):

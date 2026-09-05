@@ -71,6 +71,7 @@ class ScanRunRead(BaseModel):
     tracker_unique_count: int
     qbittorrent_torrent_count: int
     qbittorrent_matched_count: int
+    trigger: str
 
 
 class DeletePreviewItem(BaseModel):
@@ -103,11 +104,18 @@ class CrossSeedSearchResult(BaseModel):
 class HardlinkRepairItem(BaseModel):
     media_file_id: int
     episode_label: Optional[str]
-    current_path: str
-    current_exists: bool
     torrent_id: int
     torrent_name: str
-    torrent_file_path: str
+    # "torrent_to_library" : le fichier de la bibliothèque (non protégé) est
+    # remplacé par un hardlink vers le fichier du torrent.
+    # "library_to_torrent" : la bibliothèque est déjà protégée par un AUTRE
+    # torrent — c'est le fichier de CE torrent qui est remplacé par un
+    # hardlink vers le fichier de la bibliothèque, pour qu'il rejoigne le
+    # même groupe de hardlinks sans jamais toucher un lien qui fonctionne déjà.
+    direction: str
+    source_path: str
+    target_path: str
+    target_exists: bool
     size: Optional[int]
 
 
@@ -118,10 +126,6 @@ class HardlinkRepairPreview(BaseModel):
     # film, fichier introuvable sur disque) — affichés pour transparence, mais
     # non réparables automatiquement.
     unmatched_torrents: list[str]
-    # Contenu identique à un fichier de la bibliothèque, mais ce fichier est
-    # déjà protégé par un AUTRE torrent hardlinké — rien à réparer, le
-    # proposer romprait un hardlink fonctionnel pour rien.
-    already_protected_torrents: list[str]
     # Contenu identique, mais torrent et bibliothèque sur des systèmes de
     # fichiers différents : hardlink physiquement impossible (EXDEV), quel
     # que soit le sens du lien — nécessite un changement d'infrastructure.
