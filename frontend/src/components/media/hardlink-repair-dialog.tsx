@@ -87,13 +87,6 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
               </ul>
             )}
 
-            {preview && preview.cross_filesystem_torrents.length > 0 && (
-              <p className="text-muted-foreground text-xs">
-                Même contenu, mais sur un disque différent de la bibliothèque — hardlink physiquement impossible
-                (nécessite de revoir le montage du dossier de téléchargement) :{" "}
-                {preview.cross_filesystem_torrents.join(", ")}
-              </p>
-            )}
             {preview && preview.unmatched_torrents.length > 0 && (
               <p className="text-muted-foreground text-xs">
                 Sans fichier correspondant trouvé avec certitude : {preview.unmatched_torrents.join(", ")}

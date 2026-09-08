@@ -126,10 +126,6 @@ class HardlinkRepairPreview(BaseModel):
     # film, fichier introuvable sur disque) — affichés pour transparence, mais
     # non réparables automatiquement.
     unmatched_torrents: list[str]
-    # Contenu identique, mais torrent et bibliothèque sur des systèmes de
-    # fichiers différents : hardlink physiquement impossible (EXDEV), quel
-    # que soit le sens du lien — nécessite un changement d'infrastructure.
-    cross_filesystem_torrents: list[str]
 
 
 class HardlinkRepairStepResult(BaseModel):

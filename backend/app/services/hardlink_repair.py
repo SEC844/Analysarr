@@ -55,15 +55,18 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
       elle — le torrent rejoint le même groupe de hardlinks sans qu'aucun
       lien existant ne soit jamais touché.
 
-    Un seul cas reste écarté des réparations proposées (mais toujours
-    reporté, pour transparence) : systèmes de fichiers différents. Le contenu
-    correspond bien, mais le fichier du torrent et celui de la bibliothèque
-    sont sur des disques/montages distincts (`st_dev` différent). `os.link()`
-    échoue toujours avec EXDEV dans ce cas, quel que soit le sens du lien —
-    ce n'est pas un choix de code à inverser, c'est une limite du système de
-    fichiers. Seul un changement d'infrastructure (monter le dossier de
-    téléchargement sur le même disque que la bibliothèque) peut le résoudre ;
-    inutile de tenter et d'échouer à chaque fois."""
+    Aucune vérification `st_dev` préalable pour décider d'écarter un
+    candidat : sur certains montages virtualisés (ex : `shfs` d'Unraid, qui
+    peut présenter un `st_dev` incohérent selon le chemin de montage utilisé
+    pour atteindre un même fichier physique), deviner à l'avance si un
+    hardlink va réussir n'est pas fiable — dans un sens comme dans l'autre.
+    Chaque candidat au contenu vérifié est donc proposé, et c'est la
+    tentative réelle dans `execute_repair` (via `_relink`) qui tranche :
+    succès, ou échec EXDEV explicite si les deux fichiers sont vraiment sur
+    des systèmes de fichiers différents. `_relink` ne modifie jamais rien
+    tant que le nouveau lien n'a pas été créé avec succès — proposer un
+    candidat qui échouera ne casse donc jamais rien, ça se contente de
+    remonter l'erreur telle quelle."""
     all_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     # Seuls les torrents "repairable" sont éligibles : leur contenu (même
     # épisode/média, même taille en octets) a déjà été vérifié identique à un
@@ -88,12 +91,10 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
         return HardlinkRepairPreview(
             items=[],
             unmatched_torrents=[t.name for t in orphan_torrents],
-            cross_filesystem_torrents=[],
         )
 
     items: list[HardlinkRepairItem] = []
     matched_torrent_ids: set[int] = set()
-    cross_filesystem: list[str] = []
 
     async with QbittorrentClient(settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password) as qbit:
         for t in orphan_torrents:
@@ -120,14 +121,6 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
 
                 if current_inode is not None and current_inode == torrent_inode:
                     continue  # déjà hardlinké (sécurité, ne devrait pas arriver ici)
-
-                # EXDEV est symétrique : peu importe le sens du lien envisagé,
-                # deux systèmes de fichiers différents ne peuvent jamais être
-                # hardlinkés entre eux. Vérifié avant de choisir un sens.
-                if current_inode is not None and torrent_inode is not None and current_inode[1] != torrent_inode[1]:
-                    if t.name not in cross_filesystem:
-                        cross_filesystem.append(t.name)
-                    continue
 
                 already_protected = current_inode is not None and current_inode in protected_inodes
                 if already_protected:
@@ -158,11 +151,10 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
                 if media.media_type == MediaType.movie:
                     break  # un seul fichier actuel pour un film, inutile de continuer
 
-    unmatched = [t.name for t in orphan_torrents if t.id not in matched_torrent_ids and t.name not in cross_filesystem]
+    unmatched = [t.name for t in orphan_torrents if t.id not in matched_torrent_ids]
     return HardlinkRepairPreview(
         items=items,
         unmatched_torrents=unmatched,
-        cross_filesystem_torrents=cross_filesystem,
     )
 
 

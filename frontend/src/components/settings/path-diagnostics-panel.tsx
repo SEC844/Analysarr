@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query"
-import { CheckCircle2, Loader2, Search, XCircle } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Loader2, Search, XCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,6 +25,16 @@ function DiagnosticsBlock({ title, diag }: { title: string; diag: PathDiagnostic
           </>
         )}
       </div>
+      {diag.common_unresolved_prefix && (
+        <p className="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border p-2 text-xs">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Tous les chemins non résolus partagent le dossier <code className="break-all">{diag.common_unresolved_prefix}</code>
+            {" "}— ce dossier ne semble pas monté dans le conteneur Analysarr (vérifiez qu'il est bien ajouté au
+            docker-compose / template Unraid, comme pour les autres dossiers de téléchargement).
+          </span>
+        </p>
+      )}
       {diag.unresolved_samples.length > 0 && (
         <ul className="border-border max-h-48 space-y-1 overflow-y-auto rounded-md border p-2 text-xs">
           {diag.unresolved_samples.map((c, i) => (

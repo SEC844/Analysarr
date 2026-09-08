@@ -42,10 +42,40 @@ def _stat_path(path: str) -> PathStat:
     return PathStat(path=path, exists=exists, is_regular_file=is_regular, inode=inode, device=device)
 
 
+def _common_unresolved_prefix(checks: list[PathCheck]) -> str | None:
+    """Dossier commun à tous les chemins non résolus — révèle d'un coup
+    d'œil un point de montage manquant (ex : un disque/partage dédié à une
+    catégorie de torrents jamais ajouté au conteneur Analysarr), plutôt que
+    de laisser l'utilisateur repérer le motif lui-même dans une liste de
+    dizaines de chemins individuels. N'est retourné que si ce dossier est
+    SPÉCIFIQUE aux chemins en échec (aucun chemin résolu ne s'y trouve
+    aussi) — sinon ce n'est qu'un ancêtre commun sans rapport avec la
+    panne (ex : "/data" partagé par tout le monde) et l'afficher induirait
+    en erreur plutôt que d'aider."""
+    unresolved_paths = [c.path for c in checks if not c.resolved and c.path]
+    if len(unresolved_paths) < 2:
+        return None
+    try:
+        common = os.path.commonpath(unresolved_paths)
+    except ValueError:
+        return None
+    if not common or common in ("/", os.path.sep):
+        return None
+    prefix_with_sep = common.rstrip("/\\") + "/"
+    if any(c.resolved and c.path and c.path.startswith(prefix_with_sep) for c in checks):
+        return None
+    return common
+
+
 def _build_diag(checks: list[PathCheck]) -> PathDiagnostics:
     resolved = sum(1 for c in checks if c.resolved)
-    unresolved = [c for c in checks if not c.resolved][:MAX_SAMPLES]
-    return PathDiagnostics(total=len(checks), resolved=resolved, unresolved_samples=unresolved)
+    unresolved_samples = [c for c in checks if not c.resolved][:MAX_SAMPLES]
+    return PathDiagnostics(
+        total=len(checks),
+        resolved=resolved,
+        unresolved_samples=unresolved_samples,
+        common_unresolved_prefix=_common_unresolved_prefix(checks),
+    )
 
 
 async def run_diagnostics(settings: Settings) -> DiagnosticsResult:

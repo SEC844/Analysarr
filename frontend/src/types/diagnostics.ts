@@ -8,6 +8,7 @@ export interface PathDiagnostics {
   total: number
   resolved: number
   unresolved_samples: PathCheck[]
+  common_unresolved_prefix: string | null
 }
 
 export interface DiagnosticsResult {
