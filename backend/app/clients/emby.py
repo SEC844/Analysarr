@@ -18,7 +18,7 @@ class EmbyClient:
                 params={
                     "Recursive": "true",
                     "IncludeItemTypes": item_types,
-                    "Fields": "ProviderIds,Path,MediaSources",
+                    "Fields": "ProviderIds,Path,MediaSources,ImageTags",
                 },
             )
             resp.raise_for_status()

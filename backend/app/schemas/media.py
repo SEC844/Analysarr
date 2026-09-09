@@ -43,6 +43,7 @@ class MediaListItem(BaseModel):
     statuses: list[str]
     reclaimable_bytes: int
     has_poster: bool
+    poster_image_tag: Optional[str]
     last_scanned_at: datetime
 
 
@@ -52,6 +53,7 @@ class MediaDetail(MediaListItem):
     emby_item_id: Optional[str]
     files: list[MediaFileRead]
     torrents: list[TorrentRead]
+    missing_emby_episodes: list[str]
 
 
 class MediaListResponse(BaseModel):

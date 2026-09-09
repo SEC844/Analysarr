@@ -9,6 +9,7 @@ export interface MediaListItem {
   statuses: MediaStatus[]
   reclaimable_bytes: number
   has_poster: boolean
+  poster_image_tag: string | null
   last_scanned_at: string
 }
 
@@ -54,6 +55,7 @@ export interface MediaDetail extends MediaListItem {
   emby_item_id: string | null
   files: MediaFileRead[]
   torrents: TorrentRead[]
+  missing_emby_episodes: string[]
 }
 
 export interface DeletePreviewItem {

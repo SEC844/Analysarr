@@ -33,10 +33,22 @@ class Media(SQLModel, table=True):
     imdb_id: Optional[str] = None
 
     has_poster: bool = False
+    # Étiquette de version de la jaquette côté Emby (`ImageTags.Primary`) —
+    # change quand l'image change. Sert de clé de cache : voir
+    # services/poster_cache.py.
+    poster_image_tag: Optional[str] = None
 
     # Liste de statuts séparés par des virgules parmi doublon/orphelin_qbit/tracker_unique.
     # Vide = sain. Un média peut cumuler plusieurs statuts.
     statuses: str = ""
+
+    # Séries uniquement : épisodes que Sonarr a téléchargés (episodeFile
+    # existant) mais qu'Emby n'a PAS repris dans sa bibliothèque, ex "S05E07,
+    # S05E08" — un import Emby manqué sur certains épisodes seulement, alors
+    # que la série elle-même EST bien présente dans Emby (donc emby_item_id
+    # est renseigné). Distinct de manquant_emby "série entière absente" :
+    # voir compute_statuses dans scan.py.
+    missing_emby_episodes: str = ""
 
     # Taille totale récupérable estimée (fichiers en doublon + torrents orphelins), en octets.
     reclaimable_bytes: int = 0

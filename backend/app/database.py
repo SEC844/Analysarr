@@ -24,6 +24,8 @@ _CURRENT_SCHEMA_MARKERS = [
     ("torrent", "matched_by_name"),
     ("torrent", "repairable"),
     ("scanrun", "trigger"),
+    ("media", "missing_emby_episodes"),
+    ("media", "poster_image_tag"),
 ]
 
 

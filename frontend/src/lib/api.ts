@@ -118,8 +118,13 @@ export function getMedia(id: number): Promise<MediaDetail> {
   return request<MediaDetail>(`/api/media/${id}`)
 }
 
-export function posterUrl(id: number): string {
-  return `/api/media/${id}/poster`
+export function posterUrl(id: number, imageTag: string | null): string {
+  // `v` rend l'URL propre à cette version précise de la jaquette : le
+  // navigateur peut la mettre en cache indéfiniment (voir Cache-Control côté
+  // backend) sans jamais risquer de servir une jaquette périmée — un
+  // changement de jaquette change le tag, donc l'URL, donc force un nouveau
+  // téléchargement automatiquement.
+  return imageTag ? `/api/media/${id}/poster?v=${encodeURIComponent(imageTag)}` : `/api/media/${id}/poster`
 }
 
 export function deletePreview(id: number): Promise<DeletePreview> {

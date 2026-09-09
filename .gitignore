@@ -17,6 +17,10 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
+# Config locale Claude Code (dev server launch config, settings) : propre à
+# la machine de chaque développeur, pas du code applicatif.
+.claude/
+
 # Env files (aucune config applicative ne doit vivre ici, mais on ignore
 # quand même par précaution)
 .env

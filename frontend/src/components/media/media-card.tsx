@@ -19,7 +19,7 @@ export function MediaCard({ media }: { media: MediaListItem }) {
       <div className="bg-muted relative aspect-2/3 w-full overflow-hidden">
         {media.has_poster && !imgError ? (
           <img
-            src={posterUrl(media.id)}
+            src={posterUrl(media.id, media.poster_image_tag)}
             alt=""
             loading="lazy"
             onError={() => setImgError(true)}

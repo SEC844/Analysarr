@@ -27,6 +27,7 @@ from app.schemas.media import (
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
+from app.services.poster_cache import read_cached_poster, write_cached_poster
 
 router = APIRouter()
 
@@ -40,6 +41,7 @@ def _to_list_item(media: Media) -> MediaListItem:
         statuses=[s for s in media.statuses.split(",") if s],
         reclaimable_bytes=media.reclaimable_bytes,
         has_poster=media.has_poster,
+        poster_image_tag=media.poster_image_tag,
         last_scanned_at=media.last_scanned_at,
     )
 
@@ -113,6 +115,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
             )
             for t in torrents
         ],
+        missing_emby_episodes=[e for e in media.missing_emby_episodes.split(",") if e],
     )
 
 
@@ -121,16 +124,30 @@ async def get_poster(media_id: int, session: Session = Depends(get_session)) -> 
     media = session.get(Media, media_id)
     if media is None or not media.emby_item_id:
         raise HTTPException(404, "Pas de jaquette disponible.")
-    settings = session.get(Settings, 1)
-    if settings is None or not settings.emby_url or not settings.emby_api_key:
-        raise HTTPException(404, "Emby non configuré.")
 
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
-    result = await emby.fetch_poster(media.emby_item_id)
-    if result is None:
-        raise HTTPException(404, "Jaquette introuvable.")
-    content, content_type = result
-    return Response(content=content, media_type=content_type)
+    cached = read_cached_poster(media.emby_item_id, media.poster_image_tag)
+    if cached is not None:
+        content, content_type = cached
+    else:
+        settings = session.get(Settings, 1)
+        if settings is None or not settings.emby_url or not settings.emby_api_key:
+            raise HTTPException(404, "Emby non configuré.")
+        emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+        result = await emby.fetch_poster(media.emby_item_id)
+        if result is None:
+            raise HTTPException(404, "Jaquette introuvable.")
+        content, content_type = result
+        write_cached_poster(media.emby_item_id, media.poster_image_tag, content, content_type)
+
+    # L'URL est déjà propre à cette version précise de la jaquette (voir
+    # `?v=` côté frontend, lib/api.ts::posterUrl) : le contenu d'UNE URL
+    # donnée ne change jamais, le navigateur peut donc la garder en cache
+    # indéfiniment sans risque de servir une jaquette périmée.
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @router.post("/{media_id}/delete/preview", response_model=DeletePreview)

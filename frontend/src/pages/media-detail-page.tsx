@@ -181,7 +181,7 @@ export function MediaDetailPage() {
       <div className="flex flex-col gap-6 sm:flex-row">
         <div className="bg-muted flex aspect-2/3 w-40 shrink-0 items-center justify-center overflow-hidden rounded-lg">
           {media.has_poster ? (
-            <img src={posterUrl(media.id)} alt="" className="h-full w-full object-cover" />
+            <img src={posterUrl(media.id, media.poster_image_tag)} alt="" className="h-full w-full object-cover" />
           ) : (
             <TypeIcon className="text-muted-foreground size-10" />
           )}
@@ -196,6 +196,11 @@ export function MediaDetailPage() {
             </p>
           </div>
           <StatusBadgeList statuses={media.statuses} />
+          {media.missing_emby_episodes.length > 0 && (
+            <p className="text-muted-foreground text-sm">
+              Téléchargés mais absents d'Emby : {media.missing_emby_episodes.join(", ")}
+            </p>
+          )}
           {media.reclaimable_bytes > 0 && (
             <p className="text-sm">
               <span className="font-medium">{formatBytes(media.reclaimable_bytes)}</span> potentiellement

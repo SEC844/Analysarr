@@ -33,6 +33,11 @@ class MediaBuildResult:
     # matcher un média dont Radarr affiche le titre localisé ("Angles
     # d'attaque"), pas seulement le titre principal.
     alt_titles: list[str] = field(default_factory=list)
+    # Séries uniquement : épisodes que Sonarr a téléchargés mais qu'Emby n'a
+    # pas repris dans sa bibliothèque (import manqué sur CES épisodes-là
+    # seulement — la série elle-même est bien dans Emby). Voir la boucle
+    # séries plus bas et compute_statuses.
+    missing_emby_episodes: list[str] = field(default_factory=list)
 
 
 def is_scan_running() -> bool:
@@ -283,6 +288,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
         if emby_item:
             media.emby_item_id = emby_item.get("Id")
             media.has_poster = bool(emby_item.get("Id"))
+            media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
             for source in _media_sources(emby_item):
                 path = source.get("Path")
                 inode = stat_inode(path)
@@ -322,12 +328,26 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
         if emby_item:
             media.emby_item_id = emby_item.get("Id")
             media.has_poster = bool(emby_item.get("Id"))
+            media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
 
             current_paths: set[str] = set()
             try:
                 episode_files = await sonarr.get_episode_files(series["id"])
                 current_paths = {f["path"] for f in episode_files if f.get("path")}
             except Exception:  # noqa: BLE001 - purement informatif pour is_current, ne doit pas bloquer le scan
+                pass
+
+            # Épisodes que Sonarr considère téléchargés (episodeFile existant),
+            # indépendamment de ce qu'Emby en a repris — voir plus bas.
+            sonarr_downloaded_labels: set[str] = set()
+            try:
+                sonarr_episodes = await sonarr.get_episodes(series["id"])
+                sonarr_downloaded_labels = {
+                    f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
+                    for e in sonarr_episodes
+                    if e.get("hasFile") and e.get("seasonNumber") is not None and e.get("episodeNumber") is not None
+                }
+            except Exception:  # noqa: BLE001 - purement informatif, ne doit pas bloquer le scan
                 pass
 
             episodes = await emby.get_episodes(emby_item["Id"])
@@ -347,6 +367,14 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                             is_current=bool(path and path in current_paths),
                         )
                     )
+
+            # La série ELLE-MÊME est bien dans Emby (sinon on ne serait pas
+            # dans cette branche), mais certains épisodes téléchargés par
+            # Sonarr peuvent manquer côté Emby (import manqué) sans que ça ne
+            # se voie autrement : aucun MediaFile n'est créé pour eux plus
+            # haut puisque la boucle ne parcourt que ce qu'Emby a renvoyé.
+            emby_labels = {f.episode_label for f in result.files if f.episode_label}
+            result.missing_emby_episodes = sorted(sonarr_downloaded_labels - emby_labels)
         results.append(result)
 
     # --- Correspondance torrent -> média via l'historique Sonarr/Radarr ---
@@ -611,14 +639,19 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
 
     # --- Calcul des statuts -------------------------------------------
     for result in results:
-        statuses, reclaimable = compute_statuses(result.files, result.torrents, bool(result.media.emby_item_id))
+        result.media.missing_emby_episodes = ",".join(result.missing_emby_episodes)
+        statuses, reclaimable = compute_statuses(
+            result.files, result.torrents, bool(result.media.emby_item_id), len(result.missing_emby_episodes)
+        )
         result.media.statuses = ",".join(sorted(statuses))
         result.media.reclaimable_bytes = reclaimable
 
     return results, len(torrents)
 
 
-def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_item: bool) -> tuple[set[str], int]:
+def compute_statuses(
+    files: list[MediaFile], torrents: list[Torrent], has_emby_item: bool, missing_emby_episode_count: int = 0
+) -> tuple[set[str], int]:
     statuses: set[str] = set()
     reclaimable = 0
 
@@ -669,8 +702,12 @@ def compute_statuses(files: list[MediaFile], torrents: list[Torrent], has_emby_i
         statuses.add("tracker_unique")
 
     # Un média sain doit être présent à la fois dans Emby et dans qBittorrent
-    # (activement protégé par un torrent, cross-seedé ou non).
-    if not has_emby_item:
+    # (activement protégé par un torrent, cross-seedé ou non). Pour une série,
+    # "présent dans Emby" ne suffit pas à garantir que CHAQUE épisode
+    # téléchargé y figure : Sonarr peut avoir un episodeFile pour un épisode
+    # qu'Emby n'a jamais importé (bug d'import, bibliothèque pas rescannée...)
+    # sans que la série elle-même ne soit absente d'Emby pour autant.
+    if not has_emby_item or missing_emby_episode_count > 0:
         statuses.add("manquant_emby")
 
     has_active_torrent = any(t.is_hardlinked is True for t in torrents)
