@@ -84,7 +84,6 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     protected_torrents = session.exec(
         select(Torrent).where(Torrent.media_id == media.id, Torrent.is_hardlinked == True)  # noqa: E712
     ).all()
-    protected_inodes = {(t.inode, t.device) for t in protected_torrents if t.inode is not None and t.device is not None}
 
     by_episode, current_single = resolve_current_files(list(all_files), media.media_type)
     if not orphan_torrents or (not by_episode and current_single is None):
@@ -97,6 +96,22 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     matched_torrent_ids: set[int] = set()
 
     async with QbittorrentClient(settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password) as qbit:
+        # `Torrent.inode`/`Torrent.device` (colonnes DB) ne retiennent QU'UN
+        # SEUL fichier représentatif par torrent (le premier résolu au scan,
+        # voir scan.py) — insuffisant pour un torrent multi-fichiers (pack
+        # saison) : seul UN épisode serait alors reconnu comme protégé, les
+        # autres seraient à tort traités comme non protégés (direction
+        # `torrent_to_library` choisie par erreur, qui romprait un hardlink
+        # pourtant déjà fonctionnel pour ces épisodes-là). On résout donc ICI
+        # l'inode de CHAQUE fichier de CHAQUE torrent déjà protégé, comme
+        # pour les torrents orphelins ci-dessous.
+        protected_inodes: set[tuple[int, int]] = set()
+        for t in protected_torrents:
+            for path, _size in await _resolve_torrent_files(qbit, t):
+                inode = stat_inode(path)
+                if inode is not None:
+                    protected_inodes.add(inode)
+
         for t in orphan_torrents:
             torrent_files = await _resolve_torrent_files(qbit, t)
             existing = [(p, size) for p, size in torrent_files if os.path.isfile(p)]
@@ -158,33 +173,57 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     )
 
 
-def _relink(target_path: str, source_path: str) -> None:
-    """Remplace `target_path` par un hardlink vers `source_path`, SANS jamais
+def _relink(target_path: str, source_path: str) -> bool:
+    """Remplace `target_path` par un lien vers `source_path`, SANS jamais
     supprimer l'original avant d'être certain que le lien peut être créé : le
     nouveau lien est d'abord créé à côté (fichier temporaire), et seul un
-    `os.replace()` — atomique — vient ensuite écraser l'original. Si
-    `os.link()` échoue (ex: ERRNO 18 EXDEV — `target_path` et `source_path`
-    sont sur des systèmes de fichiers différents, ce que `os.stat().st_dev`
-    ne garantit pas toujours de détecter à l'avance), `target_path` n'a alors
-    subi AUCUNE modification. Direction-agnostique : selon
-    `HardlinkRepairItem.direction`, `target_path` peut être le fichier de la
-    bibliothèque (cas normal) ou le fichier d'un torrent déjà protégé
-    ailleurs (cas `library_to_torrent`)."""
+    `os.replace()` — atomique — vient ensuite écraser l'original. Renvoie
+    True si un lien SYMBOLIQUE a été utilisé en repli, False si un hardlink
+    classique a suffi.
+
+    Si `os.link()` échoue avec EXDEV (`target_path` et `source_path` sont
+    RÉELLEMENT sur des systèmes de fichiers différents — un hardlink est par
+    nature impossible entre deux systèmes de fichiers, ce n'est pas une
+    limite contournable en changeant l'appel), on retente avec `os.symlink()`
+    : un lien symbolique traverse les points de montage sans problème, et
+    coûte le même espace disque nul qu'un hardlink puisqu'aucune copie n'est
+    faite. `stat_inode()` (hardlink.py) utilise partout `os.stat()`, JAMAIS
+    `os.lstat()` — un lien symbolique est donc vu exactement comme un
+    hardlink par tout le reste de l'app (même `(inode, device)` que le
+    fichier cible réel, remonté par la resolution du lien). Contrepartie : le
+    conteneur qui lit ce chemin (Emby pour la bibliothèque, qBittorrent pour
+    un torrent) doit pouvoir résoudre lui-même `source_path` — même
+    prérequis de montages identiques déjà nécessaire pour qu'un hardlink
+    fonctionne. Avant de substituer la cible, on vérifie que le lien créé
+    résout bien vers un fichier réel DEPUIS CE CONTENEUR (`os.path.exists`,
+    qui suit les liens) : sinon, rien n'est jamais substitué, la cible reste
+    intacte et l'erreur d'origine est remontée telle quelle."""
     tmp_path = f"{target_path}.analysarr-tmp"
     if os.path.exists(tmp_path):
         os.remove(tmp_path)
+    used_symlink = False
     try:
         os.link(source_path, tmp_path)
     except OSError as exc:
-        if exc.errno == errno.EXDEV:
+        if exc.errno != errno.EXDEV:
+            raise
+        used_symlink = True
+        try:
+            os.symlink(source_path, tmp_path)
+            if not os.path.exists(tmp_path):
+                os.remove(tmp_path)
+                raise OSError(errno.ENOENT, "le lien symbolique créé ne résout vers aucun fichier")
+        except OSError as fallback_exc:
+            if os.path.lexists(tmp_path):
+                os.remove(tmp_path)
             raise OSError(
                 errno.EXDEV,
                 "Hardlink impossible : le torrent et le fichier de la bibliothèque sont sur des systèmes de "
-                "fichiers différents (le montage du dossier de téléchargement ne couvre pas le même disque que "
-                "celui de la bibliothèque) — aucune modification effectuée.",
-            ) from exc
-        raise
+                "fichiers différents. Le repli par lien symbolique a aussi échoué "
+                f"({fallback_exc}) — aucune modification effectuée.",
+            ) from fallback_exc
     os.replace(tmp_path, target_path)
+    return used_symlink
 
 
 async def execute_repair(session: Session, media: Media, settings: Settings) -> HardlinkRepairResult:
@@ -198,8 +237,12 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
     for item in preview.items:
         label = item.episode_label or item.target_path
         try:
-            _relink(item.target_path, item.source_path)
-            steps.append(HardlinkRepairStepResult(media_file_id=item.media_file_id, label=label, success=True))
+            used_symlink = _relink(item.target_path, item.source_path)
+            steps.append(
+                HardlinkRepairStepResult(
+                    media_file_id=item.media_file_id, label=label, success=True, used_symlink=used_symlink
+                )
+            )
         except OSError as exc:
             steps.append(
                 HardlinkRepairStepResult(media_file_id=item.media_file_id, label=label, success=False, error=str(exc))

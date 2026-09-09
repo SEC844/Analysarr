@@ -133,6 +133,12 @@ class HardlinkRepairStepResult(BaseModel):
     label: str
     success: bool
     error: Optional[str] = None
+    # True si un hardlink classique était impossible (systèmes de fichiers
+    # différents, EXDEV) et qu'un lien SYMBOLIQUE a été utilisé en repli —
+    # fonctionnellement équivalent pour l'app (voir _relink), mais suppose
+    # que le conteneur qui lit ce chemin (Emby ou qBittorrent) peut aussi
+    # résoudre le chemin cible du lien.
+    used_symlink: bool = False
 
 
 class HardlinkRepairResult(BaseModel):

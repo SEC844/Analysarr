@@ -105,6 +105,7 @@ export interface HardlinkRepairStepResult {
   label: string
   success: boolean
   error: string | null
+  used_symlink: boolean
 }
 
 export interface HardlinkRepairResult {

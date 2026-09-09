@@ -106,6 +106,12 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
                 )}
                 <div>
                   <p className="break-all">{step.label}</p>
+                  {step.success && step.used_symlink && (
+                    <p className="text-muted-foreground text-xs">
+                      Réparé par lien symbolique (systèmes de fichiers différents) — vérifiez que le fichier se lit
+                      toujours bien dans Emby, ou que le torrent seede toujours normalement.
+                    </p>
+                  )}
                   {step.error && <p className="text-destructive text-xs">{step.error}</p>}
                 </div>
               </li>
