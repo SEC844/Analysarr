@@ -131,14 +131,25 @@ async def execute_media_delete(
 
     session.commit()
 
-    # Recalcul immédiat : sans ça, la fiche resterait fausse (statuts et
-    # espace récupérable) jusqu'au prochain scan complet.
     remaining_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     remaining_torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
+
+    if not remaining_files and not remaining_torrents:
+        # Plus rien ne subsiste pour ce média : la fiche elle-même disparaît
+        # (le cache média est de toute façon entièrement reconstruit à
+        # chaque scan, voir database.py) plutôt que de rester affichée vide,
+        # "manquant_emby" + "manquant_qbit" pour toujours jusqu'au prochain
+        # scan complet.
+        session.delete(media)
+        session.commit()
+        return MediaDeleteSelectionResult(steps=steps, media_deleted=True)
+
+    # Recalcul immédiat : sans ça, la fiche resterait fausse (statuts et
+    # espace récupérable) jusqu'au prochain scan complet.
     statuses, reclaimable = compute_statuses(list(remaining_files), list(remaining_torrents), bool(media.emby_item_id))
     media.statuses = ",".join(sorted(statuses))
     media.reclaimable_bytes = reclaimable
     session.add(media)
     session.commit()
 
-    return MediaDeleteSelectionResult(steps=steps)
+    return MediaDeleteSelectionResult(steps=steps, media_deleted=False)

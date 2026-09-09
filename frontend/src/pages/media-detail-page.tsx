@@ -9,7 +9,6 @@ import {
   Link2,
   Loader2,
   Search,
-  Share2,
   Tv,
   XCircle,
 } from "lucide-react"
@@ -236,8 +235,10 @@ export function MediaDetailPage() {
             {media.torrents.some((t) => t.is_hardlinked === false && t.repairable) && (
               <HardlinkRepairDialog mediaId={media.id} />
             )}
-            <DeleteCascadeDialog mediaId={media.id} />
-            <MediaDeleteSelectionDialog media={media} />
+            {(media.statuses.includes("doublon") || media.statuses.includes("orphelin_qbit")) && (
+              <DeleteCascadeDialog mediaId={media.id} />
+            )}
+            <MediaDeleteSelectionDialog media={media} onMediaDeleted={() => navigate(-1)} />
           </div>
         </div>
       </div>
@@ -274,7 +275,7 @@ export function MediaDetailPage() {
                     <p className="flex items-center gap-1.5 break-all font-medium">
                       {t.is_cross_seed && (
                         <span title="Ajouté par cross-seed" className="shrink-0">
-                          <Share2 className="text-muted-foreground size-3.5" aria-label="Issu de cross-seed" />
+                          <Search className="text-muted-foreground size-3.5" aria-label="Issu de cross-seed" />
                         </span>
                       )}
                       {t.name}

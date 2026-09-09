@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { AlertTriangle, CheckCircle2, Loader2, Trash2, XCircle } from "lucide-react"
+import { AlertTriangle, Broom, CheckCircle2, Loader2, XCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -45,7 +45,7 @@ export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="destructive" />}>
-        <Trash2 className="size-4" />
+        <Broom className="size-4" />
         Nettoyer
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">

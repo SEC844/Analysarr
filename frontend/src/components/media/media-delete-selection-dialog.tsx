@@ -43,7 +43,7 @@ function toggleIds(ids: number[], checked: boolean, set: React.Dispatch<React.Se
   })
 }
 
-export function MediaDeleteSelectionDialog({ media }: { media: MediaDetail }) {
+export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: MediaDetail; onMediaDeleted: () => void }) {
   const [open, setOpen] = useState(false)
   const [selectedTorrentIds, setSelectedTorrentIds] = useState<Set<number>>(new Set())
   const [selectedFileIds, setSelectedFileIds] = useState<Set<number>>(new Set())
@@ -85,10 +85,19 @@ export function MediaDeleteSelectionDialog({ media }: { media: MediaDetail }) {
       },
       {
         onSuccess: (data) => {
-          setResult(data)
           const failedCount = data.steps.filter((s) => !s.success).length
           if (failedCount === 0) toast.success("Suppression effectuée.")
           else toast.error(`${failedCount} échec(s) sur ${data.steps.length}.`)
+
+          if (data.media_deleted) {
+            // Plus rien ne subsiste pour ce média : la fiche elle-même a
+            // disparu côté serveur, inutile d'afficher un récapitulatif
+            // pour une page qui n'existe plus — retour direct.
+            setOpen(false)
+            onMediaDeleted()
+            return
+          }
+          setResult(data)
         },
         onError: (err) => toast.error(err instanceof Error ? err.message : "Échec de la suppression."),
       },

@@ -89,6 +89,7 @@ export interface MediaDeleteSelection {
 
 export interface MediaDeleteSelectionResult {
   steps: DeleteStepResult[]
+  media_deleted: boolean
 }
 
 export interface CrossSeedSearchResult {

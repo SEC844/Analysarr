@@ -118,6 +118,11 @@ class MediaDeleteSelection(BaseModel):
 
 class MediaDeleteSelectionResult(BaseModel):
     steps: list[DeleteStepResult]
+    # True si plus aucun fichier ni torrent ne subsiste pour ce média après
+    # la suppression : la fiche média elle-même a été retirée (voir
+    # execute_media_delete) — le frontend doit alors quitter la fiche plutôt
+    # que d'essayer de la réafficher.
+    media_deleted: bool
 
 
 class DeleteExecuteResult(BaseModel):
