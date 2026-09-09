@@ -86,11 +86,13 @@ jobs:
         # `imagetools create` aliase le manifest multi-arch déjà poussé
         # ci-dessus sous le tag `latest`, sans rebuild - seule cette étape
         # décide de `latest`, jamais docker/metadata-action (voir le check
-        # de version ci-dessus pour pourquoi).
+        # de version ci-dessus pour pourquoi). `IMAGE_NAME` (github.repository)
+        # est en casse mixte ("SEC844/Analysarr") ; docker/metadata-action le
+        # met en minuscule en interne pour ses propres tags, mais un registre
+        # OCI exige des minuscules — il faut le refaire ici nous-mêmes.
         run: |
-          docker buildx imagetools create \
-            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${GITHUB_REF_NAME#v}
+          image="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')"
+          docker buildx imagetools create --tag "${image}:latest" "${image}:${GITHUB_REF_NAME#v}"
 
   create-release:
     needs: build-and-push
