@@ -89,6 +89,10 @@ class Torrent(SQLModel, table=True):
     name: str
     save_path: Optional[str] = None
     content_path: Optional[str] = None
+    # Catégorie qBittorrent brute (torrents/info), si définie — sert entre
+    # autres à détecter les torrents ajoutés par cross-seed (voir
+    # TorrentRead.is_cross_seed dans schemas/media.py).
+    category: Optional[str] = None
     size: Optional[int] = None
 
     inode: Optional[int] = None

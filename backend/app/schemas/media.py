@@ -24,6 +24,11 @@ class TorrentRead(BaseModel):
     save_path: Optional[str]
     content_path: Optional[str]
     size: Optional[int]
+    # True si la catégorie qBittorrent ou le chemin de sauvegarde contient
+    # "cross-seed" — torrent ajouté par le daemon cross-seed plutôt que
+    # grabbé directement par Sonarr/Radarr. Purement indicatif (petit badge
+    # sur la fiche média), ne pilote aucune logique de détection.
+    is_cross_seed: bool
     is_hardlinked: Optional[bool]
     matched_by_name: bool
     repairable: bool

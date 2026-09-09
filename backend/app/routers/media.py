@@ -32,6 +32,11 @@ from app.services.poster_cache import read_cached_poster, write_cached_poster
 router = APIRouter()
 
 
+def _is_cross_seed(torrent: Torrent) -> bool:
+    haystacks = (torrent.category, torrent.save_path, torrent.content_path)
+    return any(h and "cross-seed" in h.lower() for h in haystacks)
+
+
 def _to_list_item(media: Media) -> MediaListItem:
     return MediaListItem(
         id=media.id,
@@ -103,6 +108,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
                 save_path=t.save_path,
                 content_path=t.content_path,
                 size=t.size,
+                is_cross_seed=_is_cross_seed(t),
                 is_hardlinked=t.is_hardlinked,
                 matched_by_name=t.matched_by_name,
                 repairable=t.repairable,

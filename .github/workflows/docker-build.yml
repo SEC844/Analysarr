@@ -59,3 +59,34 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  create-release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # nécessaire pour lire le message du tag annoté ci-dessous
+
+      - name: Extract tag message
+        id: tag_message
+        # Le corps du tag annoté (créé avec `git tag -a`) sert directement de
+        # notes de version — déjà rédigé à la main pour chaque release, pas
+        # besoin de le regénérer depuis les commits.
+        run: |
+          {
+            echo 'body<<GITHUB_RELEASE_BODY_EOF'
+            git tag -l --format='%(contents)' "${{ github.ref_name }}"
+            echo GITHUB_RELEASE_BODY_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.tag_message.outputs.body }}

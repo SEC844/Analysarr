@@ -24,6 +24,8 @@ Personne ne doit éditer un `.env` ou taper une commande pour configurer l'app.
 ### 3. Visibilité des trackers par torrent
 Pour chaque torrent qBittorrent lié à un média, afficher les trackers sur lesquels il est seedé via l'endpoint qBittorrent Web API v2 `torrents/trackers?hash=<hash>` (retourne URL + statut de chaque tracker annoncé). Extraire le domaine de chaque URL pour un affichage lisible (masquer les passkeys). Agréger au niveau du groupe de hardlinks : plusieurs torrents pour le même contenu = trackers potentiellement différents = nombre de trackers distincts couvrant ce contenu. C'est cette info qui remplace un simple badge "non cross-seedé" et qui reste utile même sans cross-seed activé.
 
+Petit badge additionnel, purement indicatif (`TorrentRead.is_cross_seed`, `routers/media.py::_is_cross_seed`) : signale qu'un torrent a été ajouté par le daemon cross-seed plutôt que grabbé directement par Sonarr/Radarr. Détecté sur la catégorie qBittorrent OU le chemin de sauvegarde/contenu contenant "cross-seed" (case insensible) — les deux sont vérifiés car la convention réelle dépend de la configuration de chaque utilisateur (catégorie qBittorrent dédiée, ou simple dossier "cross-seed" dans l'arborescence de téléchargement, observé en conditions réelles sur plusieurs torrents cross-seedés).
+
 ## Fonctionnalités — backlog complet (par palier)
 
 **Noyau (V1)**
@@ -57,7 +59,7 @@ Pour chaque torrent qBittorrent lié à un média, afficher les trackers sur les
 - **Frontend** : React + TypeScript + Vite, TailwindCSS + shadcn/ui, TanStack Query + TanStack Table.
 - **Un seul conteneur Docker** : FastAPI sert l'API (sous `/api`) et le build statique du frontend. Un seul port exposé.
 - **Temps réel** : Server-Sent Events pour la progression des scans et suppressions cascade.
-- **CI/CD** : GitHub Actions, build + push multi-arch vers GHCR à chaque tag `vX.Y.Z`.
+- **CI/CD** : GitHub Actions, build + push multi-arch vers GHCR à chaque tag `vX.Y.Z`. Une fois le build réussi, un second job (`create-release`, dépendant du premier via `needs`) crée automatiquement la GitHub Release correspondante, avec le message du tag annoté (déjà rédigé à la main pour chaque version) comme notes de version — jamais besoin de le refaire à la main sur github.com.
 - **Auth** : authentification native (revient sur le choix initial "pas de login natif" de la V1). Un seul compte administrateur (`User`, ligne unique id=1, comme `Settings`), mot de passe hashé bcrypt. Sessions persistées en base (`Session`, token opaque envoyé en cookie httpOnly/SameSite=Lax, seul son hash sha256 est stocké) — volontairement en base et non en mémoire, pour survivre à un redémarrage de conteneur (fréquent à chaque mise à jour d'image). Verrouillage anti-bruteforce après 5 échecs (15 min). Premier lancement : écran de création du compte admin (`/api/auth/setup`, refusé si un compte existe déjà) avant même le wizard de configuration des services. Un middleware global protège tout `/api/*` sauf `/api/auth/*` et `/api/health` (nécessaire pour le healthcheck Docker, qui ne doit jamais dépendre d'une session). Le cookie n'est marqué `Secure` que si la requête est vue en HTTPS (jamais en dur : l'accès direct par IP:port sans reverse-proxy TLS doit continuer à fonctionner).
 
 ## Concepts domaine

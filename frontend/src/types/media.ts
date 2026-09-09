@@ -38,6 +38,7 @@ export interface TorrentRead {
   save_path: string | null
   content_path: string | null
   size: number | null
+  is_cross_seed: boolean
   is_hardlinked: boolean | null
   matched_by_name: boolean
   repairable: boolean

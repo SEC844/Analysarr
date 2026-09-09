@@ -9,6 +9,7 @@ import {
   Link2,
   Loader2,
   Search,
+  Share2,
   Tv,
   XCircle,
 } from "lucide-react"
@@ -268,7 +269,14 @@ export function MediaDetailPage() {
               <li key={t.id} className="space-y-2 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="break-all font-medium">{t.name}</p>
+                    <p className="flex items-center gap-1.5 break-all font-medium">
+                      {t.is_cross_seed && (
+                        <span title="Ajouté par cross-seed" className="shrink-0">
+                          <Share2 className="text-muted-foreground size-3.5" aria-label="Issu de cross-seed" />
+                        </span>
+                      )}
+                      {t.name}
+                    </p>
                     <p className="text-muted-foreground break-all text-xs">{t.content_path ?? t.save_path}</p>
                   </div>
                   <span className="text-muted-foreground shrink-0">{formatBytes(t.size)}</span>

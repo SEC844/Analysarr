@@ -26,6 +26,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("scanrun", "trigger"),
     ("media", "missing_emby_episodes"),
     ("media", "poster_image_tag"),
+    ("torrent", "category"),
 ]
 
 

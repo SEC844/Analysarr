@@ -483,6 +483,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                 name=t.get("name", ""),
                 save_path=t.get("save_path"),
                 content_path=t.get("content_path"),
+                category=t.get("category") or None,
                 size=t.get("size"),
                 inode=first_inode[0] if first_inode else None,
                 device=first_inode[1] if first_inode else None,
