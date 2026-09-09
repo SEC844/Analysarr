@@ -81,6 +81,16 @@ export interface DeleteExecuteResult {
   steps: DeleteStepResult[]
 }
 
+export interface MediaDeleteSelection {
+  torrent_ids: number[]
+  media_file_ids: number[]
+  remove_from_arr: boolean
+}
+
+export interface MediaDeleteSelectionResult {
+  steps: DeleteStepResult[]
+}
+
 export interface CrossSeedSearchResult {
   triggered: number
   errors: string[]

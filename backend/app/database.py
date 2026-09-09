@@ -27,6 +27,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("media", "missing_emby_episodes"),
     ("media", "poster_image_tag"),
     ("torrent", "category"),
+    ("mediafile", "arr_file_id"),
 ]
 
 

@@ -72,6 +72,15 @@ class MediaFile(SQLModel, table=True):
     # fichiers par épisode plutôt que par série entière. None pour les films.
     episode_label: Optional[str] = None
 
+    # Identité côté Sonarr/Radarr (jamais Emby) pour la suppression manuelle
+    # depuis Analysarr (routers/media.py, delete-selection) : sonarr_episode_id
+    # sert au (dé)monitoring (PUT /api/v3/episode/monitor), arr_file_id est
+    # l'episodeFile (Sonarr) ou le movieFile (Radarr) à supprimer. None si ce
+    # fichier n'a pas pu être rapproché d'une entrée Sonarr/Radarr (ex :
+    # fichier Emby en trop, jamais suivi par l'un ou l'autre).
+    sonarr_episode_id: Optional[int] = None
+    arr_file_id: Optional[int] = None
+
     # True si ce chemin est celui actuellement suivi par Sonarr/Radarr (movieFile /
     # episodeFile). Les autres fichiers du même groupe sont des doublons "libres",
     # non gérés par Sonarr/Radarr, candidats à la suppression directe.

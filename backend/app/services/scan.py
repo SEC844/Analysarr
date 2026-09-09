@@ -282,7 +282,9 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             alt_titles=[t for t in alt_titles if t and t != media.title],
         )
 
-        current_path = (movie.get("movieFile") or {}).get("path")
+        movie_file = movie.get("movieFile") or {}
+        current_path = movie_file.get("path")
+        current_movie_file_id = movie_file.get("id")
 
         emby_item = emby_movie_by_tmdb.get(str(movie.get("tmdbId"))) or emby_movie_by_imdb.get(movie.get("imdbId"))
         if emby_item:
@@ -292,6 +294,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             for source in _media_sources(emby_item):
                 path = source.get("Path")
                 inode = stat_inode(path)
+                is_current = bool(path and current_path and path == current_path)
                 result.files.append(
                     MediaFile(
                         media_id=0,
@@ -300,7 +303,11 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                         inode=inode[0] if inode else None,
                         device=inode[1] if inode else None,
                         episode_label=None,
-                        is_current=bool(path and current_path and path == current_path),
+                        is_current=is_current,
+                        # Seul le fichier actuel correspond à un movieFile
+                        # Radarr réel — les autres sont des doublons non
+                        # suivis par Radarr, rien à supprimer côté Radarr.
+                        arr_file_id=current_movie_file_id if is_current else None,
                     )
                 )
         results.append(result)
@@ -338,15 +345,21 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                 pass
 
             # Épisodes que Sonarr considère téléchargés (episodeFile existant),
-            # indépendamment de ce qu'Emby en a repris — voir plus bas.
+            # indépendamment de ce qu'Emby en a repris — voir plus bas. Sert
+            # aussi à rattacher chaque MediaFile "actuel" à son identité
+            # Sonarr (episode_id pour le monitoring, episodeFileId pour la
+            # suppression du fichier) — voir routers/media.py, delete-selection.
             sonarr_downloaded_labels: set[str] = set()
+            sonarr_by_label: dict[str, tuple[int, int | None]] = {}
             try:
                 sonarr_episodes = await sonarr.get_episodes(series["id"])
-                sonarr_downloaded_labels = {
-                    f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
-                    for e in sonarr_episodes
-                    if e.get("hasFile") and e.get("seasonNumber") is not None and e.get("episodeNumber") is not None
-                }
+                for e in sonarr_episodes:
+                    if e.get("seasonNumber") is None or e.get("episodeNumber") is None:
+                        continue
+                    label = f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
+                    if e.get("hasFile"):
+                        sonarr_downloaded_labels.add(label)
+                    sonarr_by_label[label] = (e["id"], e.get("episodeFileId"))
             except Exception:  # noqa: BLE001 - purement informatif, ne doit pas bloquer le scan
                 pass
 
@@ -356,6 +369,8 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                 for source in _media_sources(episode):
                     path = source.get("Path")
                     inode = stat_inode(path)
+                    is_current = bool(path and path in current_paths)
+                    sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
                     result.files.append(
                         MediaFile(
                             media_id=0,
@@ -364,7 +379,11 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                             inode=inode[0] if inode else None,
                             device=inode[1] if inode else None,
                             episode_label=label,
-                            is_current=bool(path and path in current_paths),
+                            is_current=is_current,
+                            # Comme pour les films : seul le fichier actuel
+                            # correspond à l'episodeFile Sonarr réel.
+                            sonarr_episode_id=sonarr_episode_id if is_current else None,
+                            arr_file_id=sonarr_episode_file_id if is_current else None,
                         )
                     )
 

@@ -99,6 +99,27 @@ class DeleteStepResult(BaseModel):
     error: Optional[str] = None
 
 
+class MediaDeleteSelection(BaseModel):
+    """Suppression manuelle : contrairement à la suppression cascade
+    (doublons/orphelins détectés automatiquement), l'utilisateur choisit
+    lui-même quels torrents et/ou quels fichiers de bibliothèque supprimer —
+    un seul épisode, une saison entière (plusieurs media_file_ids) ou toute
+    la série, jusqu'au film entier."""
+
+    torrent_ids: list[int] = []
+    media_file_ids: list[int] = []
+    # Arrête aussi le suivi Sonarr/Radarr des fichiers de bibliothèque
+    # sélectionnés (pas seulement leur fichier) : empêche un
+    # retéléchargement automatique après coup. Radarr : suppression complète
+    # du film. Sonarr : démonitoring des épisodes concernés (pas d'équivalent
+    # "supprimer" à cette granularité côté Sonarr).
+    remove_from_arr: bool = False
+
+
+class MediaDeleteSelectionResult(BaseModel):
+    steps: list[DeleteStepResult]
+
+
 class DeleteExecuteResult(BaseModel):
     steps: list[DeleteStepResult]
 

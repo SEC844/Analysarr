@@ -12,6 +12,8 @@ import type {
   DeletePreview,
   HardlinkRepairPreview,
   HardlinkRepairResult,
+  MediaDeleteSelection,
+  MediaDeleteSelectionResult,
   MediaDetail,
   MediaListParams,
   MediaListResponse,
@@ -133,6 +135,13 @@ export function deletePreview(id: number): Promise<DeletePreview> {
 
 export function deleteExecute(id: number): Promise<DeleteExecuteResult> {
   return request<DeleteExecuteResult>(`/api/media/${id}/delete/execute`, { method: "POST" })
+}
+
+export function deleteSelectionExecute(id: number, selection: MediaDeleteSelection): Promise<MediaDeleteSelectionResult> {
+  return request<MediaDeleteSelectionResult>(`/api/media/${id}/delete-selection`, {
+    method: "POST",
+    body: JSON.stringify(selection),
+  })
 }
 
 export type CrossSeedSearchScope = "episode" | "season" | "series"

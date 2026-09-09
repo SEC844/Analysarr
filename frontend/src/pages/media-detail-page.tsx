@@ -17,6 +17,7 @@ import { toast } from "sonner"
 
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
 import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
+import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -236,6 +237,7 @@ export function MediaDetailPage() {
               <HardlinkRepairDialog mediaId={media.id} />
             )}
             <DeleteCascadeDialog mediaId={media.id} />
+            <MediaDeleteSelectionDialog media={media} />
           </div>
         </div>
       </div>

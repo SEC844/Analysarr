@@ -4,13 +4,14 @@ import {
   crossSeedSearch,
   deleteExecute,
   deletePreview,
+  deleteSelectionExecute,
   getMedia,
   hardlinkRepairExecute,
   hardlinkRepairPreview,
   listMedia,
   type CrossSeedSearchScope,
 } from "@/lib/api"
-import type { MediaListParams } from "@/types/media"
+import type { MediaDeleteSelection, MediaListParams } from "@/types/media"
 
 export function useMediaListQuery(params: MediaListParams) {
   return useQuery({
@@ -35,6 +36,18 @@ export function useDeleteExecuteMutation() {
   return useMutation({
     mutationFn: (id: number) => deleteExecute(id),
     onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["media"] })
+      queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
+    },
+  })
+}
+
+export function useDeleteSelectionExecuteMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, selection }: { id: number; selection: MediaDeleteSelection }) =>
+      deleteSelectionExecute(id, selection),
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["media"] })
       queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
     },

@@ -19,9 +19,14 @@ class ArrClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def _delete(self, path: str) -> None:
+    async def _delete(self, path: str, params: dict[str, Any] | None = None) -> None:
         async with self._client() as client:
-            resp = await client.delete(path)
+            resp = await client.delete(path, params=params)
+            resp.raise_for_status()
+
+    async def _put(self, path: str, json: dict[str, Any]) -> None:
+        async with self._client() as client:
+            resp = await client.put(path, json=json)
             resp.raise_for_status()
 
 
@@ -34,6 +39,13 @@ class RadarrClient(ArrClient):
 
     async def delete_movie_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/moviefile/{file_id}")
+
+    async def delete_movie(self, movie_id: int) -> None:
+        """Retire le film de Radarr (arrête le suivi/monitoring) ET supprime
+        son fichier — équivalent de "Supprimer" depuis l'UI Radarr elle-même.
+        `addImportExclusion=false` : on ne bloque pas un futur ré-ajout
+        volontaire du film, on arrête juste de le suivre maintenant."""
+        await self._delete(f"/api/v3/movie/{movie_id}", params={"deleteFiles": "true", "addImportExclusion": "false"})
 
 
 class SonarrClient(ArrClient):
@@ -61,3 +73,13 @@ class SonarrClient(ArrClient):
 
     async def delete_episode_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/episodefile/{file_id}")
+
+    async def set_episodes_monitored(self, episode_ids: list[int], monitored: bool) -> None:
+        """Sonarr n'a pas d'équivalent "supprimer cet épisode" comme Radarr
+        pour un film : la granularité de suivi est l'épisode, via ce
+        endpoint de (dé)monitoring en masse. Démonitorer un épisode dont le
+        fichier vient d'être supprimé empêche Sonarr de le re-télécharger
+        automatiquement — c'est ça, "supprimer de Sonarr" à cette échelle."""
+        if not episode_ids:
+            return
+        await self._put("/api/v3/episode/monitor", json={"episodeIds": episode_ids, "monitored": monitored})

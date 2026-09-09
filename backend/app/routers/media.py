@@ -17,6 +17,8 @@ from app.schemas.media import (
     DeletePreview,
     HardlinkRepairPreview,
     HardlinkRepairResult,
+    MediaDeleteSelection,
+    MediaDeleteSelectionResult,
     MediaDetail,
     MediaFileRead,
     MediaListItem,
@@ -27,6 +29,7 @@ from app.schemas.media import (
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
+from app.services.media_delete import execute_media_delete
 from app.services.poster_cache import read_cached_poster, write_cached_poster
 
 router = APIRouter()
@@ -173,6 +176,21 @@ async def delete_execute(media_id: int, session: Session = Depends(get_session))
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
     return await execute_delete(session, media, settings)
+
+
+@router.post("/{media_id}/delete-selection", response_model=MediaDeleteSelectionResult)
+async def delete_selection(
+    media_id: int, payload: MediaDeleteSelection, session: Session = Depends(get_session)
+) -> MediaDeleteSelectionResult:
+    if not payload.torrent_ids and not payload.media_file_ids:
+        raise HTTPException(400, "Aucun élément sélectionné.")
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    if settings is None:
+        raise HTTPException(400, "Configuration manquante.")
+    return await execute_media_delete(session, media, settings, payload)
 
 
 @router.post("/{media_id}/cross-seed-search", response_model=CrossSeedSearchResult)
