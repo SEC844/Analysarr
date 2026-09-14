@@ -13,7 +13,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Stage 2: Python runtime serving the API + the static frontend --------
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 WORKDIR /app
 
 COPY backend/requirements.txt ./requirements.txt
