@@ -12,26 +12,12 @@ from app.schemas.media import (
     HardlinkRepairResult,
     HardlinkRepairStepResult,
 )
-from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
-
-
-async def _resolve_torrent_files(qbit: QbittorrentClient, torrent: Torrent) -> list[tuple[str, int | None]]:
-    """[(chemin_absolu, taille)] pour chaque fichier réel du torrent — même
-    logique que le scan (torrents/files + save_path), avec repli sur
-    content_path si l'API n'a rien renvoyé."""
-    try:
-        files = await qbit.get_files(torrent.hash)
-    except Exception:  # noqa: BLE001 - un échec ne doit pas bloquer le repli
-        files = []
-    resolved: list[tuple[str, int | None]] = []
-    if files and torrent.save_path:
-        for f in files:
-            rel = f.get("name")
-            if rel:
-                resolved.append((os.path.join(torrent.save_path, rel), f.get("size")))
-    elif torrent.content_path:
-        resolved.append((torrent.content_path, torrent.size))
-    return resolved
+from app.services.hardlink import (
+    episode_label_from_filename,
+    resolve_current_files,
+    resolve_torrent_files,
+    stat_inode,
+)
 
 
 async def build_repair_preview(session: Session, media: Media, settings: Settings) -> HardlinkRepairPreview:
@@ -107,13 +93,13 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
         # pour les torrents orphelins ci-dessous.
         protected_inodes: set[tuple[int, int]] = set()
         for t in protected_torrents:
-            for path, _size in await _resolve_torrent_files(qbit, t):
+            for path, _size in await resolve_torrent_files(qbit, t):
                 inode = stat_inode(path)
                 if inode is not None:
                     protected_inodes.add(inode)
 
         for t in orphan_torrents:
-            torrent_files = await _resolve_torrent_files(qbit, t)
+            torrent_files = await resolve_torrent_files(qbit, t)
             existing = [(p, size) for p, size in torrent_files if os.path.isfile(p)]
             if not existing:
                 continue

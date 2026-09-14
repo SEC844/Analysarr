@@ -1,9 +1,23 @@
-name: Docker build & push
+name: Docker build & release
 
+# - Pull request vers main : build de validation (amd64, rien n'est poussé).
+# - Push sur dev : image de test `ghcr.io/<owner>/analysarr:dev` (+ `dev-<sha>`).
+# - Tag vX.Y.Z : image multi-arch versionnée, `latest` si plus haute version,
+#   puis GitHub Release générée automatiquement.
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [dev]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Une release taguée n'est jamais annulée ; un push dev ou une PR remplace
+  # simplement le build précédent devenu obsolète.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   REGISTRY: ghcr.io
@@ -17,6 +31,7 @@ jobs:
       packages: write
     outputs:
       is_latest: ${{ steps.latest_check.outputs.is_latest }}
+      image: ${{ steps.image.outputs.name }}
 
     steps:
       - name: Checkout
@@ -24,8 +39,17 @@ jobs:
         with:
           fetch-depth: 0 # nécessaire pour comparer ce tag aux autres ci-dessous
 
+      - name: Resolve image name
+        id: image
+        # `IMAGE_NAME` (github.repository) est en casse mixte ("SEC844/Analysarr") ;
+        # docker/metadata-action le met en minuscule en interne pour ses propres
+        # tags, mais un registre OCI exige des minuscules — il faut le refaire
+        # ici pour toutes les étapes qui construisent la référence elles-mêmes.
+        run: echo "name=${REGISTRY}/${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+
       - name: Determine if this is the highest released version
         id: latest_check
+        if: startsWith(github.ref, 'refs/tags/')
         # Le tag qui déclenche ce build n'est pas forcément le plus récent à
         # POUSSER sur GHCR : un rerun après un plantage ARM64 (déjà vu
         # plusieurs fois - voir historique des commits) peut faire pousser une
@@ -43,12 +67,14 @@ jobs:
           fi
 
       - name: Set up QEMU
+        if: github.event_name != 'pull_request'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -63,21 +89,42 @@ jobs:
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
+        env:
+          # Annotations posées aussi sur l'index multi-arch : c'est
+          # `org.opencontainers.image.source` à ce niveau qui rattache le
+          # package GHCR au dépôt (section "Packages" de la page du repo).
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=sha,prefix=dev-,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=Analysarr
+            org.opencontainers.image.description=Tableau de bord self-hosted de santé des médias Emby, Sonarr, Radarr et qBittorrent
+          annotations: |
+            org.opencontainers.image.title=Analysarr
+            org.opencontainers.image.description=Tableau de bord self-hosted de santé des médias Emby, Sonarr, Radarr et qBittorrent
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
+          # Validation de PR en amd64 seul : l'émulation ARM64 (QEMU) est lente
+          # et sujette aux blocages, inutile tant que rien n'est publié.
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          # Provenance + SBOM attachés aux images publiées : chacun peut
+          # vérifier d'où vient l'image et ce qu'elle embarque.
+          provenance: ${{ github.event_name != 'pull_request' && 'mode=max' || 'false' }}
+          sbom: ${{ github.event_name != 'pull_request' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -86,16 +133,31 @@ jobs:
         # `imagetools create` aliase le manifest multi-arch déjà poussé
         # ci-dessus sous le tag `latest`, sans rebuild - seule cette étape
         # décide de `latest`, jamais docker/metadata-action (voir le check
-        # de version ci-dessus pour pourquoi). `IMAGE_NAME` (github.repository)
-        # est en casse mixte ("SEC844/Analysarr") ; docker/metadata-action le
-        # met en minuscule en interne pour ses propres tags, mais un registre
-        # OCI exige des minuscules — il faut le refaire ici nous-mêmes.
+        # de version ci-dessus pour pourquoi).
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:${GITHUB_REF_NAME#v}"
+
+      - name: Publish summary
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          image="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')"
-          docker buildx imagetools create --tag "${image}:latest" "${image}:${GITHUB_REF_NAME#v}"
+          package_url="https://github.com/${GITHUB_REPOSITORY}/pkgs/container/${IMAGE##*/}"
+          {
+            echo "## Image Docker publiée"
+            echo
+            echo "Disponible dans la section [Packages](${package_url}) du dépôt."
+            echo
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   create-release:
     needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,26 +166,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # nécessaire pour lire le message du tag annoté ci-dessous
+          fetch-depth: 0 # nécessaire pour lire le tag annoté et l'historique ci-dessous
 
-      - name: Extract tag message
-        id: tag_message
-        # Le corps du tag annoté (créé avec `git tag -a`) sert directement de
-        # notes de version — déjà rédigé à la main pour chaque release, pas
-        # besoin de le regénérer depuis les commits.
+      - name: Generate release notes
+        # Notes = résumé du tag annoté + changelog regroupé par type à partir
+        # des commits Conventional Commits depuis la version précédente +
+        # instructions de récupération de l'image. Écrit dans un fichier
+        # (body_path) : aucun contenu de commit n'est interpolé dans le shell.
+        env:
+          IMAGE: ${{ needs.build-and-push.outputs.image }}
         run: |
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          previous=$(git tag -l 'v*.*.*' | sort -V | grep -B1 -x "$tag" | grep -vx "$tag" || true)
+          range="${previous:+${previous}..}${tag}"
+          subjects=$(git log --no-merges --format='%s' "$range")
+
+          section() {
+            local title="$1" pattern="$2" lines
+            lines=$(printf '%s\n' "$subjects" | grep -E "$pattern" \
+              | sed -E 's/^[a-z]+\(([^)]+)\)!?: (.*)$/- **\1** : \2/; t; s/^[a-z]+!?: (.*)$/- \1/' || true)
+            if [ -n "$lines" ]; then
+              printf '### %s\n\n%s\n\n' "$title" "$lines"
+            fi
+          }
+
           {
-            echo 'body<<GITHUB_RELEASE_BODY_EOF'
-            git tag -l --format='%(contents)' "${{ github.ref_name }}"
-            echo GITHUB_RELEASE_BODY_EOF
-          } >> "$GITHUB_OUTPUT"
+            git tag -l --format='%(contents)' "$tag"
+            echo
+            echo "## Changements"
+            echo
+            section "Nouveautés" '^feat(\(.+\))?!?: '
+            section "Corrections" '^fix(\(.+\))?!?: '
+            section "Performances" '^perf(\(.+\))?!?: '
+            section "Maintenance" '^(refactor|build|ci|docs|chore|style|test)(\(.+\))?!?: '
+            if [ -n "$previous" ]; then
+              echo "**Comparatif complet** : https://github.com/${GITHUB_REPOSITORY}/compare/${previous}...${tag}"
+              echo
+            fi
+            echo "## Image Docker"
+            echo
+            echo '```bash'
+            echo "docker pull ${IMAGE}:${version}"
+            echo '```'
+            echo
+            echo "Plateformes : \`linux/amd64\`, \`linux/arm64\` — disponible dans la section [Packages](https://github.com/${GITHUB_REPOSITORY}/pkgs/container/${IMAGE##*/}) du dépôt."
+          } > release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          body: ${{ steps.tag_message.outputs.body }}
+          body_path: release-notes.md
           # Par défaut cette action marque "Latest" la release la plus
           # RÉCEMMENT CRÉÉE, pas la plus récente en version - même défaut
           # d'ordre de complétion que pour le tag `latest` sur GHCR (voir

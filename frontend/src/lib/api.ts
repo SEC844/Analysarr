@@ -12,6 +12,7 @@ import type {
   DeletePreview,
   HardlinkRepairPreview,
   HardlinkRepairResult,
+  MediaDeleteFootprint,
   MediaDeleteSelection,
   MediaDeleteSelectionResult,
   MediaDetail,
@@ -135,6 +136,10 @@ export function deletePreview(id: number): Promise<DeletePreview> {
 
 export function deleteExecute(id: number): Promise<DeleteExecuteResult> {
   return request<DeleteExecuteResult>(`/api/media/${id}/delete/execute`, { method: "POST" })
+}
+
+export function getDeleteFootprint(id: number): Promise<MediaDeleteFootprint> {
+  return request<MediaDeleteFootprint>(`/api/media/${id}/delete-selection/footprint`)
 }
 
 export function deleteSelectionExecute(id: number, selection: MediaDeleteSelection): Promise<MediaDeleteSelectionResult> {

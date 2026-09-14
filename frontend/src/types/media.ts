@@ -87,6 +87,22 @@ export interface MediaDeleteSelection {
   remove_from_arr: boolean
 }
 
+export interface DiskUnit {
+  size: number
+  links: number
+}
+
+export interface DeleteFootprintItem {
+  id: number
+  units: number[]
+}
+
+export interface MediaDeleteFootprint {
+  units: DiskUnit[]
+  torrents: DeleteFootprintItem[]
+  files: DeleteFootprintItem[]
+}
+
 export interface MediaDeleteSelectionResult {
   steps: DeleteStepResult[]
   media_deleted: boolean

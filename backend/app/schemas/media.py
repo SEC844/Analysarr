@@ -116,6 +116,35 @@ class MediaDeleteSelection(BaseModel):
     remove_from_arr: bool = False
 
 
+class DiskUnit(BaseModel):
+    """Un contenu physique sur disque (un inode) : l'espace qu'il occupe
+    n'est réellement libéré que si TOUS ses liens (`links`, `st_nlink`) sont
+    supprimés — supprimer un torrent hardlinké à la bibliothèque sans
+    supprimer aussi le fichier de la bibliothèque ne libère rien."""
+
+    size: int
+    links: int
+
+
+class DeleteFootprintItem(BaseModel):
+    id: int
+    # Un index dans `MediaDeleteFootprint.units` par fichier physique de
+    # l'élément (plusieurs pour un torrent multi-fichiers). Vide pour un
+    # lien symbolique : le supprimer ne libère aucun espace.
+    units: list[int]
+
+
+class MediaDeleteFootprint(BaseModel):
+    """Empreinte disque des éléments supprimables d'un média, dédupliquée par
+    inode, pour calculer côté frontend l'espace RÉELLEMENT libéré par une
+    sélection (et non la somme naïve des tailles, fausse dès que des
+    fichiers sélectionnés partagent le même inode). Aucun chemin exposé."""
+
+    units: list[DiskUnit]
+    torrents: list[DeleteFootprintItem]
+    files: list[DeleteFootprintItem]
+
+
 class MediaDeleteSelectionResult(BaseModel):
     steps: list[DeleteStepResult]
     # True si plus aucun fichier ni torrent ne subsiste pour ce média après

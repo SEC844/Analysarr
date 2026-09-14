@@ -71,6 +71,15 @@ class SonarrClient(ArrClient):
         # filtrée par série.
         return await self._get("/api/v3/history/series", params={"seriesId": series_id})
 
+    async def delete_series(self, series_id: int) -> None:
+        """Retire la série de Sonarr ET supprime son dossier — équivalent de
+        "Supprimer" depuis l'UI Sonarr, seul cas où la granularité série
+        s'applique (tous les fichiers de la série sélectionnés). Même choix
+        que `RadarrClient.delete_movie` : pas d'exclusion d'import."""
+        await self._delete(
+            f"/api/v3/series/{series_id}", params={"deleteFiles": "true", "addImportListExclusion": "false"}
+        )
+
     async def delete_episode_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/episodefile/{file_id}")
 
