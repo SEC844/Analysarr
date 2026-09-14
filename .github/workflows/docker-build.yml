@@ -110,7 +110,7 @@ jobs:
             org.opencontainers.image.description=Tableau de bord self-hosted de santé des médias Emby, Sonarr, Radarr et qBittorrent
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
