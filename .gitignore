@@ -17,7 +17,7 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
-# Config locale Claude Code (dev server launch config, settings) : propre à
+# Config locale des outils de développement (lancement, réglages) : propre à
 # la machine de chaque développeur, pas du code applicatif.
 .claude/
 CLAUDE.md
