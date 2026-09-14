@@ -5,7 +5,7 @@
 # résultat (HTML/JS/CSS statiques) est identique pour toutes les plateformes,
 # et `npm ci` sous émulation QEMU ARM64 restait régulièrement bloqué des heures
 # sur les runners GitHub. Construit une seule fois, copié dans chaque image.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-build
+FROM --platform=$BUILDPLATFORM node:26-alpine AS frontend-build
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
