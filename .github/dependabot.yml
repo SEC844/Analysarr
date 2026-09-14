@@ -1,7 +1,11 @@
 version: 2
 
-# Mises à jour de sécurité et de dépendances proposées sur dev, jamais
-# directement sur main : elles suivent le même circuit de test que le reste.
+# Une seule PR groupée par écosystème, vers dev (jamais main directement),
+# pour les mises à jour mineures et correctifs uniquement. Les versions
+# majeures (et les changements de version de Python, qui cassent souvent les
+# dépendances compilées) demandent une migration testée : elles sont faites
+# à la main, pas proposées automatiquement. L'audit de sécurité des
+# dépendances reste vérifié à chaque build par la CI.
 updates:
   - package-ecosystem: npm
     directory: /frontend
@@ -14,7 +18,9 @@ updates:
     groups:
       frontend:
         patterns: ["*"]
-        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: /backend
@@ -24,6 +30,12 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    groups:
+      backend:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /
@@ -33,6 +45,14 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    groups:
+      docker:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: python
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -41,3 +61,9 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    groups:
+      github-actions:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

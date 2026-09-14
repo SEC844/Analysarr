@@ -178,6 +178,10 @@ jobs:
         run: |
           tag="$GITHUB_REF_NAME"
           version="${tag#v}"
+          # actions/checkout remplace le tag annoté par un tag léger pointant
+          # sur le commit : %(contents) renverrait alors le message du commit
+          # (ex : "Merge pull request #1") au lieu du résumé du tag.
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
           previous=$(git tag -l 'v*.*.*' | sort -V | grep -B1 -x "$tag" | grep -vx "$tag" || true)
           range="${previous:+${previous}..}${tag}"
           subjects=$(git log --no-merges --format='%s' "$range")
