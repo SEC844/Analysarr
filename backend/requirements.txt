@@ -4,4 +4,4 @@ sqlmodel==0.0.22
 httpx==0.28.1
 python-multipart==0.0.32
 bcrypt==4.2.1
-apscheduler==3.11.0
+apscheduler==3.11.3
