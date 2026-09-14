@@ -105,19 +105,31 @@ function buildTree(media: MediaDetail): TreeNode[] {
   return [torrents, library].filter((n): n is TreeNode => n !== null)
 }
 
+// Unités disque (inodes) de chaque élément, indexées par clé de sélection.
+function indexFootprint(footprint: MediaDeleteFootprint): Map<string, number[]> {
+  const index = (items: DeleteFootprintItem[], key: (id: number) => string) =>
+    items.map((item): [string, number[]] => [key(item.id), item.units])
+  return new Map([...index(footprint.torrents, torrentKey), ...index(footprint.files, fileKey)])
+}
+
+// Taille réelle sur disque d'un ensemble d'éléments : chaque inode compté
+// une seule fois (3 torrents hardlinkés d'un même film = une seule taille).
+function diskBytes(footprint: MediaDeleteFootprint, unitsByKey: Map<string, number[]>, keys: Iterable<string>): number {
+  const units = new Set<number>()
+  for (const key of keys) for (const unit of unitsByKey.get(key) ?? []) units.add(unit)
+  let total = 0
+  for (const unit of units) total += footprint.units[unit].size
+  return total
+}
+
 // Espace RÉELLEMENT libéré : un inode n'est libéré que si tous ses liens
 // sont sélectionnés — 100 hardlinks d'un même fichier ne libèrent qu'une
 // seule fois sa taille, et rien du tout si l'un d'eux est conservé.
-function reclaimedBytes(footprint: MediaDeleteFootprint, selected: Set<string>): number {
+function reclaimedBytes(footprint: MediaDeleteFootprint, unitsByKey: Map<string, number[]>, keys: Iterable<string>): number {
   const selectedLinks = new Map<number, number>()
-  const count = (items: DeleteFootprintItem[], key: (id: number) => string) => {
-    for (const item of items) {
-      if (!selected.has(key(item.id))) continue
-      for (const unit of item.units) selectedLinks.set(unit, (selectedLinks.get(unit) ?? 0) + 1)
-    }
+  for (const key of keys) {
+    for (const unit of unitsByKey.get(key) ?? []) selectedLinks.set(unit, (selectedLinks.get(unit) ?? 0) + 1)
   }
-  count(footprint.torrents, torrentKey)
-  count(footprint.files, fileKey)
   let total = 0
   for (const [unit, links] of selectedLinks) {
     if (links >= footprint.units[unit].links) total += footprint.units[unit].size
@@ -128,6 +140,7 @@ function reclaimedBytes(footprint: MediaDeleteFootprint, selected: Set<string>):
 interface TreeState {
   selected: Set<string>
   expanded: Set<string>
+  sizeOf: (node: TreeNode) => number
   toggleSelect: (keys: string[], checked: boolean) => void
   toggleExpand: (key: string) => void
 }
@@ -170,7 +183,7 @@ function TreeRow({ node, state }: { node: TreeNode; state: TreeState }) {
           {node.label}
           {isGroup && <span className="text-muted-foreground"> ({node.leafKeys.length})</span>}
         </button>
-        <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(node.size)}</span>
+        <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(state.sizeOf(node))}</span>
       </div>
       {isGroup && isOpen && (
         <ul className="border-border ml-3 border-l pl-2">
@@ -196,20 +209,31 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const tree = useMemo(() => buildTree(media), [media])
   const allKeys = useMemo(() => tree.flatMap((n) => n.leafKeys), [tree])
 
+  const footprint = footprintQuery.data
+  const unitsByKey = useMemo(() => (footprint ? indexFootprint(footprint) : null), [footprint])
+
   const isSeries = media.media_type === "series"
   const selectedTorrents = media.torrents.filter((t) => selected.has(torrentKey(t.id)))
   const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
   const hasSelection = selected.size > 0
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k))
-  const wholeSeries = isSeries && media.sonarr_id !== null && selectedFiles.length === media.files.length
+  // Retrait du média entier de Sonarr/Radarr : seulement si toute sa
+  // bibliothèque est cochée, sinon des fichiers non cochés seraient supprimés.
+  const wholeLibrary = hasSelection && selectedFiles.length === media.files.length
+  const arrId = isSeries ? media.sonarr_id : media.radarr_id
+  const canRemoveMedia = wholeLibrary && arrId !== null
+  const showArrOption = canRemoveMedia || (isSeries && selectedFiles.length > 0)
 
-  const selectedBytes =
+  // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.
+  const nominalBytes =
     selectedTorrents.reduce((sum, t) => sum + (t.size ?? 0), 0) + selectedFiles.reduce((sum, f) => sum + (f.size ?? 0), 0)
-  const reclaimed = footprintQuery.data ? reclaimedBytes(footprintQuery.data, selected) : null
+  const selectedBytes = footprint && unitsByKey ? diskBytes(footprint, unitsByKey, selected) : nominalBytes
+  const reclaimed = footprint && unitsByKey ? reclaimedBytes(footprint, unitsByKey, selected) : null
 
   const treeState: TreeState = {
     selected,
     expanded,
+    sizeOf: (node) => (footprint && unitsByKey ? diskBytes(footprint, unitsByKey, node.leafKeys) : node.size),
     toggleSelect: (keys, checked) =>
       setSelected((prev) => {
         const next = new Set(prev)
@@ -247,11 +271,11 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
     }
   }
 
-  const arrLabel = !isSeries
-    ? "Retirer aussi le film de Radarr (empêche un retéléchargement automatique)"
-    : wholeSeries
-      ? "Retirer aussi la série de Sonarr (arrête son suivi et supprime son dossier)"
-      : "Démonitorer aussi ces épisodes dans Sonarr (empêche un retéléchargement automatique)"
+  const arrLabel = !canRemoveMedia
+    ? "Démonitorer aussi ces épisodes dans Sonarr (empêche un retéléchargement automatique)"
+    : isSeries
+      ? "Retirer aussi la série de Sonarr (sans l'ajouter à la liste d'exclusion)"
+      : "Retirer aussi le film de Radarr (sans l'ajouter à la liste d'exclusion)"
 
   const handleConfirm = () => {
     executeMutation.mutate(
@@ -260,7 +284,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
         selection: {
           torrent_ids: selectedTorrents.map((t) => t.id),
           media_file_ids: selectedFiles.map((f) => f.id),
-          remove_from_arr: removeFromArr && selectedFiles.length > 0,
+          remove_from_arr: removeFromArr && showArrOption,
         },
       },
       {
@@ -324,7 +348,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               ))}
             </ul>
 
-            {selectedFiles.length > 0 && (
+            {showArrOption && (
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={removeFromArr} onCheckedChange={setRemoveFromArr} />
                 {arrLabel}

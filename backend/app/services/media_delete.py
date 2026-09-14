@@ -100,12 +100,7 @@ async def _delete_torrents(
 
 
 async def _delete_movie_files(
-    files: list[MediaFile],
-    media: Media,
-    settings: Settings,
-    remove_from_arr: bool,
-    steps: list[DeleteStepResult],
-    session: Session,
+    files: list[MediaFile], settings: Settings, steps: list[DeleteStepResult], session: Session
 ) -> None:
     radarr = (
         RadarrClient(settings.radarr_url, settings.radarr_api_key)
@@ -114,9 +109,7 @@ async def _delete_movie_files(
     )
     for f in files:
         try:
-            if f.arr_file_id and radarr is not None and media.radarr_id and remove_from_arr:
-                await radarr.delete_movie(media.radarr_id)  # supprime aussi le fichier
-            elif f.arr_file_id and radarr is not None:
+            if f.arr_file_id and radarr is not None:
                 await radarr.delete_movie_file(f.arr_file_id)
             else:
                 # Fichier en trop jamais suivi par Radarr (doublon) : rien à
@@ -128,18 +121,40 @@ async def _delete_movie_files(
             steps.append(DeleteStepResult(kind="library_file", label=f.path, success=False, error=str(exc)))
 
 
-async def _delete_whole_series(
-    files: list[MediaFile], media: Media, sonarr: SonarrClient, steps: list[DeleteStepResult], session: Session
-) -> None:
-    """Toute la série sélectionnée avec retrait de Sonarr : un seul appel
-    Sonarr (série + dossier), puis suppression directe des fichiers qui
-    subsisteraient hors de son dossier (doublons jamais suivis par Sonarr)."""
+async def _remove_media_from_arr(
+    files: list[MediaFile], media: Media, settings: Settings, steps: list[DeleteStepResult], session: Session
+) -> bool:
+    """Toute la bibliothèque du média sélectionnée avec retrait Sonarr/Radarr :
+    un seul appel au niveau du MÉDIA (film ou série + dossier, sans liste
+    d'exclusion), puis suppression directe des fichiers qui subsisteraient.
+
+    Ne dépend volontairement PAS de `MediaFile.arr_file_id` : il n'est
+    renseigné que si le chemin Emby est textuellement identique au chemin
+    Sonarr/Radarr (voir scan.py), ce qui est faux dès que les conteneurs
+    montent la bibliothèque à des chemins différents — le film/la série
+    restait alors dans Radarr/Sonarr alors que ses fichiers étaient supprimés.
+
+    Renvoie False si Sonarr/Radarr n'est pas configuré ou le média inconnu
+    (repli sur la suppression fichier par fichier)."""
+    if media.media_type == MediaType.movie:
+        if not (media.radarr_id and settings.radarr_url and settings.radarr_api_key):
+            return False
+        service = "Radarr"
+        remove = RadarrClient(settings.radarr_url, settings.radarr_api_key).delete_movie(media.radarr_id)
+    else:
+        if not (media.sonarr_id and settings.sonarr_url and settings.sonarr_api_key):
+            return False
+        service = "Sonarr"
+        remove = SonarrClient(settings.sonarr_url, settings.sonarr_api_key).delete_series(media.sonarr_id)
+
     try:
-        await sonarr.delete_series(media.sonarr_id)
+        await remove
     except httpx.HTTPError as exc:
-        steps.append(DeleteStepResult(kind="sonarr_series", label=media.title, success=False, error=str(exc)))
-        return
-    steps.append(DeleteStepResult(kind="sonarr_series", label=f"{media.title} retirée de Sonarr", success=True))
+        # Rien n'est supprimé du disque si Sonarr/Radarr refuse : l'utilisateur
+        # voit l'erreur et peut réessayer sans avoir perdu ses fichiers.
+        steps.append(DeleteStepResult(kind="arr_media", label=media.title, success=False, error=str(exc)))
+        return True
+    steps.append(DeleteStepResult(kind="arr_media", label=f"{media.title} retiré de {service}", success=True))
     for f in files:
         label = f.episode_label or f.path
         try:
@@ -149,6 +164,7 @@ async def _delete_whole_series(
             steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
         except OSError as exc:
             steps.append(DeleteStepResult(kind="library_file", label=label, success=False, error=str(exc)))
+    return True
 
 
 async def _delete_episode_files(
@@ -209,23 +225,18 @@ async def execute_media_delete(
 
     steps: list[DeleteStepResult] = []
     await _delete_torrents(torrents, settings, steps, session)
-    if files:
+
+    all_file_count = len(session.exec(select(MediaFile.id).where(MediaFile.media_id == media.id)).all())
+    # Retrait du média entier de Sonarr/Radarr uniquement si TOUTE sa
+    # bibliothèque est sélectionnée (y compris aucune, pour un média sans
+    # fichier) : sinon on supprimerait des fichiers non cochés.
+    whole_library = selection.remove_from_arr and len(files) == all_file_count
+    removed_from_arr = whole_library and await _remove_media_from_arr(list(files), media, settings, steps, session)
+    if files and not removed_from_arr:
         if media.media_type == MediaType.movie:
-            await _delete_movie_files(files, media, settings, selection.remove_from_arr, steps, session)
+            await _delete_movie_files(files, settings, steps, session)
         else:
-            all_file_count = len(session.exec(select(MediaFile.id).where(MediaFile.media_id == media.id)).all())
-            whole_series = (
-                selection.remove_from_arr
-                and media.sonarr_id
-                and settings.sonarr_url
-                and settings.sonarr_api_key
-                and len(files) == all_file_count
-            )
-            if whole_series:
-                sonarr = SonarrClient(settings.sonarr_url, settings.sonarr_api_key)
-                await _delete_whole_series(list(files), media, sonarr, steps, session)
-            else:
-                await _delete_episode_files(files, settings, selection.remove_from_arr, steps, session)
+            await _delete_episode_files(files, settings, selection.remove_from_arr, steps, session)
 
     session.commit()
 
