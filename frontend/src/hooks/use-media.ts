@@ -5,6 +5,7 @@ import {
   deleteExecute,
   deletePreview,
   deleteSelectionExecute,
+  getDeleteFootprint,
   getMedia,
   hardlinkRepairExecute,
   hardlinkRepairPreview,
@@ -39,6 +40,16 @@ export function useDeleteExecuteMutation() {
       queryClient.invalidateQueries({ queryKey: ["media"] })
       queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
     },
+  })
+}
+
+// Sous la clé "media" : invalidée avec le reste après chaque suppression,
+// l'empreinte disque est donc toujours recalculée à la réouverture.
+export function useDeleteFootprintQuery(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["media", "delete-footprint", id],
+    queryFn: () => getDeleteFootprint(id),
+    enabled,
   })
 }
 

@@ -17,6 +17,7 @@ from app.schemas.media import (
     DeletePreview,
     HardlinkRepairPreview,
     HardlinkRepairResult,
+    MediaDeleteFootprint,
     MediaDeleteSelection,
     MediaDeleteSelectionResult,
     MediaDetail,
@@ -29,7 +30,7 @@ from app.schemas.media import (
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
-from app.services.media_delete import execute_media_delete
+from app.services.media_delete import build_delete_footprint, execute_media_delete
 from app.services.poster_cache import read_cached_poster, write_cached_poster
 
 router = APIRouter()
@@ -176,6 +177,17 @@ async def delete_execute(media_id: int, session: Session = Depends(get_session))
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
     return await execute_delete(session, media, settings)
+
+
+@router.get("/{media_id}/delete-selection/footprint", response_model=MediaDeleteFootprint)
+async def delete_selection_footprint(media_id: int, session: Session = Depends(get_session)) -> MediaDeleteFootprint:
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    if settings is None:
+        raise HTTPException(400, "Configuration manquante.")
+    return await build_delete_footprint(session, media, settings)
 
 
 @router.post("/{media_id}/delete-selection", response_model=MediaDeleteSelectionResult)

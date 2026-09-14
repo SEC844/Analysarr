@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react"
-import { CheckCircle2, Loader2, Trash2, XCircle } from "lucide-react"
+import { useMemo, useState, type ReactNode } from "react"
+import { CheckCircle2, ChevronRight, Clapperboard, HardDriveDownload, Loader2, Trash2, Tv, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,45 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { useDeleteSelectionExecuteMutation } from "@/hooks/use-media"
+import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation } from "@/hooks/use-media"
 import { formatBytes } from "@/lib/format"
-import type { MediaDeleteSelectionResult, MediaDetail, MediaFileRead } from "@/types/media"
+import { cn } from "@/lib/utils"
+import type {
+  DeleteFootprintItem,
+  MediaDeleteFootprint,
+  MediaDeleteSelectionResult,
+  MediaDetail,
+  MediaFileRead,
+} from "@/types/media"
+
+// Torrents et fichiers de bibliothèque partagent un seul ensemble de
+// sélection : clés préfixées pour les distinguer au moment de l'envoi.
+const torrentKey = (id: number) => `t:${id}`
+const fileKey = (id: number) => `f:${id}`
+
+interface TreeNode {
+  key: string
+  label: string
+  title?: string
+  icon?: ReactNode
+  size: number
+  leafKeys: string[]
+  children: TreeNode[]
+}
+
+function leaf(key: string, label: string, size: number | null, title?: string): TreeNode {
+  return { key, label, title, size: size ?? 0, leafKeys: [key], children: [] }
+}
+
+function group(key: string, label: string, children: TreeNode[]): TreeNode {
+  return {
+    key,
+    label,
+    size: children.reduce((sum, c) => sum + c.size, 0),
+    leafKeys: children.flatMap((c) => c.leafKeys),
+    children,
+  }
+}
 
 function seasonLabel(episodeLabel: string | null): string {
   const match = episodeLabel?.match(/^S(\d+)/)
@@ -23,8 +59,10 @@ function seasonLabel(episodeLabel: string | null): string {
 }
 
 function groupBySeason(files: MediaFileRead[]): [string, MediaFileRead[]][] {
+  // "~" trie les fichiers sans épisode identifié après toutes les saisons.
+  const sorted = [...files].sort((a, b) => (a.episode_label ?? "~").localeCompare(b.episode_label ?? "~"))
   const groups = new Map<string, MediaFileRead[]>()
-  for (const f of files) {
+  for (const f of sorted) {
     const key = seasonLabel(f.episode_label)
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(f)
@@ -32,55 +70,197 @@ function groupBySeason(files: MediaFileRead[]): [string, MediaFileRead[]][] {
   return [...groups.entries()]
 }
 
-function toggleIds(ids: number[], checked: boolean, set: React.Dispatch<React.SetStateAction<Set<number>>>) {
-  set((prev) => {
-    const next = new Set(prev)
-    for (const id of ids) {
-      if (checked) next.add(id)
-      else next.delete(id)
+// Un seul élément dans une section : ligne simple, sans niveau d'arbre.
+function section(key: string, label: string, icon: ReactNode, children: TreeNode[]): TreeNode | null {
+  if (children.length === 0) return null
+  const node = children.length === 1 && children[0].children.length === 0 ? children[0] : group(key, label, children)
+  return { ...node, icon }
+}
+
+function buildTree(media: MediaDetail): TreeNode[] {
+  const isSeries = media.media_type === "series"
+  const fileLeaf = (f: MediaFileRead) => {
+    const name = f.path.split(/[\\/]/).pop() || f.path
+    return leaf(fileKey(f.id), isSeries ? (f.episode_label ?? name) : name, f.size, f.path)
+  }
+
+  const torrents = section(
+    "torrents",
+    "Torrents",
+    <HardDriveDownload className="text-muted-foreground size-4 shrink-0" />,
+    media.torrents.map((t) => leaf(torrentKey(t.id), t.name, t.size)),
+  )
+  const library = section(
+    "library",
+    "Bibliothèque",
+    isSeries ? (
+      <Tv className="text-muted-foreground size-4 shrink-0" />
+    ) : (
+      <Clapperboard className="text-muted-foreground size-4 shrink-0" />
+    ),
+    isSeries && media.files.length > 1
+      ? groupBySeason(media.files).map(([season, files]) => group(`season:${season}`, season, files.map(fileLeaf)))
+      : media.files.map(fileLeaf),
+  )
+  return [torrents, library].filter((n): n is TreeNode => n !== null)
+}
+
+// Espace RÉELLEMENT libéré : un inode n'est libéré que si tous ses liens
+// sont sélectionnés — 100 hardlinks d'un même fichier ne libèrent qu'une
+// seule fois sa taille, et rien du tout si l'un d'eux est conservé.
+function reclaimedBytes(footprint: MediaDeleteFootprint, selected: Set<string>): number {
+  const selectedLinks = new Map<number, number>()
+  const count = (items: DeleteFootprintItem[], key: (id: number) => string) => {
+    for (const item of items) {
+      if (!selected.has(key(item.id))) continue
+      for (const unit of item.units) selectedLinks.set(unit, (selectedLinks.get(unit) ?? 0) + 1)
     }
-    return next
-  })
+  }
+  count(footprint.torrents, torrentKey)
+  count(footprint.files, fileKey)
+  let total = 0
+  for (const [unit, links] of selectedLinks) {
+    if (links >= footprint.units[unit].links) total += footprint.units[unit].size
+  }
+  return total
+}
+
+interface TreeState {
+  selected: Set<string>
+  expanded: Set<string>
+  toggleSelect: (keys: string[], checked: boolean) => void
+  toggleExpand: (key: string) => void
+}
+
+function TreeRow({ node, state }: { node: TreeNode; state: TreeState }) {
+  const selectedCount = node.leafKeys.filter((k) => state.selected.has(k)).length
+  const checked = selectedCount === node.leafKeys.length
+  const isGroup = node.children.length > 0
+  const isOpen = state.expanded.has(node.key)
+
+  return (
+    <li>
+      <div className="hover:bg-muted/50 flex items-center gap-2 rounded-md px-1 py-1.5">
+        {isGroup ? (
+          <button
+            type="button"
+            onClick={() => state.toggleExpand(node.key)}
+            aria-expanded={isOpen}
+            aria-label={isOpen ? `Replier ${node.label}` : `Déplier ${node.label}`}
+            className="text-muted-foreground hover:text-foreground shrink-0"
+          >
+            <ChevronRight className={cn("size-4 transition-transform", isOpen && "rotate-90")} />
+          </button>
+        ) : (
+          <span className="size-4 shrink-0" aria-hidden />
+        )}
+        <Checkbox
+          checked={checked}
+          indeterminate={selectedCount > 0 && !checked}
+          onCheckedChange={(next) => state.toggleSelect(node.leafKeys, next)}
+          aria-label={node.label}
+        />
+        {node.icon}
+        <button
+          type="button"
+          title={node.title ?? node.label}
+          onClick={() => (isGroup ? state.toggleExpand(node.key) : state.toggleSelect(node.leafKeys, !checked))}
+          className="min-w-0 flex-1 truncate text-left"
+        >
+          {node.label}
+          {isGroup && <span className="text-muted-foreground"> ({node.leafKeys.length})</span>}
+        </button>
+        <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(node.size)}</span>
+      </div>
+      {isGroup && isOpen && (
+        <ul className="border-border ml-3 border-l pl-2">
+          {node.children.map((child) => (
+            <TreeRow key={child.key} node={child} state={state} />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
 }
 
 export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: MediaDetail; onMediaDeleted: () => void }) {
   const [open, setOpen] = useState(false)
-  const [selectedTorrentIds, setSelectedTorrentIds] = useState<Set<number>>(new Set())
-  const [selectedFileIds, setSelectedFileIds] = useState<Set<number>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [removeFromArr, setRemoveFromArr] = useState(false)
   const [result, setResult] = useState<MediaDeleteSelectionResult | null>(null)
 
   const executeMutation = useDeleteSelectionExecuteMutation()
+  const footprintQuery = useDeleteFootprintQuery(media.id, open && !result)
 
-  const filesBySeason = useMemo(
-    () => (media.media_type === "series" ? groupBySeason(media.files) : null),
-    [media.files, media.media_type],
-  )
+  const tree = useMemo(() => buildTree(media), [media])
+  const allKeys = useMemo(() => tree.flatMap((n) => n.leafKeys), [tree])
+
+  const isSeries = media.media_type === "series"
+  const selectedTorrents = media.torrents.filter((t) => selected.has(torrentKey(t.id)))
+  const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
+  const hasSelection = selected.size > 0
+  const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k))
+  const wholeSeries = isSeries && media.sonarr_id !== null && selectedFiles.length === media.files.length
+
+  const selectedBytes =
+    selectedTorrents.reduce((sum, t) => sum + (t.size ?? 0), 0) + selectedFiles.reduce((sum, f) => sum + (f.size ?? 0), 0)
+  const reclaimed = footprintQuery.data ? reclaimedBytes(footprintQuery.data, selected) : null
+
+  const treeState: TreeState = {
+    selected,
+    expanded,
+    toggleSelect: (keys, checked) =>
+      setSelected((prev) => {
+        const next = new Set(prev)
+        for (const key of keys) {
+          if (checked) next.add(key)
+          else next.delete(key)
+        }
+        return next
+      }),
+    toggleExpand: (key) =>
+      setExpanded((prev) => {
+        const next = new Set(prev)
+        if (!next.delete(key)) next.add(key)
+        return next
+      }),
+  }
 
   function handleOpenChange(next: boolean) {
     setOpen(next)
     if (!next) {
-      setSelectedTorrentIds(new Set())
-      setSelectedFileIds(new Set())
+      setSelected(new Set())
+      setExpanded(new Set())
       setRemoveFromArr(false)
       setResult(null)
     }
   }
 
-  const totalSize =
-    media.torrents.filter((t) => selectedTorrentIds.has(t.id)).reduce((sum, t) => sum + (t.size ?? 0), 0) +
-    media.files.filter((f) => selectedFileIds.has(f.id)).reduce((sum, f) => sum + (f.size ?? 0), 0)
+  function handleSelectAll() {
+    if (allSelected) {
+      setSelected(new Set())
+      setRemoveFromArr(false)
+    } else {
+      setSelected(new Set(allKeys))
+      setRemoveFromArr(true)
+    }
+  }
 
-  const hasSelection = selectedTorrentIds.size > 0 || selectedFileIds.size > 0
+  const arrLabel = !isSeries
+    ? "Retirer aussi le film de Radarr (empêche un retéléchargement automatique)"
+    : wholeSeries
+      ? "Retirer aussi la série de Sonarr (arrête son suivi et supprime son dossier)"
+      : "Démonitorer aussi ces épisodes dans Sonarr (empêche un retéléchargement automatique)"
 
   const handleConfirm = () => {
     executeMutation.mutate(
       {
         id: media.id,
         selection: {
-          torrent_ids: [...selectedTorrentIds],
-          media_file_ids: [...selectedFileIds],
-          remove_from_arr: removeFromArr,
+          torrent_ids: selectedTorrents.map((t) => t.id),
+          media_file_ids: selectedFiles.map((f) => f.id),
+          remove_from_arr: removeFromArr && selectedFiles.length > 0,
         },
       },
       {
@@ -109,114 +289,71 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
       <DialogTrigger render={<Button type="button" variant="outline" size="icon" title="Supprimer..." />}>
         <Trash2 className="size-4" />
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Supprimer</DialogTitle>
           <DialogDescription>
-            Choisissez ce qu'il faut supprimer — torrents, fichiers de bibliothèque (par épisode, saison ou média
-            entier) — et confirmez.
+            Cochez ce qu'il faut supprimer : cocher un groupe coche tout son contenu. Rien n'est supprimé avant
+            confirmation.
           </DialogDescription>
         </DialogHeader>
 
         {!result && (
-          <div className="max-h-96 space-y-4 overflow-y-auto">
-            {media.torrents.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-sm font-medium">Torrents</p>
-                <ul className="divide-border divide-y text-sm">
-                  {media.torrents.map((t) => (
-                    <li key={t.id} className="flex items-center gap-2 py-1.5">
-                      <Checkbox
-                        checked={selectedTorrentIds.has(t.id)}
-                        onCheckedChange={(checked) => toggleIds([t.id], checked, setSelectedTorrentIds)}
-                      />
-                      <span className="min-w-0 flex-1 truncate">{t.name}</span>
-                      <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(t.size)}</span>
-                    </li>
-                  ))}
-                </ul>
+          <div className="space-y-3">
+            {allKeys.length > 1 && (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-muted-foreground text-sm">
+                  {selected.size} élément(s) sélectionné(s) sur {allKeys.length}
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={handleSelectAll}>
+                  {allSelected ? (
+                    "Tout désélectionner"
+                  ) : (
+                    <>
+                      <Trash2 className="size-4" />
+                      Tout supprimer
+                    </>
+                  )}
+                </Button>
               </div>
             )}
 
-            {media.files.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">Bibliothèque</p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    onClick={() =>
-                      toggleIds(
-                        media.files.map((f) => f.id),
-                        !media.files.every((f) => selectedFileIds.has(f.id)),
-                        setSelectedFileIds,
-                      )
-                    }
-                  >
-                    {media.media_type === "series" ? "Toute la série" : "Tout sélectionner"}
-                  </Button>
-                </div>
-                {filesBySeason ? (
-                  filesBySeason.map(([season, files]) => (
-                    <div key={season} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <p className="text-muted-foreground text-xs font-medium">{season}</p>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="xs"
-                          onClick={() =>
-                            toggleIds(
-                              files.map((f) => f.id),
-                              !files.every((f) => selectedFileIds.has(f.id)),
-                              setSelectedFileIds,
-                            )
-                          }
-                        >
-                          Toute la saison
-                        </Button>
-                      </div>
-                      <ul className="divide-border divide-y text-sm">
-                        {files.map((f) => (
-                          <li key={f.id} className="flex items-center gap-2 py-1.5">
-                            <Checkbox
-                              checked={selectedFileIds.has(f.id)}
-                              onCheckedChange={(checked) => toggleIds([f.id], checked, setSelectedFileIds)}
-                            />
-                            <span className="min-w-0 flex-1 truncate">{f.episode_label ?? f.path}</span>
-                            <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(f.size)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))
-                ) : (
-                  <ul className="divide-border divide-y text-sm">
-                    {media.files.map((f) => (
-                      <li key={f.id} className="flex items-center gap-2 py-1.5">
-                        <Checkbox
-                          checked={selectedFileIds.has(f.id)}
-                          onCheckedChange={(checked) => toggleIds([f.id], checked, setSelectedFileIds)}
-                        />
-                        <span className="min-w-0 flex-1 truncate">{f.path}</span>
-                        <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(f.size)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+            <ul className="max-h-80 overflow-y-auto text-sm">
+              {tree.map((node) => (
+                <TreeRow key={node.key} node={node} state={treeState} />
+              ))}
+            </ul>
 
-            {selectedFileIds.size > 0 && (
+            {selectedFiles.length > 0 && (
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={removeFromArr} onCheckedChange={setRemoveFromArr} />
-                Supprimer aussi de {media.media_type === "movie" ? "Radarr" : "Sonarr"} (empêche un
-                retéléchargement automatique)
+                {arrLabel}
               </label>
             )}
 
-            {hasSelection && <p className="text-sm font-medium">Total : {formatBytes(totalSize)}</p>}
+            {hasSelection && (
+              <div className="bg-muted/50 rounded-md px-3 py-2 text-sm">
+                <p className="flex items-center gap-2 font-medium">
+                  Espace libéré :{" "}
+                  {footprintQuery.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    formatBytes(reclaimed ?? selectedBytes)
+                  )}
+                </p>
+                {reclaimed !== null && reclaimed < selectedBytes && (
+                  <p className="text-muted-foreground text-xs">
+                    Sélection de {formatBytes(selectedBytes)} : un fichier hardlinké n'est libéré du disque que si tous
+                    ses liens sont supprimés.
+                  </p>
+                )}
+                {footprintQuery.isError && (
+                  <p className="text-muted-foreground text-xs">
+                    Estimation : espace réel indisponible, les fichiers hardlinkés peuvent être comptés plusieurs fois.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

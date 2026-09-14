@@ -6,6 +6,7 @@ saison entière, toute la série, ou le film — avec la possibilité d'arrêter
 aussi le suivi Sonarr/Radarr pour éviter un retéléchargement automatique."""
 
 import os
+import stat as stat_module
 
 import httpx
 from sqlmodel import Session, select
@@ -14,8 +15,70 @@ from app.clients.arr import RadarrClient, SonarrClient
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
-from app.schemas.media import DeleteStepResult, MediaDeleteSelection, MediaDeleteSelectionResult
+from app.schemas.media import (
+    DeleteFootprintItem,
+    DeleteStepResult,
+    DiskUnit,
+    MediaDeleteFootprint,
+    MediaDeleteSelection,
+    MediaDeleteSelectionResult,
+)
+from app.services.hardlink import resolve_torrent_files
 from app.services.scan import compute_statuses
+
+
+async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
+    """Résout en direct l'inode de chaque fichier physique de chaque élément
+    supprimable (fichiers de bibliothèque, CHAQUE fichier de chaque torrent
+    — pas seulement l'inode représentatif stocké au scan, insuffisant pour
+    un pack saison, voir build_repair_preview) et les regroupe par inode.
+
+    Un chemin introuvable ou non résolu (dossier, qBittorrent injoignable)
+    devient une unité à part, de la taille connue en base : estimation
+    prudente plutôt que de faire disparaître l'élément du calcul."""
+    files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
+    torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
+
+    units: list[DiskUnit] = []
+    unit_by_inode: dict[tuple[int, int], int] = {}
+
+    def unit_for(path: str | None, fallback_size: int | None) -> list[int]:
+        if path and os.path.islink(path):
+            return []  # supprimer un lien symbolique ne libère aucun espace
+        try:
+            st = os.stat(path) if path else None
+        except OSError:
+            st = None
+        if st is None or not stat_module.S_ISREG(st.st_mode):
+            units.append(DiskUnit(size=fallback_size or 0, links=1))
+            return [len(units) - 1]
+        key = (st.st_ino, st.st_dev)
+        if key not in unit_by_inode:
+            unit_by_inode[key] = len(units)
+            units.append(DiskUnit(size=st.st_size, links=st.st_nlink))
+        return [unit_by_inode[key]]
+
+    file_items = [DeleteFootprintItem(id=f.id, units=unit_for(f.path, f.size)) for f in files]
+
+    torrent_files: dict[int, list[tuple[str, int | None]]] = {}
+    qbit_configured = settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password
+    if torrents and qbit_configured:
+        try:
+            async with QbittorrentClient(
+                settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
+            ) as qbit:
+                for t in torrents:
+                    torrent_files[t.id] = await resolve_torrent_files(qbit, t)
+        except (QbittorrentAuthError, httpx.HTTPError):
+            torrent_files.clear()  # repli ci-dessous sur content_path
+
+    torrent_items: list[DeleteFootprintItem] = []
+    for t in torrents:
+        paths = torrent_files.get(t.id) or await resolve_torrent_files(None, t)
+        unit_ids = [i for path, size in paths for i in unit_for(path, size)] if paths else unit_for(None, t.size)
+        torrent_items.append(DeleteFootprintItem(id=t.id, units=unit_ids))
+
+    return MediaDeleteFootprint(units=units, torrents=torrent_items, files=file_items)
 
 
 async def _delete_torrents(
@@ -63,6 +126,29 @@ async def _delete_movie_files(
             steps.append(DeleteStepResult(kind="library_file", label=f.path, success=True))
         except (httpx.HTTPError, OSError) as exc:
             steps.append(DeleteStepResult(kind="library_file", label=f.path, success=False, error=str(exc)))
+
+
+async def _delete_whole_series(
+    files: list[MediaFile], media: Media, sonarr: SonarrClient, steps: list[DeleteStepResult], session: Session
+) -> None:
+    """Toute la série sélectionnée avec retrait de Sonarr : un seul appel
+    Sonarr (série + dossier), puis suppression directe des fichiers qui
+    subsisteraient hors de son dossier (doublons jamais suivis par Sonarr)."""
+    try:
+        await sonarr.delete_series(media.sonarr_id)
+    except httpx.HTTPError as exc:
+        steps.append(DeleteStepResult(kind="sonarr_series", label=media.title, success=False, error=str(exc)))
+        return
+    steps.append(DeleteStepResult(kind="sonarr_series", label=f"{media.title} retirée de Sonarr", success=True))
+    for f in files:
+        label = f.episode_label or f.path
+        try:
+            if os.path.lexists(f.path):
+                os.remove(f.path)
+            session.delete(f)
+            steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
+        except OSError as exc:
+            steps.append(DeleteStepResult(kind="library_file", label=label, success=False, error=str(exc)))
 
 
 async def _delete_episode_files(
@@ -127,7 +213,19 @@ async def execute_media_delete(
         if media.media_type == MediaType.movie:
             await _delete_movie_files(files, media, settings, selection.remove_from_arr, steps, session)
         else:
-            await _delete_episode_files(files, settings, selection.remove_from_arr, steps, session)
+            all_file_count = len(session.exec(select(MediaFile.id).where(MediaFile.media_id == media.id)).all())
+            whole_series = (
+                selection.remove_from_arr
+                and media.sonarr_id
+                and settings.sonarr_url
+                and settings.sonarr_api_key
+                and len(files) == all_file_count
+            )
+            if whole_series:
+                sonarr = SonarrClient(settings.sonarr_url, settings.sonarr_api_key)
+                await _delete_whole_series(list(files), media, sonarr, steps, session)
+            else:
+                await _delete_episode_files(files, settings, selection.remove_from_arr, steps, session)
 
     session.commit()
 
