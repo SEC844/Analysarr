@@ -40,6 +40,12 @@ class Settings(SQLModel, table=True):
     # résoudre sur son propre système de fichiers.
     cross_seed_library_path: Optional[str] = None
 
+    # Seer (Overseerr/Jellyseerr/Seerr) : optionnel, jamais requis. Sert à
+    # afficher qui a demandé un média et à retirer sa demande à la suppression.
+    seer_enabled: bool = False
+    seer_url: Optional[str] = None
+    seer_api_key: Optional[str] = None
+
     scan_schedule_enabled: bool = False
     scan_schedule_interval_minutes: Optional[int] = None
 
@@ -54,6 +60,11 @@ class Settings(SQLModel, table=True):
     # (liste JSON) — comptes de test, TV partagée... Les comptes désactivés
     # dans Emby sont exclus d'office, sans figurer ici.
     excluded_emby_user_ids: str = "[]"
+
+    # Préférences d'affichage de l'interface (objet JSON, voir
+    # schemas/app.py::UiPreferences — valeurs par défaut appliquées à la
+    # lecture, une clé absente n'est donc jamais un problème).
+    ui_preferences: str = "{}"
 
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

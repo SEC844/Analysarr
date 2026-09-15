@@ -24,6 +24,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { watchProgressLabel } from "@/components/media/watch-stats"
+import { usePreferences } from "@/hooks/use-app"
 import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation, useMediaWatchQuery } from "@/hooks/use-media"
 import { useI18n } from "@/i18n"
 import { formatBytes } from "@/lib/format"
@@ -212,7 +213,9 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const prefs = usePreferences()
   const [removeFromArr, setRemoveFromArr] = useState(false)
+  const [removeFromSeer, setRemoveFromSeer] = useState(false)
   const [result, setResult] = useState<MediaDeleteSelectionResult | null>(null)
 
   const executeMutation = useDeleteSelectionExecuteMutation()
@@ -238,6 +241,8 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const arrId = isSeries ? media.sonarr_id : media.radarr_id
   const canRemoveMedia = wholeLibrary && arrId !== null
   const showArrOption = canRemoveMedia || (isSeries && selectedFiles.length > 0)
+  // Seer : même règle que le retrait du média entier de Sonarr/Radarr.
+  const showSeerOption = wholeLibrary && media.requests.length > 0
 
   // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.
   const nominalBytes =
@@ -269,10 +274,13 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
 
   function handleOpenChange(next: boolean) {
     setOpen(next)
-    if (!next) {
+    if (next) {
+      // Cases de retrait cochées d'office si la préférence le demande.
+      setRemoveFromArr(prefs.delete_remove_from_arr_default)
+      setRemoveFromSeer(prefs.delete_remove_from_arr_default)
+    } else {
       setSelected(new Set())
       setExpanded(new Set())
-      setRemoveFromArr(false)
       setResult(null)
     }
   }
@@ -280,10 +288,12 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   function handleSelectAll() {
     if (allSelected) {
       setSelected(new Set())
-      setRemoveFromArr(false)
+      setRemoveFromArr(prefs.delete_remove_from_arr_default)
+      setRemoveFromSeer(prefs.delete_remove_from_arr_default)
     } else {
       setSelected(new Set(allKeys))
       setRemoveFromArr(true)
+      setRemoveFromSeer(true)
     }
   }
 
@@ -303,6 +313,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
           torrent_ids: selectedTorrents.map((torrent) => torrent.id),
           media_file_ids: selectedFiles.map((f) => f.id),
           remove_from_arr: removeFromArr && showArrOption,
+          remove_from_seer: removeFromSeer && showSeerOption,
         },
       },
       {
@@ -386,6 +397,13 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={removeFromArr} onCheckedChange={setRemoveFromArr} />
                 {arrLabel}
+              </label>
+            )}
+
+            {showSeerOption && (
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={removeFromSeer} onCheckedChange={setRemoveFromSeer} />
+                {t("seer.deleteOption")}
               </label>
             )}
 

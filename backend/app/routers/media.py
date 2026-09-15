@@ -34,6 +34,7 @@ from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
 from app.services.media_delete import build_delete_footprint, execute_media_delete
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
+from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
 router = APIRouter()
@@ -44,7 +45,7 @@ def _is_cross_seed(torrent: Torrent) -> bool:
     return any(h and "cross-seed" in h.lower() for h in haystacks)
 
 
-def _to_list_item(media: Media) -> MediaListItem:
+def _to_list_item(media: Media, seer_enabled: bool = False) -> MediaListItem:
     return MediaListItem(
         id=media.id,
         media_type=media.media_type.value,
@@ -62,6 +63,8 @@ def _to_list_item(media: Media) -> MediaListItem:
         watch_played_count=media.watch_played_count,
         watch_in_progress_count=media.watch_in_progress_count,
         last_played_at=as_utc(media.last_played_at),
+        # Seer désactivé : aucune trace dans l'interface, même d'un scan passé.
+        requested_by=media.requested_by if seer_enabled else None,
     )
 
 
@@ -126,7 +129,8 @@ def list_media(
     else:
         medias.sort(key=lambda m: m.title.lower())
 
-    return MediaListResponse(items=[_to_list_item(m) for m in medias], total=len(medias))
+    seer_enabled = seer_configured(session.get(Settings, 1))
+    return MediaListResponse(items=[_to_list_item(m, seer_enabled) for m in medias], total=len(medias))
 
 
 @router.get("/{media_id}", response_model=MediaDetail)
@@ -137,9 +141,11 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
 
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all()
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media_id)).all()
+    seer_enabled = seer_configured(session.get(Settings, 1))
 
     return MediaDetail(
-        **_to_list_item(media).model_dump(),
+        **_to_list_item(media, seer_enabled).model_dump(),
+        requests=build_requests_read(session, media) if seer_enabled else [],
         radarr_id=media.radarr_id,
         sonarr_id=media.sonarr_id,
         emby_item_id=media.emby_item_id,

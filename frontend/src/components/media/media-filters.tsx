@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useI18n, type MessageKey } from "@/i18n"
-import type { MediaListParams } from "@/types/media"
+import type { MediaListParams, MediaSort } from "@/types/media"
 
 interface MediaFiltersProps {
   value: MediaListParams
+  // Tri par défaut (Réglages → Préférences) : ni un filtre actif, ni perdu à la réinitialisation.
+  defaultSort: MediaSort
   onChange: (value: MediaListParams) => void
 }
 
@@ -41,10 +43,10 @@ const SORT_OPTIONS: [string, MessageKey][] = [
   ["cleanup", "watch.sortCleanup"],
 ]
 
-export function MediaFilters({ value, onChange }: MediaFiltersProps) {
+export function MediaFilters({ value, defaultSort, onChange }: MediaFiltersProps) {
   const { t } = useI18n()
   const hasActiveFilters = Boolean(
-    value.status || value.media_type || value.watch || value.search || (value.sort && value.sort !== "title"),
+    value.status || value.media_type || value.watch || value.search || (value.sort && value.sort !== defaultSort),
   )
   const labelOf = (options: [string, MessageKey][]) => (v: string) => {
     const key = options.find(([option]) => option === v)?.[1]
@@ -121,7 +123,7 @@ export function MediaFilters({ value, onChange }: MediaFiltersProps) {
         </SelectContent>
       </Select>
 
-      <Select value={value.sort ?? "title"} onValueChange={(v) => onChange({ ...value, sort: v as MediaListParams["sort"] })}>
+      <Select value={value.sort ?? defaultSort} onValueChange={(v) => onChange({ ...value, sort: v as MediaSort })}>
         <SelectTrigger className="w-52">
           <SelectValue placeholder={t("filters.sortBy")}>{labelOf(SORT_OPTIONS)}</SelectValue>
         </SelectTrigger>
@@ -135,7 +137,7 @@ export function MediaFilters({ value, onChange }: MediaFiltersProps) {
       </Select>
 
       {hasActiveFilters && (
-        <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ sort: "title" })}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ sort: defaultSort })}>
           <X className="size-4" />
           {t("filters.reset")}
         </Button>

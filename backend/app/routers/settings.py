@@ -16,6 +16,7 @@ from app.schemas.settings import (
     PathsRead,
     QbittorrentRead,
     ScheduleRead,
+    SeerRead,
     ServiceApiKeyRead,
     SettingsRead,
     SettingsWrite,
@@ -61,6 +62,7 @@ def _to_read(s: Settings | None) -> SettingsRead:
             qbittorrent=QbittorrentRead(),
             paths=PathsRead(),
             cross_seed=CrossSeedRead(),
+            seer=SeerRead(),
             schedule=ScheduleRead(),
         )
 
@@ -85,6 +87,7 @@ def _to_read(s: Settings | None) -> SettingsRead:
             api_key_set=bool(s.cross_seed_api_key),
             library_path=s.cross_seed_library_path,
         ),
+        seer=SeerRead(enabled=s.seer_enabled, url=s.seer_url, api_key_set=bool(s.seer_api_key)),
         schedule=ScheduleRead(
             enabled=s.scan_schedule_enabled,
             interval_minutes=s.scan_schedule_interval_minutes,
@@ -115,6 +118,8 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     row.cross_seed_enabled = payload.cross_seed_enabled
     row.cross_seed_url = payload.cross_seed_url
     row.cross_seed_library_path = payload.cross_seed_library_path
+    row.seer_enabled = payload.seer_enabled
+    row.seer_url = payload.seer_url
     row.scan_schedule_enabled = payload.scan_schedule_enabled
     row.scan_schedule_interval_minutes = payload.scan_schedule_interval_minutes
     previous_exclusions = excluded_user_ids(row)
@@ -133,6 +138,8 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
         row.qbittorrent_password = payload.qbittorrent_password
     if payload.cross_seed_api_key:
         row.cross_seed_api_key = payload.cross_seed_api_key
+    if payload.seer_api_key:
+        row.seer_api_key = payload.seer_api_key
 
     row.updated_at = datetime.now(timezone.utc)
 

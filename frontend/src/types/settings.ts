@@ -35,6 +35,7 @@ export interface SettingsRead {
   qbittorrent: QbittorrentRead
   paths: PathsRead
   cross_seed: CrossSeedRead
+  seer: { enabled: boolean; url: string | null; api_key_set: boolean }
   schedule: ScheduleRead
 }
 
@@ -54,12 +55,15 @@ export interface SettingsWrite {
   cross_seed_url: string
   cross_seed_api_key: string
   cross_seed_library_path: string
+  seer_enabled: boolean
+  seer_url: string
+  seer_api_key: string
   scan_schedule_enabled: boolean
   scan_schedule_interval_minutes: number | null
   excluded_emby_user_ids: string[]
 }
 
-export type ServiceName = "emby" | "sonarr" | "radarr" | "qbittorrent" | "cross_seed"
+export type ServiceName = "emby" | "sonarr" | "radarr" | "qbittorrent" | "cross_seed" | "seer"
 
 export interface BrowseEntry {
   name: string
@@ -101,6 +105,9 @@ export function emptySettingsWrite(): SettingsWrite {
     cross_seed_url: "",
     cross_seed_api_key: "",
     cross_seed_library_path: "",
+    seer_enabled: false,
+    seer_url: "",
+    seer_api_key: "",
     scan_schedule_enabled: false,
     scan_schedule_interval_minutes: null,
     excluded_emby_user_ids: [],
@@ -124,6 +131,9 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     cross_seed_url: s.cross_seed.url ?? "",
     cross_seed_api_key: "",
     cross_seed_library_path: s.cross_seed.library_path ?? "",
+    seer_enabled: s.seer.enabled,
+    seer_url: s.seer.url ?? "",
+    seer_api_key: "",
     scan_schedule_enabled: s.schedule.enabled,
     scan_schedule_interval_minutes: s.schedule.interval_minutes,
     excluded_emby_user_ids: s.watch.excluded_emby_user_ids,

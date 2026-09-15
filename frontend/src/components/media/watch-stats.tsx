@@ -3,10 +3,11 @@ import { Users } from "lucide-react"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
+import { usePreferences } from "@/hooks/use-app"
 import { useMediaWatchQuery } from "@/hooks/use-media"
 import { useI18n } from "@/i18n"
 import { embyAvatarUrl } from "@/lib/api"
-import { formatDateTime, formatRelativeTime } from "@/lib/format"
+import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { MediaWatchStats, WatchUser } from "@/types/media"
 
@@ -53,6 +54,7 @@ export function watchProgressLabel(user: WatchUser, stats: MediaWatchStats, t: T
 
 function WatchUserRow({ user, stats }: { user: WatchUser; stats: MediaWatchStats }) {
   const { t } = useI18n()
+  const { absolute_dates } = usePreferences()
   const ratio = stats.total_episodes ? user.progress / stats.total_episodes : user.progress / 100
   const percent = Math.min(Math.max(ratio, 0), 1) * 100
 
@@ -83,7 +85,9 @@ function WatchUserRow({ user, stats }: { user: WatchUser; stats: MediaWatchStats
         </div>
         {user.last_played_at && (
           <p className="text-muted-foreground mt-0.5 text-[11px]" title={formatDateTime(user.last_played_at) ?? undefined}>
-            {t("watch.lastSeen", { time: formatRelativeTime(user.last_played_at) ?? "" })}
+            {absolute_dates
+              ? t("watch.lastSeenOn", { date: formatDate(user.last_played_at) ?? "" })
+              : t("watch.lastSeen", { time: formatRelativeTime(user.last_played_at) ?? "" })}
           </p>
         )}
       </div>
@@ -137,17 +141,24 @@ export function WatchQuota({ stats }: { stats: MediaWatchStats }) {
 // Ligne de la fiche média : quota de visionnage, date d'ajout, dernière lecture.
 export function WatchSummary({ mediaId }: { mediaId: number }) {
   const { t } = useI18n()
+  const { absolute_dates } = usePreferences()
   const { data: stats, isLoading } = useMediaWatchQuery(mediaId)
 
   if (isLoading) return <Skeleton className="h-7 w-72" />
   if (!stats?.available) return null
 
-  const details = [
-    stats.date_added && t("watch.added", { time: formatRelativeTime(stats.date_added) ?? "" }),
+  const added = stats.date_added
+    ? absolute_dates
+      ? t("watch.addedOn", { date: formatDate(stats.date_added) ?? "" })
+      : t("watch.added", { time: formatRelativeTime(stats.date_added) ?? "" })
+    : null
+  const lastPlayed =
     stats.last_played_at && stats.last_played_by
-      ? t("watch.lastPlayed", { time: formatRelativeTime(stats.last_played_at) ?? "", name: stats.last_played_by })
-      : t("watch.neverPlayed"),
-  ].filter(Boolean)
+      ? absolute_dates
+        ? t("watch.lastPlayedOn", { date: formatDate(stats.last_played_at) ?? "", name: stats.last_played_by })
+        : t("watch.lastPlayed", { time: formatRelativeTime(stats.last_played_at) ?? "", name: stats.last_played_by })
+      : t("watch.neverPlayed")
+  const details = [added, lastPlayed].filter(Boolean)
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

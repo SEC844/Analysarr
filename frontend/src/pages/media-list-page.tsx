@@ -7,64 +7,48 @@ import { MediaFilters } from "@/components/media/media-filters"
 import { ScanButton } from "@/components/media/scan-button"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { usePreferences } from "@/hooks/use-app"
 import { useMediaListQuery } from "@/hooks/use-media"
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration"
 import { useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
-import type { MediaListParams } from "@/types/media"
-
-const GRID_SIZE_STORAGE_KEY = "analysarr:grid-size"
-
-function loadGridSize(): GridSize {
-  try {
-    const stored = localStorage.getItem(GRID_SIZE_STORAGE_KEY)
-    if (stored === "small" || stored === "medium" || stored === "large") return stored
-  } catch {
-    // localStorage indisponible (navigation privée, etc.) : on garde la valeur par défaut
-  }
-  return "medium"
-}
+import type { MediaListParams, MediaSort } from "@/types/media"
 
 // Les filtres vivent dans l'URL (pas un simple useState) : ils survivent ainsi
 // à un retour arrière depuis la fiche détail, et une bibliothèque filtrée
-// reste partageable/bookmarkable.
-function paramsToFilters(params: URLSearchParams): MediaListParams {
+// reste partageable/bookmarkable. Le tri par défaut (Réglages → Préférences)
+// n'apparaît pas dans l'URL.
+function paramsToFilters(params: URLSearchParams, defaultSort: MediaSort): MediaListParams {
   return {
     status: (params.get("status") as MediaListParams["status"]) ?? undefined,
     media_type: (params.get("type") as MediaListParams["media_type"]) ?? undefined,
     watch: (params.get("watch") as MediaListParams["watch"]) ?? undefined,
     search: params.get("q") ?? undefined,
-    sort: (params.get("sort") as MediaListParams["sort"]) ?? "title",
+    sort: (params.get("sort") as MediaSort) ?? defaultSort,
   }
 }
 
-function filtersToParams(filters: MediaListParams): URLSearchParams {
+function filtersToParams(filters: MediaListParams, defaultSort: MediaSort): URLSearchParams {
   const params = new URLSearchParams()
   if (filters.status) params.set("status", filters.status)
   if (filters.media_type) params.set("type", filters.media_type)
   if (filters.watch) params.set("watch", filters.watch)
   if (filters.search) params.set("q", filters.search)
-  if (filters.sort && filters.sort !== "title") params.set("sort", filters.sort)
+  if (filters.sort && filters.sort !== defaultSort) params.set("sort", filters.sort)
   return params
 }
 
 export function MediaListPage() {
   const { t, rich } = useI18n()
+  const prefs = usePreferences()
   const [searchParams, setSearchParams] = useSearchParams()
-  const filters = paramsToFilters(searchParams)
-  const [gridSize, setGridSize] = useState<GridSize>(loadGridSize)
+  const filters = paramsToFilters(searchParams, prefs.library_default_sort)
+  // Taille choisie pendant la visite ; à défaut, celle des préférences.
+  const [gridOverride, setGridOverride] = useState<GridSize | null>(null)
+  const gridSize = gridOverride ?? prefs.library_default_grid
   const { data, isLoading, isError } = useMediaListQuery(filters)
 
   useScrollRestoration(!isLoading)
-
-  const handleGridSizeChange = (size: GridSize) => {
-    setGridSize(size)
-    try {
-      localStorage.setItem(GRID_SIZE_STORAGE_KEY, size)
-    } catch {
-      // pas grave si la préférence ne peut pas être mémorisée
-    }
-  }
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
@@ -77,12 +61,16 @@ export function MediaListPage() {
         </div>
         <div className="flex items-center gap-3">
           <ScanButton />
-          <GridSizeToggle value={gridSize} onChange={handleGridSizeChange} />
+          <GridSizeToggle value={gridSize} onChange={setGridOverride} />
         </div>
       </div>
 
       <div className="mb-6">
-        <MediaFilters value={filters} onChange={(next) => setSearchParams(filtersToParams(next), { replace: true })} />
+        <MediaFilters
+          value={filters}
+          defaultSort={prefs.library_default_sort}
+          onChange={(next) => setSearchParams(filtersToParams(next, prefs.library_default_sort), { replace: true })}
+        />
       </div>
 
       {isLoading && (

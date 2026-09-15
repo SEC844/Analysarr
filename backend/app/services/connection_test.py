@@ -152,10 +152,32 @@ async def test_cross_seed(req: ConnectionTestRequest) -> ConnectionTestResult:
         return ConnectionTestResult(success=False, message=f"Connexion impossible : {exc}")
 
 
+async def test_seer(req: ConnectionTestRequest) -> ConnectionTestResult:
+    if not req.url or not req.api_key:
+        return ConnectionTestResult(success=False, message="URL et clé API requises.")
+
+    base = _clean_url(req.url)
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            # /auth/me valide réellement la clé (l'API /status est publique).
+            resp = await client.get(f"{base}/api/v1/auth/me", headers={"X-Api-Key": req.api_key})
+            if resp.status_code in (401, 403):
+                return ConnectionTestResult(success=False, message=f"Clé API refusée ({resp.status_code}).")
+            resp.raise_for_status()
+            status = await client.get(f"{base}/api/v1/status")
+        version = status.json().get("version", "?") if status.status_code == 200 else "?"
+        return ConnectionTestResult(success=True, message=f"Connecté à Seer (version {version}).")
+    except httpx.HTTPStatusError as exc:
+        return ConnectionTestResult(success=False, message=f"Erreur HTTP {exc.response.status_code} : {exc.response.text[:200]}")
+    except (httpx.RequestError, ValueError) as exc:
+        return ConnectionTestResult(success=False, message=f"Connexion impossible : {exc}")
+
+
 TESTERS = {
     "emby": test_emby,
     "sonarr": test_sonarr,
     "radarr": test_radarr,
     "qbittorrent": test_qbittorrent,
     "cross_seed": test_cross_seed,
+    "seer": test_seer,
 }

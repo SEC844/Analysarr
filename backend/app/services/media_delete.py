@@ -13,7 +13,7 @@ from sqlmodel import Session, delete, select
 
 from app.clients.arr import RadarrClient, SonarrClient
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
-from app.models.media import Media, MediaFile, MediaType, MediaWatch, Torrent
+from app.models.media import Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
     DeleteFootprintItem,
@@ -25,6 +25,7 @@ from app.schemas.media import (
 )
 from app.services.hardlink import resolve_torrent_files
 from app.services.scan import compute_statuses, current_files_size
+from app.services.seer import remove_seer_requests
 
 
 async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
@@ -238,6 +239,12 @@ async def execute_media_delete(
         else:
             await _delete_episode_files(files, settings, selection.remove_from_arr, steps, session)
 
+    # Demande Seer : seulement si toute la bibliothèque du média a bien été
+    # supprimée — jamais pour un média qui existe encore, même en partie.
+    library_failed = any(not s.success for s in steps if s.kind in ("library_file", "arr_media"))
+    if selection.remove_from_seer and len(files) == all_file_count and not library_failed:
+        await remove_seer_requests(session, media, settings, steps)
+
     session.commit()
 
     remaining_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
@@ -250,6 +257,7 @@ async def execute_media_delete(
         # "manquant_emby" + "manquant_qbit" pour toujours jusqu'au prochain
         # scan complet.
         session.exec(delete(MediaWatch).where(MediaWatch.media_id == media.id))
+        session.exec(delete(MediaRequest).where(MediaRequest.media_id == media.id))
         session.delete(media)
         session.commit()
         return MediaDeleteSelectionResult(steps=steps, media_deleted=True)

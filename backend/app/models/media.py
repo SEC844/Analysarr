@@ -70,6 +70,10 @@ class Media(SQLModel, table=True):
     watch_in_progress_count: int = 0
     last_played_at: Optional[datetime] = None
 
+    # Seer : nom du demandeur de la plus ancienne demande rattachée (carte de
+    # la bibliothèque). Détail complet dans MediaRequest.
+    requested_by: Optional[str] = None
+
     last_scanned_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -186,6 +190,37 @@ class MediaWatch(SQLModel, table=True):
     # série partiellement vue).
     in_progress: bool = False
     last_played_at: Optional[datetime] = None
+
+
+class MediaRequest(SQLModel, table=True):
+    """Demande Seer rattachée à un média (cache reconstruit à chaque scan).
+    Rattachement par identifiant TMDB (films) ou TVDB (séries)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    media_id: int = Field(foreign_key="media.id", index=True)
+
+    seer_request_id: int
+    # Fiche du média côté Seer : la supprimer retire aussi ses demandes et le
+    # rend de nouveau demandable.
+    seer_media_id: Optional[int] = None
+
+    # pending | approved | declined | failed | completed
+    status: str
+    is_4k: bool = False
+    # Séries : saisons demandées ("1,2"), vide pour un film.
+    seasons: str = ""
+    requested_at: Optional[datetime] = None
+
+    requested_by_name: Optional[str] = None
+    # `jellyfinUserId` Seer = identifiant Emby (utilisateurs importés d'Emby) :
+    # permet d'afficher l'avatar Emby déjà relayé par Analysarr.
+    requested_by_emby_id: Optional[str] = None
+    # Utilisateur ayant approuvé ou refusé la demande (`modifiedBy`).
+    modified_by_name: Optional[str] = None
+    modified_by_emby_id: Optional[str] = None
+    # Approuvée sans intervention : Seer renseigne alors le demandeur lui-même
+    # comme `modifiedBy` (permission d'auto-approbation).
+    auto_approved: bool = False
 
 
 class ScanStatus(str, Enum):

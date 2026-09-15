@@ -13,10 +13,22 @@ from app.clients.arr import RadarrClient, SonarrClient
 from app.clients.emby import EmbyClient
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.database import engine
-from app.models.media import EmbyUser, Media, MediaFile, MediaType, MediaWatch, ScanRun, ScanStatus, Torrent
+from app.clients.seer import SeerClient
+from app.models.media import (
+    EmbyUser,
+    Media,
+    MediaFile,
+    MediaRequest,
+    MediaType,
+    MediaWatch,
+    ScanRun,
+    ScanStatus,
+    Torrent,
+)
 from app.models.settings import Settings
 from app.services.events import scan_events
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
+from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.trackers import extract_tracker_domain, status_label
 from app.services.watch_stats import (
     apply_aggregates,
@@ -49,6 +61,8 @@ class MediaBuildResult:
     missing_emby_episodes: list[str] = field(default_factory=list)
     # État de visionnage par utilisateur Emby (voir services/watch_stats.py).
     watches: list[MediaWatch] = field(default_factory=list)
+    # Demandes Seer rattachées (voir services/seer.py).
+    requests: list[MediaRequest] = field(default_factory=list)
 
 
 def current_files_size(files: list[MediaFile]) -> int:
@@ -198,6 +212,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
 
     with Session(engine) as session:
+        session.exec(delete(MediaRequest))
         session.exec(delete(MediaWatch))
         session.exec(delete(EmbyUser))
         session.exec(delete(Torrent))
@@ -221,6 +236,9 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             for w in result.watches:
                 w.media_id = result.media.id
                 session.add(w)
+            for r in result.requests:
+                r.media_id = result.media.id
+                session.add(r)
         session.commit()
 
         run = session.get(ScanRun, run_id)
@@ -708,6 +726,18 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
     for result in results:
         result.watches = build_watch_rows(result.media, emby_users, watch_data)
         apply_aggregates(result.media, result.watches, excluded)
+
+    # --- Demandes Seer (optionnel) ---------------------------------------
+    # Même principe que le visionnage : un Seer injoignable laisse les
+    # demandes vides sans faire échouer le scan.
+    if seer_configured(settings):
+        await progress("seer")
+        try:
+            request_index = index_requests(await SeerClient(settings.seer_url, settings.seer_api_key).get_requests())
+        except (httpx.HTTPError, ValueError):
+            request_index = {}
+        for result in results:
+            result.requests = build_request_rows(result.media, request_index)
 
     return results, len(torrents), emby_users
 

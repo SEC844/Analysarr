@@ -10,9 +10,11 @@ import { CrossSeedCard } from "@/components/settings/cross-seed-card"
 import { EmbyUsersCard } from "@/components/settings/emby-users-card"
 import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
+import { PreferencesSection } from "@/components/settings/preferences-section"
 import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { ScheduleCard } from "@/components/settings/schedule-card"
+import { SeerCard } from "@/components/settings/seer-card"
 import { Button } from "@/components/ui/button"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -32,6 +34,7 @@ const SECTION_GROUPS = [
       { id: "radarr", label: "Radarr" },
       { id: "qbittorrent", label: "qBittorrent" },
       { id: "cross-seed", label: "cross-seed" },
+      { id: "seer", label: "Seer" },
     ],
   },
   {
@@ -40,6 +43,7 @@ const SECTION_GROUPS = [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
       { id: "account", label: "settings.sections.account" },
+      { id: "preferences", label: "settings.sections.preferences" },
       { id: "application", label: "settings.sections.application" },
     ],
   },
@@ -49,7 +53,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["account", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["account", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -189,6 +193,18 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
             />
           )}
 
+          {section === "seer" && (
+            <SeerCard
+              enabled={form.seer_enabled}
+              onEnabledChange={(v) => set("seer_enabled", v)}
+              url={form.seer_url}
+              onUrlChange={(v) => set("seer_url", v)}
+              apiKey={form.seer_api_key}
+              onApiKeyChange={(v) => set("seer_api_key", v)}
+              apiKeySet={existing.seer.api_key_set}
+            />
+          )}
+
           {section === "paths" && (
             <div className="space-y-6">
               <PathsCard
@@ -214,6 +230,8 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           )}
 
           {section === "account" && <AccountCard />}
+
+          {section === "preferences" && <PreferencesSection seerEnabled={existing.seer.enabled} />}
 
           {section === "application" && <ApplicationSection />}
         </div>
