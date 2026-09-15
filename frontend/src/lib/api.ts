@@ -2,9 +2,13 @@ import type { AppInfo, AppPreferences } from "@/types/app"
 import type {
   AuthStatus,
   ChangePasswordRequest,
+  ChangeUsernameRequest,
   CurrentUser,
   LoginRequest,
+  RecoveryCodes,
   SetupRequest,
+  TwoFactorDisableRequest,
+  TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
 import type { ActionLogEntry } from "@/types/history"
@@ -34,6 +38,24 @@ import type {
   SettingsWrite,
 } from "@/types/settings"
 
+// Erreur HTTP de l'API : garde le statut et le corps JSON (ex :
+// `two_factor_required` à la connexion) en plus du message lisible.
+export class ApiError extends Error {
+  status: number
+  body: unknown
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message)
+    this.status = status
+    this.body = body
+  }
+}
+
+export function isTwoFactorRequired(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false
+  return (error.body as { two_factor_required?: unknown } | null)?.two_factor_required === true
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -51,13 +73,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // FastAPI renvoie {"detail": "..."} — sans ça, l'erreur affichée à
     // l'utilisateur est le JSON brut plutôt que le message lisible.
     let message = body
+    let parsed: unknown = null
     try {
-      const parsed = JSON.parse(body)
-      if (typeof parsed?.detail === "string") message = parsed.detail
+      parsed = JSON.parse(body)
+      const detail = (parsed as { detail?: unknown } | null)?.detail
+      if (typeof detail === "string") message = detail
     } catch {
       // corps non-JSON : on garde le texte brut
     }
-    throw new Error(message || `HTTP ${res.status}`)
+    throw new ApiError(message || `HTTP ${res.status}`, res.status, parsed)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -85,6 +109,22 @@ export function getCurrentUser(): Promise<CurrentUser> {
 
 export function changePassword(payload: ChangePasswordRequest): Promise<CurrentUser> {
   return request<CurrentUser>("/api/auth/password", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function changeUsername(payload: ChangeUsernameRequest): Promise<CurrentUser> {
+  return request<CurrentUser>("/api/auth/username", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function setupTwoFactor(password: string): Promise<TwoFactorSetup> {
+  return request<TwoFactorSetup>("/api/auth/2fa/setup", { method: "POST", body: JSON.stringify({ password }) })
+}
+
+export function enableTwoFactor(code: string): Promise<RecoveryCodes> {
+  return request<RecoveryCodes>("/api/auth/2fa/enable", { method: "POST", body: JSON.stringify({ code }) })
+}
+
+export function disableTwoFactor(payload: TwoFactorDisableRequest): Promise<CurrentUser> {
+  return request<CurrentUser>("/api/auth/2fa/disable", { method: "POST", body: JSON.stringify(payload) })
 }
 
 export function getAppInfo(): Promise<AppInfo> {

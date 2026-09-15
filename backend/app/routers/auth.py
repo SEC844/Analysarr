@@ -1,13 +1,27 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from sqlmodel import Session as DbSession
 from sqlmodel import select
 
 from app.database import get_session
 from app.models.auth import Session as AuthSession
 from app.models.auth import User
-from app.schemas.auth import AuthStatus, ChangePasswordRequest, CurrentUser, LoginRequest, SetupRequest
+from app.schemas.auth import (
+    AuthStatus,
+    ChangePasswordRequest,
+    ChangeUsernameRequest,
+    CurrentUser,
+    LoginRequest,
+    PasswordConfirmation,
+    RecoveryCodes,
+    SetupRequest,
+    TwoFactorCode,
+    TwoFactorDisableRequest,
+    TwoFactorSetup,
+)
 from app.services.security import (
     LOCKOUT_MINUTES,
     LOCKOUT_THRESHOLD,
@@ -18,8 +32,17 @@ from app.services.security import (
     hash_token,
     verify_password,
 )
+from app.services.totp import (
+    generate_recovery_codes,
+    generate_secret,
+    hash_recovery_code,
+    provisioning_uri,
+    verify_code,
+)
 
 router = APIRouter()
+
+MAX_USERNAME_LENGTH = 64
 
 
 def _utcnow() -> datetime:
@@ -31,10 +54,14 @@ def _utcnow() -> datetime:
 def _cookie_is_secure(request: Request) -> bool:
     """Le cookie `Secure` n'est posé que si la requête est vue en HTTPS —
     jamais en dur, sinon la connexion casse pour un accès direct en HTTP
-    (ex: http://10.0.20.110:8000, sans reverse-proxy TLS devant)."""
+    (ex: http://10.0.20.110:1818, sans reverse-proxy TLS devant)."""
     if request.url.scheme == "https":
         return True
     return request.headers.get("x-forwarded-proto", "").lower() == "https"
+
+
+def _current_user(user: User) -> CurrentUser:
+    return CurrentUser(username=user.username, two_factor_enabled=bool(user.totp_secret))
 
 
 def _touch_session(token: str, session: DbSession) -> User | None:
@@ -54,6 +81,49 @@ def _touch_session(token: str, session: DbSession) -> User | None:
     session.add(auth_session)
     session.commit()
     return user
+
+
+def _revoke_other_sessions(request: Request, user: User, session: DbSession) -> None:
+    """Supprime toutes les sessions de l'utilisateur SAUF celle utilisée pour
+    cette requête (l'appelant commit)."""
+    current_token = request.cookies.get(SESSION_COOKIE_NAME)
+    current_hash = hash_token(current_token) if current_token else None
+    other_sessions = session.exec(
+        select(AuthSession).where(AuthSession.user_id == user.id, AuthSession.token_hash != current_hash)
+    ).all()
+    for s in other_sessions:
+        session.delete(s)
+
+
+def _check_second_factor(user: User, code: str) -> bool:
+    """Code TOTP (jamais rejouable) ou code de secours (consommé). Modifie
+    `user` sans commit."""
+    if not user.totp_secret:
+        return False
+    step = verify_code(user.totp_secret, code, user.totp_last_step)
+    if step is not None:
+        user.totp_last_step = step
+        return True
+    hashes = json.loads(user.recovery_codes or "[]")
+    code_hash = hash_recovery_code(code)
+    if code_hash in hashes:
+        hashes.remove(code_hash)
+        user.recovery_codes = json.dumps(hashes)
+        return True
+    return False
+
+
+def _register_failure(user: User, now: datetime, session: DbSession) -> None:
+    user.failed_attempts += 1
+    if user.failed_attempts >= LOCKOUT_THRESHOLD:
+        user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
+        user.failed_attempts = 0
+    session.add(user)
+    session.commit()
+
+
+def _two_factor_required(message: str) -> JSONResponse:
+    return JSONResponse({"detail": message, "two_factor_required": True}, status_code=401)
 
 
 def is_request_authenticated(request: Request) -> bool:
@@ -101,13 +171,13 @@ def setup(payload: SetupRequest, session: DbSession = Depends(get_session)) -> C
     user = User(id=1, username=payload.username.strip(), password_hash=hash_password(payload.password))
     session.add(user)
     session.commit()
-    return CurrentUser(username=user.username)
+    return _current_user(user)
 
 
 @router.post("/login", response_model=CurrentUser)
 def login(
     payload: LoginRequest, request: Request, response: Response, session: DbSession = Depends(get_session)
-) -> CurrentUser:
+) -> CurrentUser | JSONResponse:
     user = session.exec(select(User).where(User.username == payload.username)).first()
     generic_error = "Nom d'utilisateur ou mot de passe incorrect."
     if user is None:
@@ -119,13 +189,17 @@ def login(
         raise HTTPException(429, f"Compte temporairement verrouillé après trop d'échecs. Réessayez dans {remaining} min.")
 
     if not verify_password(payload.password, user.password_hash):
-        user.failed_attempts += 1
-        if user.failed_attempts >= LOCKOUT_THRESHOLD:
-            user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
-            user.failed_attempts = 0
-        session.add(user)
-        session.commit()
+        _register_failure(user, now, session)
         raise HTTPException(401, generic_error)
+
+    if user.totp_secret:
+        if not payload.otp:
+            # Mot de passe correct : le second facteur est demandé, sans
+            # compter d'échec. Un mauvais code, lui, compte pour le verrouillage.
+            return _two_factor_required("Code de double authentification requis.")
+        if not _check_second_factor(user, payload.otp):
+            _register_failure(user, now, session)
+            return _two_factor_required("Code de double authentification incorrect.")
 
     user.failed_attempts = 0
     user.locked_until = None
@@ -149,7 +223,7 @@ def login(
         max_age=SESSION_DURATION_DAYS * 24 * 3600,
         path="/",
     )
-    return CurrentUser(username=user.username)
+    return _current_user(user)
 
 
 @router.post("/logout", status_code=204)
@@ -167,7 +241,7 @@ def logout(request: Request, response: Response, session: DbSession = Depends(ge
 
 @router.get("/me", response_model=CurrentUser)
 def me(user: User = Depends(get_current_user)) -> CurrentUser:
-    return CurrentUser(username=user.username)
+    return _current_user(user)
 
 
 @router.put("/password", response_model=CurrentUser)
@@ -188,13 +262,100 @@ def change_password(
 
     # Le changement de mot de passe invalide toutes les AUTRES sessions —
     # seule celle utilisée pour cette requête reste valide.
-    current_token = request.cookies.get(SESSION_COOKIE_NAME)
-    current_hash = hash_token(current_token) if current_token else None
-    other_sessions = session.exec(
-        select(AuthSession).where(AuthSession.user_id == user.id, AuthSession.token_hash != current_hash)
-    ).all()
-    for s in other_sessions:
-        session.delete(s)
+    _revoke_other_sessions(request, user, session)
 
     session.commit()
-    return CurrentUser(username=user.username)
+    return _current_user(user)
+
+
+@router.put("/username", response_model=CurrentUser)
+def change_username(
+    payload: ChangeUsernameRequest,
+    user: User = Depends(get_current_user),
+    session: DbSession = Depends(get_session),
+) -> CurrentUser:
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(401, "Mot de passe incorrect.")
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(400, "Le nom d'utilisateur ne peut pas être vide.")
+    if len(username) > MAX_USERNAME_LENGTH:
+        raise HTTPException(400, f"Le nom d'utilisateur ne peut pas dépasser {MAX_USERNAME_LENGTH} caractères.")
+
+    user.username = username
+    user.updated_at = _utcnow()
+    session.add(user)
+    session.commit()
+    return _current_user(user)
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetup)
+def two_factor_setup(
+    payload: PasswordConfirmation,
+    user: User = Depends(get_current_user),
+    session: DbSession = Depends(get_session),
+) -> TwoFactorSetup:
+    """Génère un secret en attente : la 2FA n'est active qu'après un premier
+    code valide (`/2fa/enable`), jamais sur la seule génération."""
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(401, "Mot de passe incorrect.")
+    if user.totp_secret:
+        raise HTTPException(409, "La double authentification est déjà activée.")
+
+    user.totp_pending_secret = generate_secret()
+    session.add(user)
+    session.commit()
+    return TwoFactorSetup(
+        secret=user.totp_pending_secret, otpauth_uri=provisioning_uri(user.totp_pending_secret, user.username)
+    )
+
+
+@router.post("/2fa/enable", response_model=RecoveryCodes)
+def two_factor_enable(
+    payload: TwoFactorCode,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: DbSession = Depends(get_session),
+) -> RecoveryCodes:
+    if user.totp_secret:
+        raise HTTPException(409, "La double authentification est déjà activée.")
+    if not user.totp_pending_secret:
+        raise HTTPException(400, "Aucune configuration en cours : recommencez la configuration.")
+    step = verify_code(user.totp_pending_secret, payload.code, None)
+    if step is None:
+        raise HTTPException(400, "Code incorrect : vérifiez l'heure de votre téléphone et réessayez.")
+
+    codes = generate_recovery_codes()
+    user.totp_secret = user.totp_pending_secret
+    user.totp_pending_secret = None
+    user.totp_last_step = step
+    user.recovery_codes = json.dumps([hash_recovery_code(c) for c in codes])
+    user.updated_at = _utcnow()
+    session.add(user)
+    # Les sessions ouvertes sans second facteur ne restent pas valides.
+    _revoke_other_sessions(request, user, session)
+    session.commit()
+    return RecoveryCodes(codes=codes)
+
+
+@router.post("/2fa/disable", response_model=CurrentUser)
+def two_factor_disable(
+    payload: TwoFactorDisableRequest,
+    user: User = Depends(get_current_user),
+    session: DbSession = Depends(get_session),
+) -> CurrentUser:
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(401, "Mot de passe incorrect.")
+    if not user.totp_secret:
+        raise HTTPException(400, "La double authentification n'est pas activée.")
+    if not _check_second_factor(user, payload.code):
+        raise HTTPException(401, "Code de double authentification incorrect.")
+
+    user.totp_secret = None
+    user.totp_pending_secret = None
+    user.totp_last_step = None
+    user.recovery_codes = "[]"
+    user.updated_at = _utcnow()
+    session.add(user)
+    session.commit()
+    return _current_user(user)
