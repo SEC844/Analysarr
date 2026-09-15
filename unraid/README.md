@@ -24,11 +24,3 @@ Analysarr détecte les hardlinks en comparant les fichiers vus par Emby/Jellyfin
 C'est l'organisation recommandée par les [TRaSH Guides](https://trash-guides.info/File-and-Folder-Structure/). Si vos conteneurs utilisent d'autres chemins, reproduisez-les à l'identique dans Analysarr. L'onglet **Réglages → Chemins → Diagnostic des chemins** indique immédiatement si un montage manque.
 
 La base de données est rangée dans `/config` (appdata), jamais dans `/data`, pour ne pas se mélanger aux médias.
-
-## Publication dans Community Applications
-
-Pour apparaître dans le catalogue **Apps** d'Unraid :
-
-1. Ouvrir un sujet de support sur le forum Unraid (section *Docker Containers*) présentant Analysarr, puis renseigner son URL dans la balise `<Support>` du template.
-2. Soumettre le dépôt via le formulaire Community Applications (lien dans le forum *Community Applications*), qui scanne le dossier `unraid/`.
-3. Les mises à jour du template sont reprises automatiquement depuis la branche `main`.
