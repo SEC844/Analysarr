@@ -2,7 +2,7 @@ from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field, StringConstraints
 
-ServiceName = Literal["emby", "sonarr", "radarr", "qbittorrent", "cross_seed"]
+ServiceName = Literal["emby", "sonarr", "radarr", "qbittorrent", "cross_seed", "seer"]
 
 
 class ServiceApiKeyRead(BaseModel):
@@ -28,6 +28,12 @@ class CrossSeedRead(BaseModel):
     library_path: Optional[str] = None
 
 
+class SeerRead(BaseModel):
+    enabled: bool = False
+    url: Optional[str] = None
+    api_key_set: bool = False
+
+
 class ScheduleRead(BaseModel):
     enabled: bool = False
     interval_minutes: Optional[int] = None
@@ -46,6 +52,7 @@ class SettingsRead(BaseModel):
     qbittorrent: QbittorrentRead
     paths: PathsRead
     cross_seed: CrossSeedRead
+    seer: SeerRead
     schedule: ScheduleRead
 
 
@@ -74,6 +81,10 @@ class SettingsWrite(BaseModel):
     cross_seed_url: Optional[str] = None
     cross_seed_api_key: Optional[str] = None
     cross_seed_library_path: Optional[str] = None
+
+    seer_enabled: bool = False
+    seer_url: Optional[str] = None
+    seer_api_key: Optional[str] = None
 
     scan_schedule_enabled: bool = False
     scan_schedule_interval_minutes: Optional[int] = None

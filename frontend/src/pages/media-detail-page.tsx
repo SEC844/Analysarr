@@ -17,6 +17,7 @@ import { toast } from "sonner"
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
 import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
+import { MediaRequests } from "@/components/media/media-requests"
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { WatchSummary } from "@/components/media/watch-stats"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { usePreferences } from "@/hooks/use-app"
 import { useCrossSeedSearchMutation, useMediaDetailQuery } from "@/hooks/use-media"
 import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n } from "@/i18n"
@@ -35,16 +37,10 @@ import type { MediaFileRead } from "@/types/media"
 
 // Section repliable au niveau carte (fichiers Emby / torrents qBittorrent) —
 // fermée par défaut pour ne pas noyer la fiche sous une série à 177 épisodes.
-function CollapsibleCard({
-  title,
-  defaultOpen = false,
-  children,
-}: {
-  title: ReactNode
-  defaultOpen?: boolean
-  children: ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
+function CollapsibleCard({ title, children }: { title: ReactNode; children: ReactNode }) {
+  // Fermée par défaut, sauf préférence contraire (Réglages → Préférences).
+  const { media_sections_expanded } = usePreferences()
+  const [open, setOpen] = useState(media_sections_expanded)
   return (
     <Card className="mt-6 first:mt-8">
       <button type="button" onClick={() => setOpen((v) => !v)} className="w-full text-left" aria-expanded={open}>
@@ -204,6 +200,7 @@ export function MediaDetailPage() {
           </div>
           <StatusBadgeList statuses={media.statuses} />
           <WatchSummary mediaId={media.id} />
+          <MediaRequests requests={media.requests} />
           {media.missing_emby_episodes.length > 0 && (
             <p className="text-muted-foreground text-sm">
               {t("media.missingEmby", { list: media.missing_emby_episodes.join(", ") })}

@@ -48,6 +48,23 @@ async def require_auth(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def static_cache_headers(request: Request, call_next):
+    """Plus besoin de Ctrl+F5 après une mise à jour : la page (index.html) est
+    toujours revalidée auprès du serveur, et les fichiers de /assets — dont le
+    nom contient une empreinte qui change à chaque build — peuvent rester en
+    cache indéfiniment sans jamais servir une ancienne version."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/"):
+        return response
+    if path.startswith("/assets/") and response.status_code == 200:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.get("/api/health", include_in_schema=False)
 def health() -> dict:
     return {"status": "ok"}

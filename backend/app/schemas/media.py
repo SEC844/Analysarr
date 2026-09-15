@@ -57,6 +57,26 @@ class MediaListItem(BaseModel):
     watch_played_count: int
     watch_in_progress_count: int
     last_played_at: Optional[datetime]
+    # Seer activé uniquement : demandeur de la plus ancienne demande.
+    requested_by: Optional[str]
+
+
+class SeerUserRead(BaseModel):
+    name: str
+    # Compte Emby correspondant (avatar), si retrouvé.
+    emby_user_id: Optional[str]
+    image_tag: Optional[str]
+
+
+class MediaRequestRead(BaseModel):
+    status: str
+    is_4k: bool
+    seasons: list[int]
+    requested_at: Optional[datetime]
+    requested_by: Optional[SeerUserRead]
+    # Approbateur (ou auteur du refus) ; None si approuvée automatiquement.
+    modified_by: Optional[SeerUserRead]
+    auto_approved: bool
 
 
 class WatchUser(BaseModel):
@@ -98,6 +118,8 @@ class MediaDetail(MediaListItem):
     files: list[MediaFileRead]
     torrents: list[TorrentRead]
     missing_emby_episodes: list[str]
+    # Vide si Seer n'est pas activé.
+    requests: list["MediaRequestRead"]
 
 
 class MediaListResponse(BaseModel):
@@ -153,6 +175,9 @@ class MediaDeleteSelection(BaseModel):
     # du film. Sonarr : démonitoring des épisodes concernés (pas d'équivalent
     # "supprimer" à cette granularité côté Sonarr).
     remove_from_arr: bool = False
+    # Supprime aussi la demande (et la fiche) du média dans Seer. Appliqué
+    # seulement si toute la bibliothèque du média est supprimée sans erreur.
+    remove_from_seer: bool = False
 
 
 class DiskUnit(BaseModel):

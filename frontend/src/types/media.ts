@@ -18,6 +18,25 @@ export interface MediaListItem {
   watch_played_count: number
   watch_in_progress_count: number
   last_played_at: string | null
+  requested_by: string | null
+}
+
+export interface SeerUserRead {
+  name: string
+  emby_user_id: string | null
+  image_tag: string | null
+}
+
+export type MediaRequestStatus = "pending" | "approved" | "declined" | "failed" | "completed"
+
+export interface MediaRequestRead {
+  status: MediaRequestStatus
+  is_4k: boolean
+  seasons: number[]
+  requested_at: string | null
+  requested_by: SeerUserRead | null
+  modified_by: SeerUserRead | null
+  auto_approved: boolean
 }
 
 export interface WatchUser {
@@ -96,6 +115,7 @@ export interface MediaDetail extends MediaListItem {
   files: MediaFileRead[]
   torrents: TorrentRead[]
   missing_emby_episodes: string[]
+  requests: MediaRequestRead[]
 }
 
 export interface DeletePreviewItem {
@@ -124,6 +144,7 @@ export interface MediaDeleteSelection {
   torrent_ids: number[]
   media_file_ids: number[]
   remove_from_arr: boolean
+  remove_from_seer: boolean
 }
 
 export interface DiskUnit {
@@ -186,8 +207,10 @@ export interface MediaListParams {
   media_type?: MediaTypeFilter
   watch?: WatchFilter
   search?: string
-  sort?: "title" | "year" | "size" | "last_played" | "cleanup"
+  sort?: MediaSort
 }
+
+export type MediaSort = "title" | "year" | "size" | "last_played" | "cleanup"
 
 export type ScanRunStatus = "running" | "completed" | "failed"
 

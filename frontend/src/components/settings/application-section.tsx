@@ -1,5 +1,4 @@
 import { Bug, CheckCircle2, Code, ExternalLink, Loader2, RefreshCw } from "lucide-react"
-import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -7,15 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { PulseDot } from "@/components/ui/pulse-dot"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useAppInfoQuery, useCheckUpdatesMutation, useSaveAppPreferencesMutation } from "@/hooks/use-app"
-import { LANGUAGES, useI18n, type Language } from "@/i18n"
+import { useI18n } from "@/i18n"
 import { formatDate, formatDateTime, formatVersion } from "@/lib/format"
 import type { AppInfo } from "@/types/app"
-
-const THEMES = ["dark", "light", "system"] as const
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -177,70 +173,6 @@ function AboutCard({ info }: { info: AppInfo }) {
   )
 }
 
-function PreferencesCard({ info }: { info: AppInfo }) {
-  const { t, language, setLanguage } = useI18n()
-  const { theme, setTheme } = useTheme()
-  const savePreferences = useSaveAppPreferencesMutation()
-
-  const languageLabels = Object.fromEntries(LANGUAGES.map((l) => [l.value, l.label]))
-
-  const handleLanguageChange = (next: Language) => {
-    savePreferences.mutate(
-      { language: next, update_check_enabled: info.update_check_enabled },
-      {
-        // Appliquée seulement une fois enregistrée : changer de langue remonte
-        // toute l'interface (voir I18nProvider).
-        onSuccess: () => setLanguage(next),
-        onError: (err) => toast.error(err instanceof Error ? err.message : t("common.saveFailed")),
-      },
-    )
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("application.preferencesTitle")}</CardTitle>
-        <CardDescription>{t("application.preferencesDescription")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="app-language">{t("application.language")}</Label>
-          <Select value={language} onValueChange={(v) => handleLanguageChange(v as Language)}>
-            <SelectTrigger id="app-language" className="w-56" disabled={savePreferences.isPending}>
-              <SelectValue>{(v: string) => languageLabels[v] ?? v}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {LANGUAGES.map((l) => (
-                <SelectItem key={l.value} value={l.value}>
-                  {l.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-muted-foreground text-sm">{t("application.languageHelp")}</p>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="app-theme">{t("application.theme")}</Label>
-          <Select value={theme ?? "dark"} onValueChange={(v) => setTheme(v as string)}>
-            <SelectTrigger id="app-theme" className="w-56">
-              <SelectValue>{(v: string) => t(`application.themes.${v as (typeof THEMES)[number]}`)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {THEMES.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {t(`application.themes.${value}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-muted-foreground text-sm">{t("application.themeHelp")}</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
 export function ApplicationSection() {
   const { t } = useI18n()
   const { data: info, isLoading } = useAppInfoQuery()
@@ -248,10 +180,5 @@ export function ApplicationSection() {
   if (isLoading) return <Skeleton className="h-64 w-full" />
   if (!info) return <p className="text-destructive">{t("common.apiUnreachable")}</p>
 
-  return (
-    <div className="space-y-6">
-      <AboutCard info={info} />
-      <PreferencesCard info={info} />
-    </div>
-  )
+  return <AboutCard info={info} />
 }

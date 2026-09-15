@@ -19,6 +19,22 @@ class UpdateStatus(BaseModel):
     error: Optional[str] = None
 
 
+class UiPreferences(BaseModel):
+    """Préférences d'affichage (Réglages → Préférences). Toute clé absente
+    prend sa valeur par défaut : l'ajout d'une préférence ne casse jamais une
+    configuration déjà enregistrée."""
+
+    card_show_watch: bool = True
+    card_show_total_size: bool = False
+    card_show_reclaimable: bool = True
+    card_show_requested_by: bool = False
+    library_default_sort: Literal["title", "year", "size", "last_played", "cleanup"] = "title"
+    library_default_grid: Literal["small", "medium", "large"] = "medium"
+    media_sections_expanded: bool = False
+    delete_remove_from_arr_default: bool = False
+    absolute_dates: bool = False
+
+
 class AppInfo(BaseModel):
     version: str
     revision: Optional[str]
@@ -29,8 +45,11 @@ class AppInfo(BaseModel):
     # None tant qu'aucune vérification n'a eu lieu (désactivée et jamais
     # lancée manuellement).
     update: Optional[UpdateStatus]
+    ui: UiPreferences
 
 
 class AppPreferencesWrite(BaseModel):
     language: Language
     update_check_enabled: bool
+    # None : préférences d'affichage inchangées.
+    ui: Optional[UiPreferences] = None

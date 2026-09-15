@@ -1,5 +1,6 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { Route, Routes } from "react-router-dom"
+import { toast } from "sonner"
 
 import { AppShell } from "@/components/layout/app-shell"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -34,6 +35,23 @@ function App() {
   useEffect(() => {
     if (savedLanguage && savedLanguage !== language) setLanguage(savedLanguage)
   }, [savedLanguage, language, setLanguage])
+
+  // Nouvelle version du conteneur installée pendant que l'onglet était ouvert :
+  // proposition de recharger (le code chargé dans la page est l'ancien).
+  const serverVersion = appInfo.data?.version
+  const loadedVersion = useRef<string | null>(null)
+  useEffect(() => {
+    if (!serverVersion) return
+    if (loadedVersion.current === null) {
+      loadedVersion.current = serverVersion
+    } else if (serverVersion !== loadedVersion.current) {
+      toast(t("update.installed"), {
+        id: "new-version",
+        duration: Infinity,
+        action: { label: t("update.reload"), onClick: () => window.location.reload() },
+      })
+    }
+  }, [serverVersion, t])
 
   if (authStatus.isLoading) {
     return (

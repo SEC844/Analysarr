@@ -1,15 +1,24 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.config import APP_BUILD_DATE, APP_REVISION, APP_VERSION, GITHUB_REPOSITORY
 from app.database import get_session
 from app.models.settings import Settings
-from app.schemas.app import AppInfo, AppPreferencesWrite, UpdateStatus
+from app.schemas.app import AppInfo, AppPreferencesWrite, UiPreferences, UpdateStatus
 from app.services.updates import get_update_status, peek_update_status
 
 router = APIRouter()
+
+
+def ui_preferences(settings: Settings | None) -> UiPreferences:
+    """Préférences enregistrées ; valeurs par défaut si absentes ou illisibles."""
+    try:
+        return UiPreferences.model_validate_json(settings.ui_preferences) if settings else UiPreferences()
+    except ValidationError:
+        return UiPreferences()
 
 
 def _to_info(settings: Settings | None, update: UpdateStatus | None) -> AppInfo:
@@ -21,6 +30,7 @@ def _to_info(settings: Settings | None, update: UpdateStatus | None) -> AppInfo:
         language=settings.language if settings and settings.language in ("fr", "en") else None,
         update_check_enabled=settings.update_check_enabled if settings else True,
         update=update,
+        ui=ui_preferences(settings),
     )
 
 
@@ -46,6 +56,8 @@ async def put_preferences(payload: AppPreferencesWrite, session: Session = Depen
         row = Settings(id=1)
     row.language = payload.language
     row.update_check_enabled = payload.update_check_enabled
+    if payload.ui is not None:
+        row.ui_preferences = payload.ui.model_dump_json()
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
     session.commit()
