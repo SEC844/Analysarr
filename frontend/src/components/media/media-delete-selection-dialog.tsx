@@ -323,7 +323,10 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
         </DialogHeader>
 
         {!result && (
-          <div className="space-y-3">
+          // min-w-0 : élément de la grille du dialogue, sinon sa largeur minimale
+          // est celle du plus long nom de fichier et la troncature ne s'applique
+          // jamais — la liste déborde du dialogue et masque les tailles.
+          <div className="min-w-0 space-y-3">
             {allKeys.length > 1 && (
               <div className="flex items-center justify-between gap-2">
                 <p className="text-muted-foreground text-sm">
