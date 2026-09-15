@@ -12,15 +12,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useDeleteExecuteMutation, useDeletePreviewMutation } from "@/hooks/use-media"
+import { useI18n } from "@/i18n"
 import { formatBytes } from "@/lib/format"
 import type { DeleteExecuteResult, DeletePreview } from "@/types/media"
 
-const KIND_LABELS: Record<string, string> = {
-  duplicate_file: "Fichier en doublon",
-  orphan_torrent: "Torrent orphelin",
-}
-
 export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<DeletePreview | null>(null)
   const [result, setResult] = useState<DeleteExecuteResult | null>(null)
@@ -46,27 +43,24 @@ export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="destructive" />}>
         <Broom className="size-4" />
-        Nettoyer
+        {t("cascade.button")}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Suppression cascade</DialogTitle>
-          <DialogDescription>
-            Supprime les fichiers en doublon non suivis par Sonarr/Radarr et les torrents qBittorrent orphelins
-            liés à ce média.
-          </DialogDescription>
+          <DialogTitle>{t("cascade.title")}</DialogTitle>
+          <DialogDescription>{t("cascade.description")}</DialogDescription>
         </DialogHeader>
 
         {!result && (
           <>
             {previewMutation.isPending && (
               <div className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
-                <Loader2 className="size-4 animate-spin" /> Calcul de l'aperçu...
+                <Loader2 className="size-4 animate-spin" /> {t("common.previewing")}
               </div>
             )}
 
             {preview && preview.items.length === 0 && (
-              <p className="text-muted-foreground py-4 text-sm">Rien à supprimer pour ce média.</p>
+              <p className="text-muted-foreground py-4 text-sm">{t("cascade.nothing")}</p>
             )}
 
             {preview && preview.items.length > 0 && (
@@ -75,14 +69,20 @@ export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
                   {preview.items.map((item, i) => (
                     <li key={i} className="border-border flex items-start justify-between gap-2 border-b py-1.5 last:border-0">
                       <div>
-                        <p className="text-muted-foreground text-xs">{KIND_LABELS[item.kind] ?? item.kind}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {item.kind === "duplicate_file" || item.kind === "orphan_torrent"
+                            ? t(`cascade.kinds.${item.kind}`)
+                            : item.kind}
+                        </p>
                         <p className="break-all">{item.label}</p>
                       </div>
                       <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(item.size)}</span>
                     </li>
                   ))}
                 </ul>
-                <p className="text-sm font-medium">Total récupérable : {formatBytes(preview.total_reclaimable_bytes)}</p>
+                <p className="text-sm font-medium">
+                  {t("cascade.total", { size: formatBytes(preview.total_reclaimable_bytes) })}
+                </p>
               </div>
             )}
           </>
@@ -119,11 +119,11 @@ export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
               ) : (
                 <AlertTriangle className="size-4" />
               )}
-              Confirmer la suppression
+              {t("common.confirmDelete")}
             </Button>
           )}
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-            Fermer
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

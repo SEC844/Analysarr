@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useConnectionTest } from "@/hooks/use-connection-test"
+import { useI18n } from "@/i18n"
 
 interface CrossSeedCardProps {
   enabled: boolean
@@ -33,6 +34,7 @@ export function CrossSeedCard({
   libraryPath,
   onLibraryPathChange,
 }: CrossSeedCardProps) {
+  const { t, rich } = useI18n()
   const test = useConnectionTest("cross_seed")
 
   return (
@@ -42,12 +44,9 @@ export function CrossSeedCard({
           <div>
             <CardTitle className="flex items-center gap-2">
               cross-seed
-              <Badge variant="outline">Optionnel</Badge>
+              <Badge variant="outline">{t("common.optional")}</Badge>
             </CardTitle>
-            <CardDescription>
-              Permet de lancer une recherche cross-seed ciblée depuis une fiche média. N'est jamais requis pour
-              utiliser Analysarr.
-            </CardDescription>
+            <CardDescription>{t("crossSeed.description")}</CardDescription>
           </div>
           <Switch id="cross-seed-enabled" checked={enabled} onCheckedChange={onEnabledChange} />
         </div>
@@ -55,7 +54,7 @@ export function CrossSeedCard({
       {enabled && (
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="cross-seed-url">URL du daemon cross-seed</Label>
+            <Label htmlFor="cross-seed-url">{t("crossSeed.daemonUrl")}</Label>
             <Input
               id="cross-seed-url"
               placeholder="http://cross-seed:2468"
@@ -66,18 +65,16 @@ export function CrossSeedCard({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="cross-seed-key">Clé API</Label>
+            <Label htmlFor="cross-seed-key">{t("common.apiKey")}</Label>
             <Input
               id="cross-seed-key"
               type="password"
-              placeholder={apiKeySet ? "•••••••••••• (laisser vide pour conserver)" : "Clé API"}
+              placeholder={apiKeySet ? t("common.keepSecretPlaceholder") : t("common.apiKey")}
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.target.value)}
               autoComplete="off"
             />
-            <p className="text-muted-foreground text-sm">
-              Trouvable dans la configuration du daemon cross-seed (champ <code>apiKey</code>).
-            </p>
+            <p className="text-muted-foreground text-sm">{rich("crossSeed.apiKeyHelp", { field: <code>apiKey</code> })}</p>
           </div>
 
           <Button
@@ -87,13 +84,13 @@ export function CrossSeedCard({
             onClick={() => test.mutate({ url, api_key: apiKey || undefined })}
           >
             {test.isPending && <Loader2 className="size-4 animate-spin" />}
-            Tester la connexion
+            {t("common.testConnection")}
           </Button>
 
           <ConnectionTestAlert result={test.data} />
 
           <div className="space-y-1.5 border-t pt-4">
-            <Label htmlFor="cross-seed-library-path">Bibliothèque vue depuis cross-seed</Label>
+            <Label htmlFor="cross-seed-library-path">{t("crossSeed.libraryPath")}</Label>
             <div className="flex gap-2">
               <Input
                 id="cross-seed-library-path"
@@ -104,12 +101,7 @@ export function CrossSeedCard({
               />
               <PathBrowserButton value={libraryPath} onSelect={onLibraryPathChange} />
             </div>
-            <p className="text-muted-foreground text-sm">
-              Optionnel — à remplir seulement si le conteneur cross-seed monte le même dossier de bibliothèque à un
-              chemin différent de celui d'Analysarr (onglet Chemins). Sans ça, une recherche cross-seed lancée sur
-              un média jamais seedé peut échouer avec « accessible path must be provided » — cross-seed ne
-              retrouve pas le fichier sur son propre système de fichiers.
-            </p>
+            <p className="text-muted-foreground text-sm">{t("crossSeed.libraryPathHelp")}</p>
           </div>
         </CardContent>
       )}

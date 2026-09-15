@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation } from "@/hooks/use-media"
+import { useI18n } from "@/i18n"
 import { formatBytes } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type {
@@ -53,17 +54,15 @@ function group(key: string, label: string, children: TreeNode[]): TreeNode {
   }
 }
 
-function seasonLabel(episodeLabel: string | null): string {
-  const match = episodeLabel?.match(/^S(\d+)/)
-  return match ? `Saison ${parseInt(match[1], 10)}` : "Autres fichiers"
-}
+type Translate = ReturnType<typeof useI18n>["t"]
 
-function groupBySeason(files: MediaFileRead[]): [string, MediaFileRead[]][] {
+function groupBySeason(files: MediaFileRead[], t: Translate): [string, MediaFileRead[]][] {
   // "~" trie les fichiers sans épisode identifié après toutes les saisons.
   const sorted = [...files].sort((a, b) => (a.episode_label ?? "~").localeCompare(b.episode_label ?? "~"))
   const groups = new Map<string, MediaFileRead[]>()
   for (const f of sorted) {
-    const key = seasonLabel(f.episode_label)
+    const season = f.episode_label?.match(/^S(\d+)/)?.[1]
+    const key = season ? t("media.season", { number: parseInt(season, 10) }) : t("media.otherFiles")
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(f)
   }
@@ -77,7 +76,7 @@ function section(key: string, label: string, icon: ReactNode, children: TreeNode
   return { ...node, icon }
 }
 
-function buildTree(media: MediaDetail): TreeNode[] {
+function buildTree(media: MediaDetail, t: Translate): TreeNode[] {
   const isSeries = media.media_type === "series"
   const fileLeaf = (f: MediaFileRead) => {
     const name = f.path.split(/[\\/]/).pop() || f.path
@@ -86,20 +85,20 @@ function buildTree(media: MediaDetail): TreeNode[] {
 
   const torrents = section(
     "torrents",
-    "Torrents",
+    t("deleteSelection.torrents"),
     <HardDriveDownload className="text-muted-foreground size-4 shrink-0" />,
-    media.torrents.map((t) => leaf(torrentKey(t.id), t.name, t.size)),
+    media.torrents.map((torrent) => leaf(torrentKey(torrent.id), torrent.name, torrent.size)),
   )
   const library = section(
     "library",
-    "Bibliothèque",
+    t("deleteSelection.library"),
     isSeries ? (
       <Tv className="text-muted-foreground size-4 shrink-0" />
     ) : (
       <Clapperboard className="text-muted-foreground size-4 shrink-0" />
     ),
     isSeries && media.files.length > 1
-      ? groupBySeason(media.files).map(([season, files]) => group(`season:${season}`, season, files.map(fileLeaf)))
+      ? groupBySeason(media.files, t).map(([season, files]) => group(`season:${season}`, season, files.map(fileLeaf)))
       : media.files.map(fileLeaf),
   )
   return [torrents, library].filter((n): n is TreeNode => n !== null)
@@ -146,6 +145,7 @@ interface TreeState {
 }
 
 function TreeRow({ node, state }: { node: TreeNode; state: TreeState }) {
+  const { t } = useI18n()
   const selectedCount = node.leafKeys.filter((k) => state.selected.has(k)).length
   const checked = selectedCount === node.leafKeys.length
   const isGroup = node.children.length > 0
@@ -159,7 +159,7 @@ function TreeRow({ node, state }: { node: TreeNode; state: TreeState }) {
             type="button"
             onClick={() => state.toggleExpand(node.key)}
             aria-expanded={isOpen}
-            aria-label={isOpen ? `Replier ${node.label}` : `Déplier ${node.label}`}
+            aria-label={t(isOpen ? "deleteSelection.collapse" : "deleteSelection.expand", { name: node.label })}
             className="text-muted-foreground hover:text-foreground shrink-0"
           >
             <ChevronRight className={cn("size-4 transition-transform", isOpen && "rotate-90")} />
@@ -197,6 +197,7 @@ function TreeRow({ node, state }: { node: TreeNode; state: TreeState }) {
 }
 
 export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: MediaDetail; onMediaDeleted: () => void }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -206,14 +207,14 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const executeMutation = useDeleteSelectionExecuteMutation()
   const footprintQuery = useDeleteFootprintQuery(media.id, open && !result)
 
-  const tree = useMemo(() => buildTree(media), [media])
+  const tree = useMemo(() => buildTree(media, t), [media, t])
   const allKeys = useMemo(() => tree.flatMap((n) => n.leafKeys), [tree])
 
   const footprint = footprintQuery.data
   const unitsByKey = useMemo(() => (footprint ? indexFootprint(footprint) : null), [footprint])
 
   const isSeries = media.media_type === "series"
-  const selectedTorrents = media.torrents.filter((t) => selected.has(torrentKey(t.id)))
+  const selectedTorrents = media.torrents.filter((torrent) => selected.has(torrentKey(torrent.id)))
   const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
   const hasSelection = selected.size > 0
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k))
@@ -226,7 +227,8 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
 
   // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.
   const nominalBytes =
-    selectedTorrents.reduce((sum, t) => sum + (t.size ?? 0), 0) + selectedFiles.reduce((sum, f) => sum + (f.size ?? 0), 0)
+    selectedTorrents.reduce((sum, torrent) => sum + (torrent.size ?? 0), 0) +
+    selectedFiles.reduce((sum, f) => sum + (f.size ?? 0), 0)
   const selectedBytes = footprint && unitsByKey ? diskBytes(footprint, unitsByKey, selected) : nominalBytes
   const reclaimed = footprint && unitsByKey ? reclaimedBytes(footprint, unitsByKey, selected) : null
 
@@ -271,18 +273,20 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
     }
   }
 
-  const arrLabel = !canRemoveMedia
-    ? "Démonitorer aussi ces épisodes dans Sonarr (empêche un retéléchargement automatique)"
-    : isSeries
-      ? "Retirer aussi la série de Sonarr (sans l'ajouter à la liste d'exclusion)"
-      : "Retirer aussi le film de Radarr (sans l'ajouter à la liste d'exclusion)"
+  const arrLabel = t(
+    !canRemoveMedia
+      ? "deleteSelection.unmonitorEpisodes"
+      : isSeries
+        ? "deleteSelection.removeSeries"
+        : "deleteSelection.removeMovie",
+  )
 
   const handleConfirm = () => {
     executeMutation.mutate(
       {
         id: media.id,
         selection: {
-          torrent_ids: selectedTorrents.map((t) => t.id),
+          torrent_ids: selectedTorrents.map((torrent) => torrent.id),
           media_file_ids: selectedFiles.map((f) => f.id),
           remove_from_arr: removeFromArr && showArrOption,
         },
@@ -290,8 +294,8 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
       {
         onSuccess: (data) => {
           const failedCount = data.steps.filter((s) => !s.success).length
-          if (failedCount === 0) toast.success("Suppression effectuée.")
-          else toast.error(`${failedCount} échec(s) sur ${data.steps.length}.`)
+          if (failedCount === 0) toast.success(t("deleteSelection.success"))
+          else toast.error(t("deleteSelection.partialFailure", { failed: failedCount, total: data.steps.length }))
 
           if (data.media_deleted) {
             // Plus rien ne subsiste pour ce média : la fiche elle-même a
@@ -303,39 +307,41 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
           }
           setResult(data)
         },
-        onError: (err) => toast.error(err instanceof Error ? err.message : "Échec de la suppression."),
+        onError: (err) => toast.error(err instanceof Error ? err.message : t("deleteSelection.failed")),
       },
     )
   }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger render={<Button type="button" variant="outline" size="icon" title="Supprimer..." />}>
+      <DialogTrigger
+        render={<Button type="button" variant="outline" size="icon" title={t("deleteSelection.trigger")} />}
+      >
         <Trash2 className="size-4" />
       </DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Supprimer</DialogTitle>
-          <DialogDescription>
-            Cochez ce qu'il faut supprimer : cocher un groupe coche tout son contenu. Rien n'est supprimé avant
-            confirmation.
-          </DialogDescription>
+          <DialogTitle>{t("deleteSelection.title")}</DialogTitle>
+          <DialogDescription>{t("deleteSelection.description")}</DialogDescription>
         </DialogHeader>
 
         {!result && (
-          <div className="space-y-3">
+          // min-w-0 : élément de la grille du dialogue, sinon sa largeur minimale
+          // est celle du plus long nom de fichier et la troncature ne s'applique
+          // jamais — la liste déborde du dialogue et masque les tailles.
+          <div className="min-w-0 space-y-3">
             {allKeys.length > 1 && (
               <div className="flex items-center justify-between gap-2">
                 <p className="text-muted-foreground text-sm">
-                  {selected.size} élément(s) sélectionné(s) sur {allKeys.length}
+                  {t("deleteSelection.selectedCount", { selected: selected.size, total: allKeys.length })}
                 </p>
                 <Button type="button" variant="outline" size="sm" onClick={handleSelectAll}>
                   {allSelected ? (
-                    "Tout désélectionner"
+                    t("deleteSelection.deselectAll")
                   ) : (
                     <>
                       <Trash2 className="size-4" />
-                      Tout supprimer
+                      {t("deleteSelection.selectAll")}
                     </>
                   )}
                 </Button>
@@ -358,7 +364,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
             {hasSelection && (
               <div className="bg-muted/50 rounded-md px-3 py-2 text-sm">
                 <p className="flex items-center gap-2 font-medium">
-                  Espace libéré :{" "}
+                  {t("deleteSelection.reclaimed")}{" "}
                   {footprintQuery.isPending ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
@@ -367,14 +373,11 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
                 </p>
                 {reclaimed !== null && reclaimed < selectedBytes && (
                   <p className="text-muted-foreground text-xs">
-                    Sélection de {formatBytes(selectedBytes)} : un fichier hardlinké n'est libéré du disque que si tous
-                    ses liens sont supprimés.
+                    {t("deleteSelection.selectionHint", { size: formatBytes(selectedBytes) })}
                   </p>
                 )}
                 {footprintQuery.isError && (
-                  <p className="text-muted-foreground text-xs">
-                    Estimation : espace réel indisponible, les fichiers hardlinkés peuvent être comptés plusieurs fois.
-                  </p>
+                  <p className="text-muted-foreground text-xs">{t("deleteSelection.estimate")}</p>
                 )}
               </div>
             )}
@@ -412,11 +415,11 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               ) : (
                 <Trash2 className="size-4" />
               )}
-              Confirmer la suppression
+              {t("common.confirmDelete")}
             </Button>
           )}
           <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-            Fermer
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

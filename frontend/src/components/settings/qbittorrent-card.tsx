@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useConnectionTest } from "@/hooks/use-connection-test"
+import { useI18n } from "@/i18n"
 
 interface QbittorrentCardProps {
   url: string
@@ -26,17 +27,18 @@ export function QbittorrentCard({
   onPasswordChange,
   passwordSet,
 }: QbittorrentCardProps) {
+  const { t } = useI18n()
   const test = useConnectionTest("qbittorrent")
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>qBittorrent</CardTitle>
-        <CardDescription>Client de téléchargement qui gère les torrents.</CardDescription>
+        <CardDescription>{t("qbittorrent.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="qbit-url">URL de l'interface web</Label>
+          <Label htmlFor="qbit-url">{t("qbittorrent.webUrl")}</Label>
           <Input
             id="qbit-url"
             placeholder="http://qbittorrent:8080"
@@ -44,13 +46,11 @@ export function QbittorrentCard({
             onChange={(e) => onUrlChange(e.target.value)}
             autoComplete="off"
           />
-          <p className="text-muted-foreground text-sm">
-            L'adresse de l'interface web qBittorrent (WebUI), accessible depuis le conteneur Analysarr.
-          </p>
+          <p className="text-muted-foreground text-sm">{t("qbittorrent.webUrlHelp")}</p>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="qbit-username">Identifiant</Label>
+          <Label htmlFor="qbit-username">{t("qbittorrent.username")}</Label>
           <Input
             id="qbit-username"
             placeholder="admin"
@@ -61,18 +61,18 @@ export function QbittorrentCard({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="qbit-password">Mot de passe</Label>
+          <Label htmlFor="qbit-password">{t("common.password")}</Label>
           <Input
             id="qbit-password"
             type="password"
-            placeholder={passwordSet ? "•••••••••••• (laisser vide pour conserver)" : "Mot de passe"}
+            placeholder={passwordSet ? t("common.keepSecretPlaceholder") : t("common.password")}
             value={password}
             onChange={(e) => onPasswordChange(e.target.value)}
             autoComplete="off"
           />
           <p className="text-muted-foreground text-sm">
-            Identifiants définis dans qBittorrent → Outils → Options → WebUI.
-            {passwordSet && " Un mot de passe est déjà enregistré ; ressaisissez-le ici pour le tester ou le changer."}
+            {t("qbittorrent.credentialsHelp")}
+            {passwordSet && t("qbittorrent.passwordSetHint")}
           </p>
         </div>
 
@@ -83,7 +83,7 @@ export function QbittorrentCard({
           onClick={() => test.mutate({ url, username, password })}
         >
           {test.isPending && <Loader2 className="size-4 animate-spin" />}
-          Tester la connexion
+          {t("common.testConnection")}
         </Button>
 
         <ConnectionTestAlert result={test.data} />

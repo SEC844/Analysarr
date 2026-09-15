@@ -3,25 +3,28 @@ import { AlertTriangle, CheckCircle2, Loader2, Search, XCircle } from "lucide-re
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useI18n } from "@/i18n"
 import { getPathDiagnostics } from "@/lib/api"
 import type { PathDiagnostics } from "@/types/diagnostics"
 
 function DiagnosticsBlock({ title, diag }: { title: string; diag: PathDiagnostics }) {
+  const { t, rich } = useI18n()
   const allResolved = diag.total > 0 && diag.resolved === diag.total
+  const accessible = t("diagnostics.accessible", { title, resolved: diag.resolved, total: diag.total })
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-sm font-medium">
         {diag.total === 0 ? (
-          <span className="text-muted-foreground">{title} : aucun élément</span>
+          <span className="text-muted-foreground">{t("diagnostics.noItems", { title })}</span>
         ) : allResolved ? (
           <>
             <CheckCircle2 className="size-4 text-emerald-500" />
-            {title} : {diag.resolved}/{diag.total} chemins accessibles
+            {accessible}
           </>
         ) : (
           <>
             <XCircle className="text-destructive size-4" />
-            {title} : {diag.resolved}/{diag.total} chemins accessibles
+            {accessible}
           </>
         )}
       </div>
@@ -29,9 +32,9 @@ function DiagnosticsBlock({ title, diag }: { title: string; diag: PathDiagnostic
         <p className="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border p-2 text-xs">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>
-            Tous les chemins non résolus partagent le dossier <code className="break-all">{diag.common_unresolved_prefix}</code>
-            {" "}— ce dossier ne semble pas monté dans le conteneur Analysarr (vérifiez qu'il est bien ajouté au
-            docker-compose / template Unraid, comme pour les autres dossiers de téléchargement).
+            {rich("diagnostics.commonPrefix", {
+              path: <code className="break-all">{diag.common_unresolved_prefix}</code>,
+            })}
           </span>
         </p>
       )}
@@ -41,7 +44,7 @@ function DiagnosticsBlock({ title, diag }: { title: string; diag: PathDiagnostic
             <li key={i} className="text-muted-foreground">
               <span className="text-foreground">{c.label}</span>
               <br />
-              <span className="break-all">{c.path ?? "(chemin vide)"}</span>
+              <span className="break-all">{c.path ?? t("diagnostics.emptyPath")}</span>
             </li>
           ))}
         </ul>
@@ -51,35 +54,31 @@ function DiagnosticsBlock({ title, diag }: { title: string; diag: PathDiagnostic
 }
 
 export function PathDiagnosticsPanel() {
+  const { t } = useI18n()
   const diagnostics = useMutation({ mutationFn: getPathDiagnostics })
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Diagnostic des chemins</CardTitle>
-        <CardDescription>
-          Vérifie, en direct, si les chemins renvoyés par Emby et qBittorrent sont réellement accessibles depuis le
-          conteneur Analysarr. Un chemin inaccessible signifie que le point de montage ne correspond pas à celui
-          utilisé par Emby ou qBittorrent — la détection de doublons/orphelins ne peut pas fonctionner pour ces
-          fichiers tant que ce n'est pas corrigé dans la configuration Docker.
-        </CardDescription>
+        <CardTitle>{t("diagnostics.title")}</CardTitle>
+        <CardDescription>{t("diagnostics.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Button type="button" variant="secondary" disabled={diagnostics.isPending} onClick={() => diagnostics.mutate()}>
           {diagnostics.isPending ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
-          Lancer le diagnostic
+          {t("diagnostics.run")}
         </Button>
 
         {diagnostics.isError && (
           <p className="text-destructive text-sm">
-            {diagnostics.error instanceof Error ? diagnostics.error.message : "Échec du diagnostic."}
+            {diagnostics.error instanceof Error ? diagnostics.error.message : t("diagnostics.failed")}
           </p>
         )}
 
         {diagnostics.data && (
           <div className="space-y-4">
             <DiagnosticsBlock title="qBittorrent" diag={diagnostics.data.qbittorrent} />
-            <DiagnosticsBlock title="Emby (films)" diag={diagnostics.data.emby} />
+            <DiagnosticsBlock title={t("diagnostics.embyMovies")} diag={diagnostics.data.emby} />
           </div>
         )}
       </CardContent>

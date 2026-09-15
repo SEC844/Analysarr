@@ -29,6 +29,16 @@ ENV PORT=8000 \
     DATABASE_PATH=/data/analysarr.db \
     PYTHONUNBUFFERED=1
 
+# Identité du build, affichée dans Réglages → Application et utilisée pour
+# détecter une mise à jour. Renseignée par la CI (build-args) ; placée après
+# les couches coûteuses pour ne jamais invalider leur cache.
+ARG APP_VERSION=dev
+ARG APP_REVISION=
+ARG APP_BUILD_DATE=
+ENV APP_VERSION=${APP_VERSION} \
+    APP_REVISION=${APP_REVISION} \
+    APP_BUILD_DATE=${APP_BUILD_DATE}
+
 VOLUME ["/data"]
 EXPOSE 8000
 

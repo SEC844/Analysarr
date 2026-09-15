@@ -3,11 +3,13 @@ import { Link } from "react-router-dom"
 import { Clapperboard, Tv } from "lucide-react"
 
 import { StatusBadgeList } from "@/components/media/status-badge"
+import { useI18n } from "@/i18n"
 import { posterUrl } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
 import type { MediaListItem } from "@/types/media"
 
 export function MediaCard({ media }: { media: MediaListItem }) {
+  const { t } = useI18n()
   const [imgError, setImgError] = useState(false)
   const Icon = media.media_type === "movie" ? Clapperboard : Tv
 
@@ -38,7 +40,9 @@ export function MediaCard({ media }: { media: MediaListItem }) {
         </div>
         <StatusBadgeList statuses={media.statuses} />
         {media.reclaimable_bytes > 0 && (
-          <p className="text-muted-foreground mt-auto text-xs">{formatBytes(media.reclaimable_bytes)} récupérables</p>
+          <p className="text-muted-foreground mt-auto text-xs">
+            {t("library.reclaimable", { size: formatBytes(media.reclaimable_bytes) })}
+          </p>
         )}
       </div>
     </Link>

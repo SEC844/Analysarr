@@ -3,34 +3,51 @@ import { LogOut } from "lucide-react"
 import { Link, NavLink } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
+import { PulseDot } from "@/components/ui/pulse-dot"
+import { useAppInfoQuery } from "@/hooks/use-app"
 import { useLogoutMutation } from "@/hooks/use-auth"
+import { useI18n } from "@/i18n"
+import { formatVersion } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-const NAV_LINKS = [
-  { to: "/", label: "Accueil" },
-  { to: "/settings", label: "Réglages" },
-]
+const APPLICATION_SETTINGS = "/settings?section=application"
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
   const logoutMutation = useLogoutMutation()
+  const { data: appInfo } = useAppInfoQuery()
+  const updateAvailable = appInfo?.update?.update_available ?? false
+
+  const navLinks = [
+    { to: "/", label: t("nav.home"), badge: false },
+    // Mise à jour disponible : le lien mène directement à l'onglet Application.
+    { to: updateAvailable ? APPLICATION_SETTINGS : "/settings", label: t("nav.settings"), badge: updateAvailable },
+  ]
 
   return (
     <div className="bg-background min-h-svh">
       <header className="border-border border-b">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6">
-          <Link to="/" className="text-lg font-semibold tracking-tight hover:opacity-80">
-            Analysarr
-          </Link>
+          <div className="flex items-baseline gap-2">
+            <Link to="/" className="text-lg font-semibold tracking-tight hover:opacity-80">
+              Analysarr
+            </Link>
+            {appInfo && (
+              <Link to={APPLICATION_SETTINGS} className="text-muted-foreground hover:text-foreground text-xs">
+                {formatVersion(appInfo.version)}
+              </Link>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <nav className="flex gap-1">
-              {NAV_LINKS.map((link) => (
+              {navLinks.map((link) => (
                 <NavLink
-                  key={link.to}
+                  key={link.label}
                   to={link.to}
                   end={link.to === "/"}
                   className={({ isActive }) =>
                     cn(
-                      "rounded-md px-3 py-1.5 text-sm transition-colors",
+                      "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
                       isActive
                         ? "bg-secondary text-secondary-foreground"
                         : "text-muted-foreground hover:text-foreground",
@@ -38,6 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   }
                 >
                   {link.label}
+                  {link.badge && <PulseDot label={t("nav.updateAvailable")} />}
                 </NavLink>
               ))}
             </nav>
@@ -47,7 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               size="icon-sm"
               onClick={() => logoutMutation.mutate()}
               disabled={logoutMutation.isPending}
-              title="Se déconnecter"
+              title={t("nav.logout")}
             >
               <LogOut className="size-4" />
             </Button>

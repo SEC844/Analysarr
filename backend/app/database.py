@@ -68,6 +68,8 @@ _SETTINGS_NEW_COLUMNS = [
     ("cross_seed_library_path", "VARCHAR"),
     ("scan_schedule_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     ("scan_schedule_interval_minutes", "INTEGER"),
+    ("language", "VARCHAR"),
+    ("update_check_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
 ]
 
 

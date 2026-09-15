@@ -121,6 +121,12 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
+          # Version affichée dans l'interface : "0.14.1" pour un tag, "dev" sur
+          # la branche dev (la révision précise le commit).
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+            APP_REVISION=${{ github.sha }}
+            APP_BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           # Provenance + SBOM attachés aux images publiées : chacun peut
           # vérifier d'où vient l'image et ce qu'elle embarque.
           provenance: ${{ github.event_name != 'pull_request' && 'mode=max' || 'false' }}

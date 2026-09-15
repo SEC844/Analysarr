@@ -43,5 +43,12 @@ class Settings(SQLModel, table=True):
     scan_schedule_enabled: bool = False
     scan_schedule_interval_minutes: Optional[int] = None
 
+    # Préférences de l'application (Réglages → Application). `language` None =
+    # pas encore choisie : le frontend suit alors la langue du navigateur.
+    language: Optional[str] = None
+    # Vérifie périodiquement sur GitHub si une nouvelle version est publiée
+    # (voir services/updates.py). Désactivable : aucune requête sortante alors.
+    update_check_enabled: bool = True
+
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
