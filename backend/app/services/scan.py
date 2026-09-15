@@ -107,6 +107,55 @@ def _media_sources(item: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"Path": path, "Size": None}] if path else []
 
 
+def _path_parts(path: str) -> list[str]:
+    return [part for part in path.replace("\\", "/").split("/") if part]
+
+
+def _file_match_strength(path: str | None, size: int | None, arr_file: dict[str, Any] | None) -> int:
+    """Le fichier du serveur multimédia (`path`, `size`) est-il le fichier que
+    Sonarr/Radarr suit (`arr_file` : movieFile/episodeFile) ?
+
+    2 : certain — chemin identique, ou même inode (les deux chemins résolus
+        depuis le conteneur Analysarr).
+    1 : très probable — conteneurs montant la bibliothèque à des chemins
+        différents (ex : /data/media/movies côté Emby, /movies côté Radarr) :
+        même nom de fichier ET même taille, ou même dossier parent si une
+        taille manque.
+    0 : pas le même fichier."""
+    if not path or not arr_file:
+        return 0
+    arr_path = arr_file.get("path") or ""
+    if arr_path and path == arr_path:
+        return 2
+    arr_size = arr_file.get("size")
+    sizes_known = size is not None and arr_size is not None
+    if sizes_known and size != arr_size:
+        return 0
+    local_inode = stat_inode(path)
+    arr_inode = stat_inode(arr_path) if arr_path else None
+    if local_inode is not None and arr_inode is not None:
+        return 2 if local_inode == arr_inode else 0
+    local_parts = _path_parts(path)
+    arr_parts = _path_parts(arr_path or arr_file.get("relativePath") or "")
+    if not local_parts or not arr_parts or local_parts[-1] != arr_parts[-1]:
+        return 0
+    if sizes_known:
+        return 1
+    return 1 if len(local_parts) > 1 and len(arr_parts) > 1 and local_parts[-2] == arr_parts[-2] else 0
+
+
+def _current_flags(candidates: list[tuple[str | None, int | None]], arr_file: dict[str, Any] | None) -> list[bool]:
+    """Pour chaque fichier candidat (même film ou même épisode), True s'il est
+    le fichier suivi par Sonarr/Radarr. Un rapprochement seulement probable
+    (force 1) n'est retenu que s'il désigne un seul candidat : jamais deux
+    fichiers « actuels » pour un même épisode."""
+    strengths = [_file_match_strength(path, size, arr_file) for path, size in candidates]
+    best = max(strengths, default=0)
+    if best == 0 or (best == 1 and strengths.count(1) > 1):
+        return [False] * len(candidates)
+    return [strength == best for strength in strengths]
+
+
 def _is_usable_root(root_path: str, qbittorrent_download_path: str | None) -> bool:
     """Faux si `root_path` est trop générique pour servir de repli de rattachement
     par chemin — c'est-à-dire s'il est égal à, ou un ancêtre de, la racine des
@@ -350,9 +399,8 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             alt_titles=[t for t in alt_titles if t and t != media.title],
         )
 
-        movie_file = movie.get("movieFile") or {}
-        current_path = movie_file.get("path")
-        current_movie_file_id = movie_file.get("id")
+        movie_file = movie.get("movieFile") or None
+        current_movie_file_id = (movie_file or {}).get("id")
 
         emby_item = emby_movie_by_tmdb.get(str(movie.get("tmdbId"))) or emby_movie_by_imdb.get(movie.get("imdbId"))
         if emby_item:
@@ -360,10 +408,11 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             media.has_poster = bool(emby_item.get("Id"))
             media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
             media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
-            for source in _media_sources(emby_item):
+            sources = _media_sources(emby_item)
+            flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], movie_file)
+            for source, is_current in zip(sources, flags):
                 path = source.get("Path")
                 inode = stat_inode(path)
-                is_current = bool(path and current_path and path == current_path)
                 result.files.append(
                     MediaFile(
                         media_id=0,
@@ -408,9 +457,11 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
 
             current_paths: set[str] = set()
+            episode_files_by_id: dict[int, dict[str, Any]] = {}
             try:
                 episode_files = await sonarr.get_episode_files(series["id"])
                 current_paths = {f["path"] for f in episode_files if f.get("path")}
+                episode_files_by_id = {f["id"]: f for f in episode_files if f.get("id")}
             except Exception:  # noqa: BLE001 - purement informatif pour is_current, ne doit pas bloquer le scan
                 pass
 
@@ -435,13 +486,21 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
 
             episodes = await emby.get_episodes(emby_item["Id"])
             media.episode_count = len(episodes)
+            # Fichiers regroupés par épisode : un doublon peut être un item Emby
+            # distinct du même épisode, pas seulement une seconde source.
+            sources_by_label: dict[str, list[dict[str, Any]]] = {}
             for episode in episodes:
-                label = _episode_label(episode)
-                for source in _media_sources(episode):
+                sources_by_label.setdefault(_episode_label(episode), []).extend(_media_sources(episode))
+            for label, sources in sources_by_label.items():
+                sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
+                episode_file = episode_files_by_id.get(sonarr_episode_file_id) if sonarr_episode_file_id else None
+                if episode_file is not None:
+                    flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], episode_file)
+                else:
+                    flags = [bool(s.get("Path") and s.get("Path") in current_paths) for s in sources]
+                for source, is_current in zip(sources, flags):
                     path = source.get("Path")
                     inode = stat_inode(path)
-                    is_current = bool(path and path in current_paths)
-                    sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
                     result.files.append(
                         MediaFile(
                             media_id=0,
