@@ -57,6 +57,27 @@ class NotificationsRead(BaseModel):
     on_actions: bool = True
 
 
+ArrKind = Literal["sonarr", "radarr"]
+
+
+class ArrInstanceRead(BaseModel):
+    id: int
+    kind: ArrKind
+    name: str
+    url: str
+    api_key_set: bool
+
+
+class ArrInstanceWrite(BaseModel):
+    # None : nouvelle instance.
+    id: Optional[int] = None
+    kind: ArrKind
+    name: str = Field(max_length=40)
+    url: str = Field(max_length=2048)
+    # Vide : conserve la clé enregistrée (obligatoire pour une nouvelle instance).
+    api_key: Optional[str] = Field(default=None, max_length=256)
+
+
 class SettingsRead(BaseModel):
     configured: bool
     media_server: MediaServer = "emby"
@@ -70,6 +91,8 @@ class SettingsRead(BaseModel):
     seer: SeerRead
     schedule: ScheduleRead
     notifications: NotificationsRead = NotificationsRead()
+    # Instances Sonarr/Radarr supplémentaires (clés jamais renvoyées).
+    arr_instances: list[ArrInstanceRead] = []
 
 
 class SettingsWrite(BaseModel):
@@ -118,6 +141,10 @@ class SettingsWrite(BaseModel):
     notify_on_scan_failure: bool = True
     notify_on_actions: bool = True
 
+    # Instances Sonarr/Radarr supplémentaires : la liste envoyée remplace la
+    # liste enregistrée ; absente (None) = inchangée.
+    arr_instances: Optional[list[ArrInstanceWrite]] = Field(default=None, max_length=20)
+
     # Identifiants Emby exclus des statistiques de visionnage.
     excluded_emby_user_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(default=[], max_length=500)
 
@@ -129,6 +156,12 @@ class ConnectionTestRequest(BaseModel):
     media_server: Optional[MediaServer] = None
     username: Optional[str] = None
     password: Optional[str] = None
+
+
+class WidgetKeyRead(BaseModel):
+    enabled: bool
+    # Renseignée uniquement dans la réponse à la génération : jamais relisible.
+    key: Optional[str] = None
 
 
 class NotificationTestResult(BaseModel):

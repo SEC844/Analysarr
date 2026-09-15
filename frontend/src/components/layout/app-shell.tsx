@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useLogoutMutation } from "@/hooks/use-auth"
+import { useServicesStatusQuery } from "@/hooks/use-services"
 import { useI18n } from "@/i18n"
 import { formatVersion } from "@/lib/format"
+import { summarizeServices } from "@/lib/services"
 import { cn } from "@/lib/utils"
 
 const APPLICATION_SETTINGS = "/settings?section=application"
@@ -18,10 +20,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
 
+  const { data: services } = useServicesStatusQuery()
+  const { firstDownSection } = summarizeServices(services)
+  const downCount = services?.services.filter((s) => !s.ok).length ?? 0
+
+  // Service injoignable : le lien mène directement à sa section (prioritaire).
+  // Mise à jour disponible : le lien mène à l'onglet Application.
+  const settingsTarget = firstDownSection
+    ? `/settings?section=${firstDownSection}`
+    : updateAvailable
+      ? APPLICATION_SETTINGS
+      : "/settings"
   const navLinks = [
-    { to: "/", label: t("nav.home"), badge: false },
-    // Mise à jour disponible : le lien mène directement à l'onglet Application.
-    { to: updateAvailable ? APPLICATION_SETTINGS : "/settings", label: t("nav.settings"), badge: updateAvailable },
+    { to: "/", label: t("nav.home"), serviceDown: false, update: false },
+    { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0, update: updateAvailable },
   ]
 
   return (
@@ -55,7 +67,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   }
                 >
                   {link.label}
-                  {link.badge && <PulseDot label={t("nav.updateAvailable")} />}
+                  {link.serviceDown && (
+                    <PulseDot tone="danger" label={t("servicesStatus.someDown", { count: downCount })} />
+                  )}
+                  {link.update && <PulseDot label={t("nav.updateAvailable")} />}
                 </NavLink>
               ))}
             </nav>

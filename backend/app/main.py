@@ -14,14 +14,17 @@ from app.routers import emby as emby_router
 from app.routers import history as history_router
 from app.routers import media as media_router
 from app.routers import scan as scan_router
+from app.routers import services as services_router
 from app.routers import settings as settings_router
+from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
 from app.services.scheduler import configure_scan_schedule, scheduler
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
 # statut/déconnexion) et le healthcheck Docker.
 _PUBLIC_API_PREFIXES = ("/api/auth/",)
-_PUBLIC_API_PATHS = ("/api/health",)
+# `/api/status` : widget externe, protégé par sa propre clé API (routers/widget.py).
+_PUBLIC_API_PATHS = ("/api/health", "/api/status")
 
 
 @asynccontextmanager
@@ -78,6 +81,8 @@ app.include_router(scan_router.router, prefix="/api/scan", tags=["scan"])
 app.include_router(media_router.router, prefix="/api/media", tags=["media"])
 app.include_router(emby_router.router, prefix="/api/emby", tags=["emby"])
 app.include_router(history_router.router, prefix="/api/history", tags=["history"])
+app.include_router(services_router.router, prefix="/api/services", tags=["services"])
+app.include_router(widget_router.router, prefix="/api/status", tags=["widget"])
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 

@@ -32,6 +32,13 @@ export const en: Dictionary = {
     logout: "Sign out",
     updateAvailable: "Update available",
   },
+  servicesStatus: {
+    ok: "Service reachable",
+    someDown: { one: "{count} service is unreachable", other: "{count} services are unreachable" },
+    alertTitle: { one: "This service is unreachable", other: "These services are unreachable" },
+    checked: "Last checked {time}",
+    refresh: "Check now",
+  },
   auth: {
     loginSubtitle: "Sign in to continue.",
     loginTitle: "Sign in",
@@ -139,6 +146,15 @@ export const en: Dictionary = {
     libraryPathHelp:
       "Optional — only fill this in if the cross-seed container mounts the same library folder at a different path than Analysarr (Paths tab). Otherwise a cross-seed search on a media that was never seeded may fail with “accessible path must be provided” — cross-seed cannot find the file on its own filesystem.",
   },
+  arrInstances: {
+    title: "Additional instances",
+    description:
+      "Other {service} instances, for example dedicated to 4K or anime. Every instance is analyzed on each scan, and each media item stays linked to the instance that tracks it.",
+    name: "Name",
+    add: "Add an instance",
+    remove: "Remove {name}",
+    hint: "Save, then run a new scan to apply the changes.",
+  },
   paths: {
     title: "Folder paths",
     description:
@@ -233,6 +249,33 @@ export const en: Dictionary = {
     testFailed: "Sending failed: {details}.",
     testError: "Unable to send the test notification.",
   },
+  widget: {
+    title: "Dashboard widget",
+    description:
+      "Read-only summary for Homepage, Homarr or any tool that reads JSON: media count, statuses, reclaimable space, last scan and service status. No title or path is exposed.",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    generate: "Generate a key",
+    regenerate: "Regenerate key",
+    confirmRegenerate: "Confirm: the previous key will stop working",
+    revoke: "Disable",
+    confirmRevoke: "Confirm disabling",
+    generated: "Key generated.",
+    revoked: "Widget disabled.",
+    newKey: "Copy this key now: it will never be shown again.",
+    endpoint: "Endpoint",
+    header: "Send the key in the {header} header (or Authorization: Bearer).",
+    security:
+      "This endpoint answers without a session: the key only grants access to this summary. Keep it secret and regenerate it if in doubt.",
+    example: "Homepage example",
+    copy: "Copy",
+    keyPlaceholder: "YOUR_KEY",
+    labels: {
+      media: "Media",
+      duplicates: "Duplicates",
+      reclaimable: "Reclaimable",
+    },
+  },
   history: {
     title: "Action history",
     description: "Deletions, cleanups, repairs and cross-seed searches started from Analysarr (last 1000 actions).",
@@ -266,6 +309,7 @@ export const en: Dictionary = {
       paths: "Paths",
       schedule: "Scheduling",
       notifications: "Notifications",
+      widget: "Widget",
       history: "History",
       account: "Account",
       preferences: "Preferences",

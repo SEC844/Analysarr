@@ -32,6 +32,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("mediawatch", "in_progress"),
     ("embyuser", "image_tag"),
     ("mediarequest", "auto_approved"),
+    ("media", "arr_instance_id"),
 ]
 
 
@@ -88,6 +89,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("notify_on_scan", "BOOLEAN NOT NULL DEFAULT 0"),
     ("notify_on_scan_failure", "BOOLEAN NOT NULL DEFAULT 1"),
     ("notify_on_actions", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("widget_api_key_hash", "VARCHAR"),
 ]
 
 
@@ -113,6 +115,7 @@ def _ensure_columns(table: str, columns: list[tuple[str, str]]) -> None:
 
 def init_db() -> None:
     from app.models.activity import ActionLog  # noqa: F401
+    from app.models.arr_instance import ArrInstance  # noqa: F401
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
     from app.models.media import EmbyUser, Media, MediaFile, MediaRequest, MediaWatch, ScanRun, Torrent  # noqa: F401

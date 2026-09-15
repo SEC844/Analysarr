@@ -59,6 +59,9 @@ class MediaListItem(BaseModel):
     last_played_at: Optional[datetime]
     # Seer activé uniquement : demandeur de la plus ancienne demande.
     requested_by: Optional[str]
+    # Instance Sonarr/Radarr supplémentaire qui suit le média (ex : « Radarr
+    # 4K ») ; None pour l'instance principale.
+    arr_instance_name: Optional[str] = None
 
 
 class SeerUserRead(BaseModel):

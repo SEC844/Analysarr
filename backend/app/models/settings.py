@@ -81,5 +81,9 @@ class Settings(SQLModel, table=True):
     notify_on_scan_failure: bool = True
     notify_on_actions: bool = True
 
+    # Widget externe (GET /api/status, voir routers/widget.py) : hash sha256 de
+    # la clé API, jamais la clé elle-même. None = widget désactivé.
+    widget_api_key_hash: Optional[str] = None
+
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

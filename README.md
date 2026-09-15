@@ -32,6 +32,13 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 
 > **Like Analysarr?** Give it a ⭐ on [GitHub](https://github.com/SEC844/Analysarr): it helps other people find the project and keeps it moving.
 
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Library: series currently being watched, with health statuses, watch quota and size" width="100%">
+</p>
+<p align="center">
+  <img src="docs/screenshots/media-detail.png" alt="Media page: Seer request, watch activity and hardlinked torrents across trackers" width="100%">
+</p>
+
 ## Features
 
 **Detection**
@@ -53,6 +60,10 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 
 **Everyday comfort**
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
+- Several Sonarr and Radarr instances (e.g. a dedicated 4K Radarr): each media stays linked to the instance tracking it, and a version tracked by another instance is never treated as a duplicate.
+- Library files are matched to Sonarr/Radarr even when containers mount the library at different paths.
+- Connection status of every service in the settings, with an alert in the header as soon as one becomes unreachable.
+- Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
 - Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step) after a scan, a failed scan or an action.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.
@@ -118,6 +129,28 @@ This is the layout recommended by the [TRaSH Guides](https://trash-guides.info/F
 
 Write access to the data share is only used when you delete media or repair hardlinks, always after a confirmation.
 
+## Dashboard widget
+
+Generate a key in **Settings → Configuration → Widget**, then query `http://<host>:1818/api/status` with the `X-Api-Key` header (or `Authorization: Bearer`). The response only contains counters: media total, movies, series, healthy media, media per status, reclaimable space, last scan and service status. Example for [Homepage](https://gethomepage.dev/widgets/services/customapi/):
+
+```yaml
+- Analysarr:
+    href: http://analysarr:1818
+    widget:
+      type: customapi
+      url: http://analysarr:1818/api/status
+      headers:
+        X-Api-Key: YOUR_KEY
+      mappings:
+        - field: { media: total }
+          label: Media
+        - field: { statuses: doublon }
+          label: Duplicates
+        - field: reclaimable_bytes
+          label: Reclaimable
+          format: bytes
+```
+
 ## Updating
 
 Pull the new image and recreate the container. Your settings and cache live in `/config` and are kept. The interface shows a notification when a new version is available (**Settings → Application**, can be disabled).
@@ -128,6 +161,7 @@ Pull the new image and recreate the container. Your settings and cache live in `
 
 - A single administrator account; passwords hashed with bcrypt; login locked for 15 minutes after 5 failed attempts.
 - Optional two-factor authentication (TOTP authenticator app) with single-use recovery codes.
+- The widget endpoint requires its own key (stored hashed, accepted in a header only), exposes counters only (no titles, paths or service addresses) and never triggers requests to your services.
 - Sessions stored server-side, sent as an `httpOnly` cookie.
 - API keys and passwords of your services stay on the server: they are never sent back to the browser.
 - The only outbound connections are the services you configure (notification channels included), plus an optional update check against the GitHub API (sends only the Analysarr version).

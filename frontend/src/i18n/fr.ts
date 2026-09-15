@@ -32,6 +32,13 @@ export const fr = {
     logout: "Se déconnecter",
     updateAvailable: "Mise à jour disponible",
   },
+  servicesStatus: {
+    ok: "Service joignable",
+    someDown: { one: "{count} service ne répond pas", other: "{count} services ne répondent pas" },
+    alertTitle: { one: "Ce service ne répond pas", other: "Ces services ne répondent pas" },
+    checked: "Dernière vérification {time}",
+    refresh: "Vérifier maintenant",
+  },
   auth: {
     loginSubtitle: "Connectez-vous pour continuer.",
     loginTitle: "Connexion",
@@ -141,6 +148,15 @@ export const fr = {
     libraryPathHelp:
       "Optionnel — à remplir seulement si le conteneur cross-seed monte le même dossier de bibliothèque à un chemin différent de celui d'Analysarr (onglet Chemins). Sans ça, une recherche cross-seed lancée sur un média jamais seedé peut échouer avec « accessible path must be provided » — cross-seed ne retrouve pas le fichier sur son propre système de fichiers.",
   },
+  arrInstances: {
+    title: "Instances supplémentaires",
+    description:
+      "D'autres instances {service}, par exemple dédiées à la 4K ou aux animés. Chaque instance est analysée à chaque scan, et chaque média reste rattaché à l'instance qui le suit.",
+    name: "Nom",
+    add: "Ajouter une instance",
+    remove: "Retirer {name}",
+    hint: "Enregistrez puis relancez un scan pour prendre en compte les changements.",
+  },
   paths: {
     title: "Chemins des dossiers",
     description:
@@ -235,6 +251,33 @@ export const fr = {
     testFailed: "Échec de l'envoi : {details}.",
     testError: "Impossible d'envoyer la notification de test.",
   },
+  widget: {
+    title: "Widget de tableau de bord",
+    description:
+      "Résumé en lecture seule pour Homepage, Homarr ou tout outil capable de lire du JSON : nombre de médias, statuts, espace récupérable, dernier scan et état des services. Aucun titre ni chemin n'est exposé.",
+    enabled: "Activé",
+    disabled: "Désactivé",
+    generate: "Générer une clé",
+    regenerate: "Régénérer la clé",
+    confirmRegenerate: "Confirmer : l'ancienne clé cessera de fonctionner",
+    revoke: "Désactiver",
+    confirmRevoke: "Confirmer la désactivation",
+    generated: "Clé générée.",
+    revoked: "Widget désactivé.",
+    newKey: "Copiez cette clé maintenant : elle ne sera plus jamais affichée.",
+    endpoint: "Adresse",
+    header: "Envoyez la clé dans l'en-tête {header} (ou Authorization: Bearer).",
+    security:
+      "Cette adresse répond sans session : la clé ne donne accès qu'à ce résumé. Gardez-la secrète et régénérez-la en cas de doute.",
+    example: "Exemple pour Homepage",
+    copy: "Copier",
+    keyPlaceholder: "VOTRE_CLE",
+    labels: {
+      media: "Médias",
+      duplicates: "Doublons",
+      reclaimable: "Récupérable",
+    },
+  },
   history: {
     title: "Historique des actions",
     description: "Suppressions, nettoyages, réparations et recherches cross-seed lancés depuis Analysarr (1000 dernières actions).",
@@ -268,6 +311,7 @@ export const fr = {
       paths: "Chemins",
       schedule: "Planification",
       notifications: "Notifications",
+      widget: "Widget",
       history: "Historique",
       account: "Compte",
       preferences: "Préférences",

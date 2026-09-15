@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
+import { SERVICES_STATUS_QUERY_KEY } from "@/hooks/use-services"
 import { getSettings, saveSettings } from "@/lib/api"
 import type { SettingsWrite } from "@/types/settings"
 
@@ -19,6 +20,8 @@ export function useSaveSettingsMutation() {
     mutationFn: (payload: SettingsWrite) => saveSettings(payload),
     onSuccess: (data) => {
       queryClient.setQueryData(SETTINGS_QUERY_KEY, data)
+      // Réglages modifiés : le statut des services est revérifié.
+      queryClient.invalidateQueries({ queryKey: SERVICES_STATUS_QUERY_KEY })
     },
   })
 }
