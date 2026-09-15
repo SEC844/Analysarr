@@ -86,7 +86,7 @@ export const en: Dictionary = {
     copyCodes: "Copy codes",
     done: "I have saved my codes",
     copied: "Copied to clipboard.",
-    copyFailed: "Copy unavailable on an insecure connection: select the text manually.",
+    copyFailed: "Copy is only available over HTTPS or on your local network: select the text manually.",
     disableHelp: "To disable it, confirm your password and a code from the app (or a recovery code).",
     codeOrRecovery: "Code or recovery code",
     disable: "Disable",

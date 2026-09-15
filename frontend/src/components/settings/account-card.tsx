@@ -18,6 +18,7 @@ import {
   useTwoFactorSetupMutation,
 } from "@/hooks/use-auth"
 import { useI18n } from "@/i18n"
+import { copyText } from "@/lib/clipboard"
 
 const MIN_PASSWORD_LENGTH = 8
 
@@ -28,14 +29,9 @@ function showError(t: Translate) {
 }
 
 async function copyToClipboard(text: string, t: Translate) {
-  try {
-    // Indisponible hors contexte sécurisé (accès HTTP par IP) : le texte reste
-    // sélectionnable à la main.
-    await navigator.clipboard.writeText(text)
-    toast.success(t("twoFactor.copied"))
-  } catch {
-    toast.error(t("twoFactor.copyFailed"))
-  }
+  // HTTPS, ou HTTP sur le réseau local uniquement (voir lib/clipboard.ts).
+  if (await copyText(text)) toast.success(t("twoFactor.copied"))
+  else toast.error(t("twoFactor.copyFailed"))
 }
 
 function Field({

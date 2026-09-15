@@ -86,7 +86,7 @@ export const fr = {
     copyCodes: "Copier les codes",
     done: "J'ai conservé mes codes",
     copied: "Copié dans le presse-papiers.",
-    copyFailed: "Copie impossible sur une connexion non sécurisée : sélectionnez le texte à la main.",
+    copyFailed: "Copie disponible uniquement en HTTPS ou sur le réseau local : sélectionnez le texte à la main.",
     disableHelp: "Pour désactiver, confirmez votre mot de passe et un code de l'application (ou un code de secours).",
     codeOrRecovery: "Code ou code de secours",
     disable: "Désactiver",
