@@ -32,6 +32,13 @@ export const fr = {
     logout: "Se déconnecter",
     updateAvailable: "Mise à jour disponible",
   },
+  servicesStatus: {
+    title: "État des services",
+    allOk: "Tous les services répondent",
+    someDown: { one: "{count} service ne répond pas", other: "{count} services ne répondent pas" },
+    checked: "vérifié {time}",
+    refresh: "Vérifier maintenant",
+  },
   auth: {
     loginSubtitle: "Connectez-vous pour continuer.",
     loginTitle: "Connexion",

@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { LogOut } from "lucide-react"
 import { Link, NavLink } from "react-router-dom"
 
+import { ServiceStatusIndicator } from "@/components/layout/service-status"
 import { Button } from "@/components/ui/button"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { useAppInfoQuery } from "@/hooks/use-app"
@@ -39,6 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <ServiceStatusIndicator />
             <nav className="flex gap-1">
               {navLinks.map((link) => (
                 <NavLink

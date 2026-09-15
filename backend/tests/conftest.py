@@ -21,7 +21,7 @@ from sqlmodel import Session, SQLModel  # noqa: E402
 from app.database import engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.settings import Settings  # noqa: E402
-from app.services import updates  # noqa: E402
+from app.services import service_status, updates  # noqa: E402
 
 ADMIN = {"username": "admin", "password": "correct-horse-battery"}
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -35,6 +35,7 @@ def fresh_database():
     init_db()
     updates._cached = None
     updates._expires_at = None
+    service_status._cache = None
 
 
 @pytest.fixture

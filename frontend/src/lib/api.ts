@@ -12,6 +12,7 @@ import type {
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
 import type { ActionLogEntry } from "@/types/history"
+import type { ServicesStatus } from "@/types/services"
 import type {
   CrossSeedSearchResult,
   DeleteExecuteResult,
@@ -167,6 +168,11 @@ export function testConnection(
 // Envoie sur les canaux ENREGISTRÉS uniquement (jamais sur une URL saisie non enregistrée).
 export function testNotifications(): Promise<NotificationTestResult> {
   return request<NotificationTestResult>("/api/settings/notifications/test", { method: "POST" })
+}
+
+// `refresh` : ignore le cache du backend (au plus une vérification toutes les 10 s).
+export function getServicesStatus(refresh = false): Promise<ServicesStatus> {
+  return request<ServicesStatus>(`/api/services/status${refresh ? "?refresh=true" : ""}`)
 }
 
 export function getActionHistory(limit = 200): Promise<ActionLogEntry[]> {

@@ -32,6 +32,13 @@ export const en: Dictionary = {
     logout: "Sign out",
     updateAvailable: "Update available",
   },
+  servicesStatus: {
+    title: "Service status",
+    allOk: "All services are reachable",
+    someDown: { one: "{count} service is unreachable", other: "{count} services are unreachable" },
+    checked: "checked {time}",
+    refresh: "Check now",
+  },
   auth: {
     loginSubtitle: "Sign in to continue.",
     loginTitle: "Sign in",

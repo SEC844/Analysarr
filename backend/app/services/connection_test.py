@@ -76,7 +76,12 @@ def _diag(resp: httpx.Response) -> str:
     """Résumé brut de la réponse (statut, en-têtes clés, corps tronqué) pour diagnostiquer
     un éventuel reverse proxy / auth intermédiaire plutôt que qBittorrent lui-même."""
     interesting_headers = ["server", "www-authenticate", "set-cookie", "content-type", "location"]
-    headers = {k: v for k, v in resp.headers.items() if k.lower() in interesting_headers}
+    headers = {
+        # Cookie : seul son nom aide au diagnostic, jamais sa valeur (jeton de session).
+        k: (v.split("=", 1)[0] + "=…" if k.lower() == "set-cookie" else v)
+        for k, v in resp.headers.items()
+        if k.lower() in interesting_headers
+    }
     body = resp.text.strip()[:200]
     return f"[HTTP {resp.status_code}] headers={headers or '—'} corps={body!r}"
 
