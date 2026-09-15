@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
-import { AccountCard } from "@/components/settings/account-card"
+import { AccountSection } from "@/components/settings/account-card"
 import { ActionHistory } from "@/components/settings/action-history"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
@@ -22,7 +22,7 @@ import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
-import { MEDIA_SERVER_NAMES, useI18n, type MediaServer, type MessageKey } from "@/i18n"
+import { useI18n, type MediaServer, type MessageKey } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { settingsReadToForm, type SettingsRead } from "@/types/settings"
 
@@ -31,7 +31,7 @@ const SECTION_GROUPS = [
   {
     label: "settings.groups.services",
     sections: [
-      { id: "emby", label: "Emby" },
+      { id: "emby", label: "settings.sections.mediaServer" },
       { id: "sonarr", label: "Sonarr" },
       { id: "radarr", label: "Radarr" },
       { id: "qbittorrent", label: "qBittorrent" },
@@ -40,15 +40,20 @@ const SECTION_GROUPS = [
     ],
   },
   {
-    label: "settings.groups.system",
+    label: "settings.groups.configuration",
     sections: [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
       { id: "notifications", label: "settings.sections.notifications" },
-      { id: "history", label: "settings.sections.history" },
-      { id: "account", label: "settings.sections.account" },
       { id: "preferences", label: "settings.sections.preferences" },
+    ],
+  },
+  {
+    label: "settings.groups.system",
+    sections: [
       { id: "application", label: "settings.sections.application" },
+      { id: "account", label: "settings.sections.account" },
+      { id: "history", label: "settings.sections.history" },
     ],
   },
 ] as const
@@ -143,7 +148,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                       : "text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
                 >
-                  {s.id === "emby" ? MEDIA_SERVER_NAMES[form.media_server] : label(s.label)}
+                  {label(s.label)}
                   {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
                 </button>
               ))}
@@ -242,7 +247,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
 
           {section === "history" && <ActionHistory />}
 
-          {section === "account" && <AccountCard />}
+          {section === "account" && <AccountSection />}
 
           {section === "preferences" && <PreferencesSection seerEnabled={existing.seer.enabled} />}
 

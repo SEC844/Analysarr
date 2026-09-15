@@ -49,7 +49,7 @@ export function ApiKeyServiceCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle>{service === "emby" ? t("settings.sections.mediaServer") : title}</CardTitle>
         <CardDescription>{t(`services.${variant}.description`)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
