@@ -1,0 +1,67 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. For a **security vulnerability**, do not use this form: see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Analysarr version
+      description: Settings → Application
+      placeholder: v0.18.0
+    validations:
+      required: true
+  - type: dropdown
+    id: media-server
+    attributes:
+      label: Media server
+      options:
+        - Emby
+        - Jellyfin
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose
+        - Unraid
+        - Other Docker setup
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click on …
+        3. See …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Container logs (`docker logs analysarr`) around the problem.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed API keys, passwords and personal data from what I shared.
+          required: true

@@ -1,28 +1,26 @@
 services:
   analysarr:
-    # Remplacez par "image: ghcr.io/<owner>/analysarr:latest" pour utiliser
-    # une image publiée plutôt que de reconstruire localement.
-    build: .
+    image: ghcr.io/sec844/analysarr:latest
+    # Pour construire l'image localement à la place : remplacez la ligne
+    # ci-dessus par "build: ."
     container_name: analysarr
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      # Seules ces deux variables sont à connaître : tout le reste (Emby,
-      # Sonarr, Radarr, qBittorrent, cross-seed...) se configure depuis
-      # l'assistant de configuration au premier lancement (aucun .env requis).
+      # Seules variables à connaître : tout le reste (serveur multimédia,
+      # Sonarr, Radarr, qBittorrent, Seer, cross-seed...) se configure depuis
+      # l'assistant au premier lancement (aucun .env requis).
       PORT: 8000
-      DATABASE_PATH: /data/analysarr.db
+      # Base SQLite (réglages + cache de scan), rangée hors des médias.
+      # Si vous utilisiez l'ancien exemple (base dans /data), gardez
+      # DATABASE_PATH=/data/analysarr.db pour conserver votre configuration.
+      DATABASE_PATH: /config/analysarr.db
     volumes:
-      # Base SQLite (config + cache de scan) : à conserver entre les redémarrages.
-      - analysarr-data:/data
+      - ./analysarr:/config
 
-      # Montez ici les mêmes dossiers que ceux utilisés par Emby et
-      # qBittorrent, avec des points de montage identiques des deux côtés,
-      # pour que la détection de hardlinks fonctionne (os.stat().st_ino).
-      # Exemple si Emby et qBittorrent voient tous les deux /data sur l'hôte :
-      # - /srv/mediatheque:/data/media:ro
-      # - /srv/downloads:/data/downloads
-
-volumes:
-  analysarr-data:
+      # Montez vos données avec le MÊME chemin hôte ET le MÊME chemin
+      # conteneur que dans votre serveur multimédia, qBittorrent, Sonarr et
+      # Radarr, sinon les hardlinks ne peuvent pas être détectés
+      # (organisation TRaSH Guides : /mnt/data monté sur /data partout).
+      - /mnt/data:/data
