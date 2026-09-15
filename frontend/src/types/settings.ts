@@ -42,6 +42,12 @@ export interface NotificationsRead {
   on_actions: boolean
 }
 
+export interface WidgetKeyRead {
+  enabled: boolean
+  // Renseignée uniquement juste après la génération.
+  key: string | null
+}
+
 export interface NotificationTestResult {
   // Canal -> message d'erreur, ou null si l'envoi a réussi.
   results: Partial<Record<NotificationChannel, string | null>>

@@ -35,6 +35,7 @@ import type {
   ConnectionTestResult,
   NotificationTestResult,
   ServiceName,
+  WidgetKeyRead,
   SettingsRead,
   SettingsWrite,
 } from "@/types/settings"
@@ -168,6 +169,18 @@ export function testConnection(
 // Envoie sur les canaux ENREGISTRÉS uniquement (jamais sur une URL saisie non enregistrée).
 export function testNotifications(): Promise<NotificationTestResult> {
   return request<NotificationTestResult>("/api/settings/notifications/test", { method: "POST" })
+}
+
+export function getWidgetKey(): Promise<WidgetKeyRead> {
+  return request<WidgetKeyRead>("/api/settings/widget-key")
+}
+
+export function createWidgetKey(): Promise<WidgetKeyRead> {
+  return request<WidgetKeyRead>("/api/settings/widget-key", { method: "POST" })
+}
+
+export function revokeWidgetKey(): Promise<WidgetKeyRead> {
+  return request<WidgetKeyRead>("/api/settings/widget-key", { method: "DELETE" })
 }
 
 // `refresh` : ignore le cache du backend (au plus une vérification toutes les 10 s).

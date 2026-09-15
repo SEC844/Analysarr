@@ -18,6 +18,7 @@ import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
+import { WidgetSection } from "@/components/settings/widget-section"
 import { Button } from "@/components/ui/button"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -46,6 +47,7 @@ const SECTION_GROUPS = [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
       { id: "notifications", label: "settings.sections.notifications" },
+      { id: "widget", label: "settings.sections.widget" },
       { id: "preferences", label: "settings.sections.preferences" },
     ],
   },
@@ -63,7 +65,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["history", "account", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["widget", "history", "account", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -254,6 +256,8 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           {section === "notifications" && (
             <NotificationsSection form={form} onChange={set} status={existing.notifications} />
           )}
+
+          {section === "widget" && <WidgetSection />}
 
           {section === "history" && <ActionHistory />}
 

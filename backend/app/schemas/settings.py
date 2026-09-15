@@ -158,6 +158,12 @@ class ConnectionTestRequest(BaseModel):
     password: Optional[str] = None
 
 
+class WidgetKeyRead(BaseModel):
+    enabled: bool
+    # Renseignée uniquement dans la réponse à la génération : jamais relisible.
+    key: Optional[str] = None
+
+
 class NotificationTestResult(BaseModel):
     # Canal -> message d'erreur, ou None si l'envoi a réussi.
     results: dict[str, Optional[str]]

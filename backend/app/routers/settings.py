@@ -25,6 +25,7 @@ from app.schemas.settings import (
     SettingsRead,
     SettingsWrite,
     WatchRead,
+    WidgetKeyRead,
 )
 from app.services.arr_instances import ARR_KINDS, MAX_EXTRA_INSTANCES, extra_instances
 from app.services.connection_test import TESTERS
@@ -37,6 +38,7 @@ from app.services.notifications import (
     build_test_notification,
 )
 from app.services.scheduler import configure_scan_schedule
+from app.services.security import generate_token, hash_token
 from app.services.watch_stats import excluded_user_ids, recompute_all_aggregates
 
 router = APIRouter()
@@ -260,6 +262,36 @@ async def test_notifications(session: Session = Depends(get_session)) -> Notific
     if not targets.channels:
         raise HTTPException(400, "Aucun canal de notification enregistré.")
     return NotificationTestResult(results=await send(targets, build_test_notification(notification_language(settings))))
+
+
+@router.get("/widget-key", response_model=WidgetKeyRead)
+def get_widget_key(session: Session = Depends(get_session)) -> WidgetKeyRead:
+    row = _get_row(session)
+    return WidgetKeyRead(enabled=bool(row is not None and row.widget_api_key_hash))
+
+
+@router.post("/widget-key", response_model=WidgetKeyRead)
+def create_widget_key(session: Session = Depends(get_session)) -> WidgetKeyRead:
+    """Génère la clé du widget (remplace la précédente). Renvoyée une seule
+    fois : seul son hash est conservé."""
+    row = _get_row(session)
+    if row is None:
+        raise HTTPException(400, "Configurez d'abord les services.")
+    key = f"anl_{generate_token()}"
+    row.widget_api_key_hash = hash_token(key)
+    session.add(row)
+    session.commit()
+    return WidgetKeyRead(enabled=True, key=key)
+
+
+@router.delete("/widget-key", response_model=WidgetKeyRead)
+def revoke_widget_key(session: Session = Depends(get_session)) -> WidgetKeyRead:
+    row = _get_row(session)
+    if row is not None and row.widget_api_key_hash:
+        row.widget_api_key_hash = None
+        session.add(row)
+        session.commit()
+    return WidgetKeyRead(enabled=False)
 
 
 @router.post("/test/{service}", response_model=ConnectionTestResult)
