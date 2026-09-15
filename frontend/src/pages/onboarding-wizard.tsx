@@ -8,7 +8,7 @@ import { PathsCard } from "@/components/settings/paths-card"
 import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
 import { Button } from "@/components/ui/button"
 import { useSaveSettingsMutation } from "@/hooks/use-settings"
-import { MEDIA_SERVER_NAMES, useI18n, type MediaServer } from "@/i18n"
+import { useI18n, type MediaServer } from "@/i18n"
 import { isCoreConfigComplete, settingsReadToForm, type SettingsRead } from "@/types/settings"
 
 export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
@@ -16,7 +16,7 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(() => settingsReadToForm(existing))
   const steps = [
-    MEDIA_SERVER_NAMES[form.media_server],
+    t("settings.sections.mediaServer"),
     "Sonarr",
     "Radarr",
     "qBittorrent",

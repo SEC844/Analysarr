@@ -25,7 +25,7 @@ COPY --from=frontend-build /frontend/dist ./static
 # Ces deux variables sont les seules qui restent de la configuration Docker :
 # tout le reste (URLs, clés API, chemins...) se règle depuis l'assistant de
 # configuration au premier lancement, en base SQLite.
-ENV PORT=8000 \
+ENV PORT=1818 \
     DATABASE_PATH=/data/analysarr.db \
     PYTHONUNBUFFERED=1
 
@@ -40,7 +40,7 @@ ENV APP_VERSION=${APP_VERSION} \
     APP_BUILD_DATE=${APP_BUILD_DATE}
 
 VOLUME ["/data"]
-EXPOSE 8000
+EXPOSE 1818
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import os,urllib.request,sys; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/api/health', timeout=3)" || exit 1

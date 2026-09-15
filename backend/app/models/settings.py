@@ -70,5 +70,16 @@ class Settings(SQLModel, table=True):
     # lecture, une clé absente n'est donc jamais un problème).
     ui_preferences: str = "{}"
 
+    # Notifications (toutes optionnelles). Les URL de webhook et jetons sont
+    # des secrets : jamais renvoyés au navigateur (voir routers/settings.py).
+    notify_discord_webhook: Optional[str] = None
+    notify_ntfy_url: Optional[str] = None
+    notify_ntfy_token: Optional[str] = None
+    notify_gotify_url: Optional[str] = None
+    notify_gotify_token: Optional[str] = None
+    notify_on_scan: bool = False
+    notify_on_scan_failure: bool = True
+    notify_on_actions: bool = True
+
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

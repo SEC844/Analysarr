@@ -1,4 +1,4 @@
-import { Bug, CheckCircle2, Code, ExternalLink, Loader2, RefreshCw } from "lucide-react"
+import { Bug, CheckCircle2, Code, ExternalLink, Loader2, RefreshCw, Star } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -180,5 +180,36 @@ export function ApplicationSection() {
   if (isLoading) return <Skeleton className="h-64 w-full" />
   if (!info) return <p className="text-destructive">{t("common.apiUnreachable")}</p>
 
-  return <AboutCard info={info} />
+  return (
+    <div className="space-y-6">
+      <AboutCard info={info} />
+      <StarCard repositoryUrl={info.repository_url} />
+    </div>
+  )
+}
+
+function StarCard({ repositoryUrl }: { repositoryUrl: string }) {
+  const { t } = useI18n()
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Star className="mt-0.5 size-5 shrink-0 fill-amber-400 text-amber-400" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">{t("application.starTitle")}</p>
+            <p className="text-muted-foreground text-sm">{t("application.starDescription")}</p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          render={<a href={repositoryUrl} target="_blank" rel="noopener noreferrer" />}
+        >
+          <Star className="size-4" />
+          {t("application.starButton")}
+        </Button>
+      </CardContent>
+    </Card>
+  )
 }

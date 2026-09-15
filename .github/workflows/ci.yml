@@ -34,6 +34,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Unit tests
+        run: npm test
+
       - name: Type-check & build
         run: npm run build
 
@@ -52,17 +55,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pip-audit
+        run: pip install -r requirements-dev.txt pip-audit
 
-      - name: Import application
-        # Importe l'app complète (routeurs, modèles, services) : détecte toute
-        # erreur d'import ou de câblage avant de construire l'image.
-        env:
-          DATABASE_PATH: ${{ runner.temp }}/ci.db
-        run: python -c "from app.main import app"
+      - name: Tests
+        # Aucun service réel : Emby/Jellyfin, *arr, qBittorrent, Seer et GitHub
+        # sont simulés (voir tests/conftest.py).
+        run: pytest
 
       - name: Audit dependencies
         run: pip-audit -r requirements.txt

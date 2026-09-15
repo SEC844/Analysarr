@@ -3,11 +3,13 @@ import { Loader2 } from "lucide-react"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
-import { AccountCard } from "@/components/settings/account-card"
+import { AccountSection } from "@/components/settings/account-card"
+import { ActionHistory } from "@/components/settings/action-history"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
 import { EmbyUsersCard } from "@/components/settings/emby-users-card"
+import { NotificationsSection } from "@/components/settings/notifications-section"
 import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
 import { PreferencesSection } from "@/components/settings/preferences-section"
@@ -20,7 +22,7 @@ import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
-import { MEDIA_SERVER_NAMES, useI18n, type MediaServer, type MessageKey } from "@/i18n"
+import { useI18n, type MediaServer, type MessageKey } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { settingsReadToForm, type SettingsRead } from "@/types/settings"
 
@@ -29,7 +31,7 @@ const SECTION_GROUPS = [
   {
     label: "settings.groups.services",
     sections: [
-      { id: "emby", label: "Emby" },
+      { id: "emby", label: "settings.sections.mediaServer" },
       { id: "sonarr", label: "Sonarr" },
       { id: "radarr", label: "Radarr" },
       { id: "qbittorrent", label: "qBittorrent" },
@@ -38,13 +40,20 @@ const SECTION_GROUPS = [
     ],
   },
   {
-    label: "settings.groups.system",
+    label: "settings.groups.configuration",
     sections: [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
-      { id: "account", label: "settings.sections.account" },
+      { id: "notifications", label: "settings.sections.notifications" },
       { id: "preferences", label: "settings.sections.preferences" },
+    ],
+  },
+  {
+    label: "settings.groups.system",
+    sections: [
       { id: "application", label: "settings.sections.application" },
+      { id: "account", label: "settings.sections.account" },
+      { id: "history", label: "settings.sections.history" },
     ],
   },
 ] as const
@@ -53,7 +62,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["account", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["history", "account", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -139,7 +148,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                       : "text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
                 >
-                  {s.id === "emby" ? MEDIA_SERVER_NAMES[form.media_server] : label(s.label)}
+                  {label(s.label)}
                   {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
                 </button>
               ))}
@@ -232,7 +241,13 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
             </div>
           )}
 
-          {section === "account" && <AccountCard />}
+          {section === "notifications" && (
+            <NotificationsSection form={form} onChange={set} status={existing.notifications} />
+          )}
+
+          {section === "history" && <ActionHistory />}
+
+          {section === "account" && <AccountSection />}
 
           {section === "preferences" && <PreferencesSection seerEnabled={existing.seer.enabled} />}
 

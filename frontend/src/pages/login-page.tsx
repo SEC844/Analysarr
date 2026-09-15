@@ -7,17 +7,36 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useLoginMutation } from "@/hooks/use-auth"
 import { useI18n } from "@/i18n"
+import { isTwoFactorRequired } from "@/lib/api"
 
 export function LoginPage() {
   const { t } = useI18n()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [otp, setOtp] = useState("")
+  // Double authentification : le code n'est demandé qu'une fois le mot de
+  // passe validé par le serveur.
+  const [needsOtp, setNeedsOtp] = useState(false)
   const loginMutation = useLoginMutation()
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    loginMutation.mutate({ username, password })
+    loginMutation.mutate(needsOtp ? { username, password, otp } : { username, password }, {
+      onError: (err) => {
+        if (isTwoFactorRequired(err)) setNeedsOtp(true)
+      },
+    })
   }
+
+  function backToPassword() {
+    setNeedsOtp(false)
+    setOtp("")
+    loginMutation.reset()
+  }
+
+  // La première demande de code n'est pas une erreur à afficher.
+  const firstOtpPrompt = isTwoFactorRequired(loginMutation.error) && !loginMutation.variables?.otp
+  const error = loginMutation.isError && !firstOtpPrompt ? loginMutation.error.message : null
 
   return (
     <div className="mx-auto flex min-h-svh max-w-sm flex-col justify-center px-4">
@@ -32,33 +51,58 @@ export function LoginPage() {
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
-            <div className="space-y-1.5">
-              <Label htmlFor="username">{t("common.username")}</Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">{t("common.password")}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            {loginMutation.isError && (
-              <p className="text-destructive text-sm">{loginMutation.error.message}</p>
+            {needsOtp ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="otp">{t("auth.otpLabel")}</Label>
+                <Input
+                  id="otp"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.trim())}
+                  autoComplete="one-time-code"
+                  maxLength={32}
+                  className="font-mono tracking-widest"
+                  autoFocus
+                />
+                <p className="text-muted-foreground text-sm">{t("auth.otpHelp")}</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="username">{t("common.username")}</Label>
+                  <Input
+                    id="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="username"
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="password">{t("common.password")}</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </div>
+              </>
             )}
-            <Button type="submit" className="w-full" disabled={loginMutation.isPending || !username || !password}>
+            {error && <p className="text-destructive text-sm">{error}</p>}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={loginMutation.isPending || (needsOtp ? !otp : !username || !password)}
+            >
               {loginMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
               {t("auth.signIn")}
             </Button>
+            {needsOtp && (
+              <Button type="button" variant="ghost" className="w-full" onClick={backToPassword}>
+                {t("common.previous")}
+              </Button>
+            )}
           </form>
         </CardContent>
       </Card>

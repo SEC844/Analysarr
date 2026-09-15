@@ -80,28 +80,47 @@ _SETTINGS_NEW_COLUMNS = [
     ("seer_api_key", "VARCHAR"),
     ("ui_preferences", "VARCHAR NOT NULL DEFAULT '{}'"),
     ("media_server", "VARCHAR NOT NULL DEFAULT 'emby'"),
+    ("notify_discord_webhook", "VARCHAR"),
+    ("notify_ntfy_url", "VARCHAR"),
+    ("notify_ntfy_token", "VARCHAR"),
+    ("notify_gotify_url", "VARCHAR"),
+    ("notify_gotify_token", "VARCHAR"),
+    ("notify_on_scan", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("notify_on_scan_failure", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("notify_on_actions", "BOOLEAN NOT NULL DEFAULT 1"),
 ]
 
 
-def _ensure_settings_columns() -> None:
+# Même principe pour le compte administrateur (`user`), jamais recréé.
+_USER_NEW_COLUMNS = [
+    ("totp_secret", "VARCHAR"),
+    ("totp_pending_secret", "VARCHAR"),
+    ("totp_last_step", "INTEGER"),
+    ("recovery_codes", "VARCHAR NOT NULL DEFAULT '[]'"),
+]
+
+
+def _ensure_columns(table: str, columns: list[tuple[str, str]]) -> None:
     inspector = inspect(engine)
-    if "settings" not in inspector.get_table_names():
+    if table not in inspector.get_table_names():
         return  # première installation : create_all() créera le schéma complet
-    existing_columns = {col["name"] for col in inspector.get_columns("settings")}
+    existing_columns = {col["name"] for col in inspector.get_columns(table)}
     with engine.begin() as conn:
-        for column, sql_type in _SETTINGS_NEW_COLUMNS:
+        for column, sql_type in columns:
             if column not in existing_columns:
-                conn.execute(text(f"ALTER TABLE settings ADD COLUMN {column} {sql_type}"))
+                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {sql_type}'))
 
 
 def init_db() -> None:
+    from app.models.activity import ActionLog  # noqa: F401
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
     from app.models.media import EmbyUser, Media, MediaFile, MediaRequest, MediaWatch, ScanRun, Torrent  # noqa: F401
     from app.models.settings import Settings  # noqa: F401
 
     _reset_media_cache_if_stale()
-    _ensure_settings_columns()
+    _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
+    _ensure_columns("user", _USER_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
 
 

@@ -28,6 +28,15 @@ class User(SQLModel, table=True):
     failed_attempts: int = 0
     locked_until: Optional[datetime] = None
 
+    # Double authentification (TOTP, services/totp.py). `totp_pending_secret` :
+    # secret généré mais pas encore confirmé par un premier code valide.
+    totp_secret: Optional[str] = None
+    totp_pending_secret: Optional[str] = None
+    # Dernier pas de temps accepté : un code déjà utilisé ne peut pas être rejoué.
+    totp_last_step: Optional[int] = None
+    # Codes de secours à usage unique (hash sha256), liste JSON.
+    recovery_codes: str = "[]"
+
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 

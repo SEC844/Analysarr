@@ -12,6 +12,7 @@ from app.clients.qbittorrent import QbittorrentAuthError
 from app.database import get_session
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
+from app.schemas.activity import ActionStepRead
 from app.schemas.media import (
     CrossSeedSearchResult,
     DeleteExecuteResult,
@@ -32,8 +33,10 @@ from app.schemas.media import (
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
-from app.services.media_delete import build_delete_footprint, execute_media_delete
+from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
+from app.services.action_log import MediaRef, record_action
+from app.services.notifications import action_notification, notification_language, notify
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
@@ -239,7 +242,11 @@ async def delete_execute(media_id: int, session: Session = Depends(get_session))
     settings = session.get(Settings, 1)
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
-    return await execute_delete(session, media, settings)
+    ref = MediaRef.of(media)
+    freed = build_delete_preview(session, media).total_reclaimable_bytes
+    result = await execute_delete(session, media, settings)
+    _log_and_notify(session, settings, "cascade_delete", ref, result.steps, freed)
+    return result
 
 
 @router.get("/{media_id}/delete-selection/footprint", response_model=MediaDeleteFootprint)
@@ -265,7 +272,14 @@ async def delete_selection(
     settings = session.get(Settings, 1)
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
-    return await execute_media_delete(session, media, settings, payload)
+    ref = MediaRef.of(media)
+    # Empreinte calculée AVANT la suppression : les inodes ne sont plus
+    # lisibles ensuite.
+    footprint = await build_delete_footprint(session, media, settings)
+    freed = reclaimed_bytes(footprint, payload.torrent_ids, payload.media_file_ids)
+    result = await execute_media_delete(session, media, settings, payload)
+    _log_and_notify(session, settings, "delete_selection", ref, result.steps, freed)
+    return result
 
 
 @router.post("/{media_id}/cross-seed-search", response_model=CrossSeedSearchResult)
@@ -284,7 +298,12 @@ async def cross_seed_search(
         raise HTTPException(400, "Configuration manquante.")
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media_id)).all()
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all()
-    return await trigger_cross_seed_search(settings, [t.hash for t in torrents], list(files), scope=scope)
+    result = await trigger_cross_seed_search(settings, [t.hash for t in torrents], list(files), scope=scope)
+    steps = [ActionStepRead(label=f"cross-seed ({scope})", success=True)] * result.triggered + [
+        ActionStepRead(label=f"cross-seed ({scope})", success=False, error=error) for error in result.errors
+    ]
+    record_action(session, "cross_seed_search", MediaRef.of(media), steps)
+    return result
 
 
 @router.post("/{media_id}/hardlink-repair/preview", response_model=HardlinkRepairPreview)
@@ -311,7 +330,29 @@ async def hardlink_repair_execute(media_id: int, session: Session = Depends(get_
     settings = session.get(Settings, 1)
     if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
         raise HTTPException(400, "qBittorrent non configuré.")
+    ref = MediaRef.of(media)
     try:
-        return await execute_repair(session, media, settings)
+        result = await execute_repair(session, media, settings)
     except QbittorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
+    _log_and_notify(session, settings, "hardlink_repair", ref, result.steps, result.freed_bytes)
+    return result
+
+
+def _log_and_notify(session: Session, settings: Settings, action: str, ref: MediaRef, steps: list, freed: int | None = None) -> None:
+    """Toute action effectuée est tracée dans l'historique et, si activé,
+    notifiée (Discord/ntfy/Gotify) avec la jaquette du média. L'espace libéré
+    n'est retenu que si aucune étape n'a échoué : il serait sinon surestimé."""
+    if any(not s.success for s in steps):
+        freed = None
+    entry = record_action(session, action, ref, steps, freed_bytes=freed or None)
+    notification = action_notification(
+        notification_language(settings),
+        action,
+        ref,
+        success=entry.success_count,
+        failures=entry.failure_count,
+        freed_bytes=entry.freed_bytes,
+        steps=steps,
+    )
+    notify(settings, action, notification, poster=ref)
