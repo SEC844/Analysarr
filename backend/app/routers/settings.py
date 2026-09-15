@@ -68,6 +68,7 @@ def _to_read(s: Settings | None) -> SettingsRead:
 
     return SettingsRead(
         configured=_is_configured(s),
+        media_server="jellyfin" if s.media_server == "jellyfin" else "emby",
         watch=WatchRead(excluded_emby_user_ids=sorted(excluded_user_ids(s))),
         emby=ServiceApiKeyRead(url=s.emby_url, api_key_set=bool(s.emby_api_key)),
         sonarr=ServiceApiKeyRead(url=s.sonarr_url, api_key_set=bool(s.sonarr_api_key)),
@@ -108,6 +109,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
         session.add(row)
 
     # Champs non sensibles : toujours remplacés par la valeur envoyée.
+    row.media_server = payload.media_server
     row.emby_url = payload.emby_url
     row.sonarr_url = payload.sonarr_url
     row.radarr_url = payload.radarr_url

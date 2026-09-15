@@ -8,14 +8,21 @@ import { PathsCard } from "@/components/settings/paths-card"
 import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
 import { Button } from "@/components/ui/button"
 import { useSaveSettingsMutation } from "@/hooks/use-settings"
-import { useI18n } from "@/i18n"
+import { MEDIA_SERVER_NAMES, useI18n, type MediaServer } from "@/i18n"
 import { isCoreConfigComplete, settingsReadToForm, type SettingsRead } from "@/types/settings"
 
 export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
   const { t } = useI18n()
-  const steps = ["Emby", "Sonarr", "Radarr", "qBittorrent", t("settings.sections.paths"), "cross-seed"]
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(() => settingsReadToForm(existing))
+  const steps = [
+    MEDIA_SERVER_NAMES[form.media_server],
+    "Sonarr",
+    "Radarr",
+    "qBittorrent",
+    t("settings.sections.paths"),
+    "cross-seed",
+  ]
   const saveSettings = useSaveSettingsMutation()
 
   const isLast = step === steps.length - 1
@@ -76,6 +83,9 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
               apiKey={form[`${service}_api_key`]}
               onApiKeyChange={(v) => set(`${service}_api_key`, v)}
               apiKeySet={existing[service].api_key_set}
+              {...(service === "emby"
+                ? { mediaServer: form.media_server, onMediaServerChange: (v: MediaServer) => set("media_server", v) }
+                : {})}
             />
           ))}
       {step === 3 && (

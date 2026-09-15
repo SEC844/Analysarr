@@ -10,7 +10,7 @@ import httpx
 from sqlmodel import Session, delete
 
 from app.clients.arr import RadarrClient, SonarrClient
-from app.clients.emby import EmbyClient
+from app.clients.emby import EmbyClient, media_server_name
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.database import engine
 from app.clients.seer import SeerClient
@@ -189,7 +189,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
     missing = [
         name
         for name, ok in [
-            ("Emby", bool(settings.emby_url and settings.emby_api_key)),
+            (media_server_name(settings), bool(settings.emby_url and settings.emby_api_key)),
             ("Sonarr", bool(settings.sonarr_url and settings.sonarr_api_key)),
             ("Radarr", bool(settings.radarr_url and settings.radarr_api_key)),
             (
@@ -282,7 +282,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
     assert settings.radarr_url and settings.radarr_api_key
     assert settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password
 
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
     radarr = RadarrClient(settings.radarr_url, settings.radarr_api_key)
     sonarr = SonarrClient(settings.sonarr_url, settings.sonarr_api_key)
 

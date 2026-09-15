@@ -59,15 +59,21 @@ export const fr = {
     step: "Étape {current} / {total} — {name}",
     saved: "Configuration enregistrée.",
     incomplete:
-      "Complétez Emby, Sonarr, Radarr, qBittorrent et les chemins pour terminer (cross-seed peut rester désactivé).",
+      "Complétez {server}, Sonarr, Radarr, qBittorrent et les chemins pour terminer (cross-seed peut rester désactivé).",
   },
   services: {
     serverUrl: "URL du serveur",
+    mediaServer: "Serveur multimédia",
     apiKeySetHint: " Une clé est déjà enregistrée ; ressaisissez-la ici pour la tester ou la changer.",
     emby: {
       description: "Votre serveur multimédia, source de vérité pour les fichiers de la bibliothèque.",
       urlHelp: "L'URL accessible depuis le conteneur Analysarr (nom du service Docker ou IP).",
       apiKeyHelp: "Tableau de bord Emby → Paramètres avancés → API Keys.",
+    },
+    jellyfin: {
+      description: "Votre serveur multimédia, source de vérité pour les fichiers de la bibliothèque.",
+      urlHelp: "L'URL accessible depuis le conteneur Analysarr (nom du service Docker ou IP). Jellyfin 10.9 ou plus récent.",
+      apiKeyHelp: "Tableau de bord Jellyfin → Clés API → bouton « + ».",
     },
     sonarr: {
       description: "Gestion des séries TV.",
@@ -102,7 +108,7 @@ export const fr = {
     description:
       "Ces chemins servent à détecter les hardlinks entre les téléchargements et la bibliothèque. Ils doivent être saisis tels que vus {emphasis}, après montage des volumes — pas le chemin sur la machine hôte.",
     fromContainer: "depuis le conteneur Analysarr",
-    embyLibrary: "Dossier de la bibliothèque Emby",
+    embyLibrary: "Dossier de la bibliothèque {server}",
     embyLibraryHelp: "Le point de montage du volume de bibliothèque dans le conteneur Analysarr.",
     qbitDownload: "Dossier de téléchargement qBittorrent",
     qbitDownloadHelp: "Le point de montage du volume de téléchargement dans le conteneur Analysarr.",
@@ -118,7 +124,7 @@ export const fr = {
   diagnostics: {
     title: "Diagnostic des chemins",
     description:
-      "Vérifie, en direct, si les chemins renvoyés par Emby et qBittorrent sont réellement accessibles depuis le conteneur Analysarr. Un chemin inaccessible signifie que le point de montage ne correspond pas à celui utilisé par Emby ou qBittorrent — la détection de doublons/orphelins ne peut pas fonctionner pour ces fichiers tant que ce n'est pas corrigé dans la configuration Docker.",
+      "Vérifie, en direct, si les chemins renvoyés par {server} et qBittorrent sont réellement accessibles depuis le conteneur Analysarr. Un chemin inaccessible signifie que le point de montage ne correspond pas à celui utilisé par {server} ou qBittorrent — la détection de doublons/orphelins ne peut pas fonctionner pour ces fichiers tant que ce n'est pas corrigé dans la configuration Docker.",
     run: "Lancer le diagnostic",
     failed: "Échec du diagnostic.",
     noItems: "{title} : aucun élément",
@@ -126,7 +132,7 @@ export const fr = {
     commonPrefix:
       "Tous les chemins non résolus partagent le dossier {path} — ce dossier ne semble pas monté dans le conteneur Analysarr (vérifiez qu'il est bien ajouté au docker-compose / template Unraid, comme pour les autres dossiers de téléchargement).",
     emptyPath: "(chemin vide)",
-    embyMovies: "Emby (films)",
+    embyMovies: "{server} (films)",
   },
   schedule: {
     title: "Planification",
@@ -236,7 +242,7 @@ export const fr = {
     libraryTitle: "Bibliothèque",
     libraryDescription: "Informations affichées sur les cartes et affichage à l'ouverture.",
     cardWatch: "Quota de visionnage",
-    cardWatchHelp: "Nombre d'utilisateurs Emby ayant vu le média (ex : 3/10).",
+    cardWatchHelp: "Nombre d'utilisateurs {server} ayant vu le média (ex : 3/10).",
     cardTotalSize: "Poids total",
     cardTotalSizeHelp: "Taille des fichiers du média dans la bibliothèque.",
     cardReclaimable: "Espace récupérable",
@@ -248,7 +254,7 @@ export const fr = {
     mediaTitle: "Fiche média et suppression",
     mediaDescription: "Comportement par défaut de la fiche média et de la suppression.",
     sectionsExpanded: "Sections dépliées",
-    sectionsExpandedHelp: "Fichiers Emby et torrents dépliés à l'ouverture d'une fiche.",
+    sectionsExpandedHelp: "Fichiers {server} et torrents dépliés à l'ouverture d'une fiche.",
     removeArrDefault: "Retrait coché par défaut",
     removeArrDefaultHelp:
       "À la suppression, « Retirer aussi de Sonarr/Radarr » et « Supprimer aussi la demande dans Seer » sont cochés d'office.",
@@ -272,8 +278,8 @@ export const fr = {
     added: "Ajouté {time}",
     lastPlayed: "dernière lecture {time} par {name}",
     neverPlayed: "jamais lu",
-    noUsers: "Aucun utilisateur Emby n'a accès à ce média",
-    stale: "Emby injoignable : chiffres du dernier scan.",
+    noUsers: "Aucun utilisateur {server} n'a accès à ce média",
+    stale: "{server} injoignable : chiffres du dernier scan.",
     deleteWarning: {
       one: "{count} utilisateur regarde encore ce média : {list}",
       other: "{count} utilisateurs regardent encore ce média : {list}",
@@ -287,11 +293,11 @@ export const fr = {
     sortCleanup: "Candidats au nettoyage",
     settingsTitle: "Statistiques de visionnage",
     settingsDescription:
-      "Comptes Emby pris en compte dans les quotas de visionnage (ex : 3/10). Les comptes désactivés dans Emby sont toujours exclus.",
-    disabled: "Désactivé dans Emby",
+      "Comptes {server} pris en compte dans les quotas de visionnage (ex : 3/10). Les comptes désactivés dans {server} sont toujours exclus.",
+    disabled: "Désactivé dans {server}",
     countUser: "Prendre en compte {name}",
-    usersLoadFailed: "Impossible de récupérer les utilisateurs Emby.",
-    noEmbyUsers: "Aucun utilisateur Emby.",
+    usersLoadFailed: "Impossible de récupérer les utilisateurs {server}.",
+    noEmbyUsers: "Aucun utilisateur {server}.",
     settingsHint: "Enregistrez pour appliquer : les quotas sont recalculés immédiatement.",
   },
   library: {
@@ -324,7 +330,7 @@ export const fr = {
     orphelin_qbit: "Orphelin qBit",
     non_hardlink: "Non hardlink",
     tracker_unique: "Tracker unique",
-    manquant_emby: "Absent d'Emby",
+    manquant_emby: "Absent {deServer}",
     manquant_qbit: "Non seedé",
   },
   grid: {
@@ -339,7 +345,7 @@ export const fr = {
     stages: {
       radarr: "Lecture de Radarr...",
       sonarr: "Lecture de Sonarr...",
-      emby: "Lecture d'Emby...",
+      emby: "Lecture {deServer}...",
       historique: "Association des torrents...",
       qbittorrent: "Lecture de qBittorrent...",
       enregistrement: "Enregistrement des résultats...",
@@ -359,7 +365,7 @@ export const fr = {
     currentFile: "Fichier actuel",
     season: "Saison {number}",
     otherFiles: "Autres fichiers",
-    missingEmby: "Téléchargés mais absents d'Emby : {list}",
+    missingEmby: "Téléchargés mais absents {deServer} : {list}",
     reclaimable: "{size} potentiellement récupérables",
     crossSeedSearch: "Chercher un cross-seed",
     byEpisode: "Par épisode",
@@ -369,8 +375,8 @@ export const fr = {
     crossSeedErrors: "{count} échec(s) — {detail}",
     crossSeedMoreErrors: " (+{count} autre(s) type(s) d'erreur)",
     crossSeedFailed: "Échec de la recherche cross-seed.",
-    embyFiles: "Fichiers Emby ({count})",
-    noEmbyFiles: "Aucun fichier trouvé dans Emby pour ce média.",
+    embyFiles: "Fichiers {server} ({count})",
+    noEmbyFiles: "Aucun fichier trouvé dans {server} pour ce média.",
     torrents: "Torrents qBittorrent ({count})",
     noTorrents: "Aucun torrent associé à ce média.",
     addedByCrossSeed: "Ajouté par cross-seed",
@@ -395,7 +401,7 @@ export const fr = {
     fromTorrent: "depuis {name}",
     joinsLibrary: "{name} rejoint le hardlink de la bibliothèque",
     symlinkHint:
-      "Réparé par lien symbolique (systèmes de fichiers différents) — vérifiez que le fichier se lit toujours bien dans Emby, ou que le torrent seede toujours normalement.",
+      "Réparé par lien symbolique (systèmes de fichiers différents) — vérifiez que le fichier se lit toujours bien dans {server}, ou que le torrent seede toujours normalement.",
     unmatched: "Sans fichier correspondant trouvé avec certitude : {list}",
     confirm: "Confirmer la réparation",
   },

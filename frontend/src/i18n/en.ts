@@ -58,15 +58,21 @@ export const en: Dictionary = {
     subtitle: "Let's configure your services before getting started. You can change everything later from Settings.",
     step: "Step {current} / {total} — {name}",
     saved: "Configuration saved.",
-    incomplete: "Complete Emby, Sonarr, Radarr, qBittorrent and paths to finish (cross-seed can stay disabled).",
+    incomplete: "Complete {server}, Sonarr, Radarr, qBittorrent and paths to finish (cross-seed can stay disabled).",
   },
   services: {
     serverUrl: "Server URL",
+    mediaServer: "Media server",
     apiKeySetHint: " A key is already saved; type it again here to test or change it.",
     emby: {
       description: "Your media server, source of truth for library files.",
       urlHelp: "The URL reachable from the Analysarr container (Docker service name or IP).",
       apiKeyHelp: "Emby dashboard → Advanced → API Keys.",
+    },
+    jellyfin: {
+      description: "Your media server, source of truth for library files.",
+      urlHelp: "The URL reachable from the Analysarr container (Docker service name or IP). Jellyfin 10.9 or newer.",
+      apiKeyHelp: "Jellyfin dashboard → API Keys → “+” button.",
     },
     sonarr: {
       description: "TV series management.",
@@ -100,7 +106,7 @@ export const en: Dictionary = {
     description:
       "These paths are used to detect hardlinks between downloads and the library. Enter them as seen {emphasis}, after volume mounts — not the path on the host machine.",
     fromContainer: "from the Analysarr container",
-    embyLibrary: "Emby library folder",
+    embyLibrary: "{server} library folder",
     embyLibraryHelp: "Mount point of the library volume in the Analysarr container.",
     qbitDownload: "qBittorrent download folder",
     qbitDownloadHelp: "Mount point of the download volume in the Analysarr container.",
@@ -116,7 +122,7 @@ export const en: Dictionary = {
   diagnostics: {
     title: "Path diagnostics",
     description:
-      "Checks, live, whether the paths reported by Emby and qBittorrent are actually reachable from the Analysarr container. An unreachable path means the mount point does not match the one used by Emby or qBittorrent — duplicate/orphan detection cannot work for those files until the Docker configuration is fixed.",
+      "Checks, live, whether the paths reported by {server} and qBittorrent are actually reachable from the Analysarr container. An unreachable path means the mount point does not match the one used by {server} or qBittorrent — duplicate/orphan detection cannot work for those files until the Docker configuration is fixed.",
     run: "Run diagnostics",
     failed: "Diagnostics failed.",
     noItems: "{title}: no items",
@@ -124,7 +130,7 @@ export const en: Dictionary = {
     commonPrefix:
       "All unresolved paths share the folder {path} — this folder does not seem to be mounted in the Analysarr container (check that it is added to the docker-compose / Unraid template, like the other download folders).",
     emptyPath: "(empty path)",
-    embyMovies: "Emby (movies)",
+    embyMovies: "{server} (movies)",
   },
   schedule: {
     title: "Scheduling",
@@ -233,7 +239,7 @@ export const en: Dictionary = {
     libraryTitle: "Library",
     libraryDescription: "Information shown on cards and default view.",
     cardWatch: "Watch quota",
-    cardWatchHelp: "Number of Emby users who watched the media (e.g. 3/10).",
+    cardWatchHelp: "Number of {server} users who watched the media (e.g. 3/10).",
     cardTotalSize: "Total size",
     cardTotalSizeHelp: "Size of the media files in the library.",
     cardReclaimable: "Reclaimable space",
@@ -245,7 +251,7 @@ export const en: Dictionary = {
     mediaTitle: "Media page and deletion",
     mediaDescription: "Default behavior of the media page and deletion.",
     sectionsExpanded: "Expanded sections",
-    sectionsExpandedHelp: "Emby files and torrents expanded when opening a media page.",
+    sectionsExpandedHelp: "{server} files and torrents expanded when opening a media page.",
     removeArrDefault: "Removal checked by default",
     removeArrDefaultHelp:
       "When deleting, “Also remove from Sonarr/Radarr” and “Also delete the request in Seer” are checked by default.",
@@ -269,8 +275,8 @@ export const en: Dictionary = {
     added: "Added {time}",
     lastPlayed: "last played {time} by {name}",
     neverPlayed: "never played",
-    noUsers: "No Emby user has access to this media",
-    stale: "Emby unreachable: figures from the last scan.",
+    noUsers: "No {server} user has access to this media",
+    stale: "{server} unreachable: figures from the last scan.",
     deleteWarning: {
       one: "{count} user is still watching this media: {list}",
       other: "{count} users are still watching this media: {list}",
@@ -284,11 +290,11 @@ export const en: Dictionary = {
     sortCleanup: "Cleanup candidates",
     settingsTitle: "Watch statistics",
     settingsDescription:
-      "Emby accounts counted in watch quotas (e.g. 3/10). Accounts disabled in Emby are always excluded.",
-    disabled: "Disabled in Emby",
+      "{server} accounts counted in watch quotas (e.g. 3/10). Accounts disabled in {server} are always excluded.",
+    disabled: "Disabled in {server}",
     countUser: "Count {name}",
-    usersLoadFailed: "Unable to fetch Emby users.",
-    noEmbyUsers: "No Emby users.",
+    usersLoadFailed: "Unable to fetch {server} users.",
+    noEmbyUsers: "No {server} users.",
     settingsHint: "Save to apply: quotas are recalculated immediately.",
   },
   library: {
@@ -321,7 +327,7 @@ export const en: Dictionary = {
     orphelin_qbit: "qBit orphan",
     non_hardlink: "Not hardlinked",
     tracker_unique: "Single tracker",
-    manquant_emby: "Missing from Emby",
+    manquant_emby: "Missing {deServer}",
     manquant_qbit: "Not seeded",
   },
   grid: {
@@ -336,7 +342,7 @@ export const en: Dictionary = {
     stages: {
       radarr: "Reading Radarr...",
       sonarr: "Reading Sonarr...",
-      emby: "Reading Emby...",
+      emby: "Reading {server}...",
       historique: "Matching torrents...",
       qbittorrent: "Reading qBittorrent...",
       enregistrement: "Saving results...",
@@ -356,7 +362,7 @@ export const en: Dictionary = {
     currentFile: "Current file",
     season: "Season {number}",
     otherFiles: "Other files",
-    missingEmby: "Downloaded but missing from Emby: {list}",
+    missingEmby: "Downloaded but missing {deServer}: {list}",
     reclaimable: "{size} potentially reclaimable",
     crossSeedSearch: "Search cross-seed",
     byEpisode: "By episode",
@@ -366,8 +372,8 @@ export const en: Dictionary = {
     crossSeedErrors: "{count} failure(s) — {detail}",
     crossSeedMoreErrors: " (+{count} other error type(s))",
     crossSeedFailed: "Cross-seed search failed.",
-    embyFiles: "Emby files ({count})",
-    noEmbyFiles: "No file found in Emby for this media.",
+    embyFiles: "{server} files ({count})",
+    noEmbyFiles: "No file found in {server} for this media.",
     torrents: "qBittorrent torrents ({count})",
     noTorrents: "No torrent linked to this media.",
     addedByCrossSeed: "Added by cross-seed",
@@ -392,7 +398,7 @@ export const en: Dictionary = {
     fromTorrent: "from {name}",
     joinsLibrary: "{name} joins the library hardlink",
     symlinkHint:
-      "Repaired with a symbolic link (different filesystems) — check that the file still plays in Emby, or that the torrent still seeds normally.",
+      "Repaired with a symbolic link (different filesystems) — check that the file still plays in {server}, or that the torrent still seeds normally.",
     unmatched: "No matching file found with certainty: {list}",
     confirm: "Confirm repair",
   },

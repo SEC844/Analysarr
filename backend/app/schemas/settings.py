@@ -3,6 +3,7 @@ from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, Field, StringConstraints
 
 ServiceName = Literal["emby", "sonarr", "radarr", "qbittorrent", "cross_seed", "seer"]
+MediaServer = Literal["emby", "jellyfin"]
 
 
 class ServiceApiKeyRead(BaseModel):
@@ -45,6 +46,7 @@ class WatchRead(BaseModel):
 
 class SettingsRead(BaseModel):
     configured: bool
+    media_server: MediaServer = "emby"
     watch: WatchRead
     emby: ServiceApiKeyRead
     sonarr: ServiceApiKeyRead
@@ -61,6 +63,7 @@ class SettingsWrite(BaseModel):
     vide conserve la valeur déjà enregistrée en base (évite de l'écraser
     quand l'utilisateur ré-enregistre le formulaire sans la ressaisir)."""
 
+    media_server: MediaServer = "emby"
     emby_url: Optional[str] = None
     emby_api_key: Optional[str] = None
 
@@ -96,6 +99,8 @@ class SettingsWrite(BaseModel):
 class ConnectionTestRequest(BaseModel):
     url: Optional[str] = None
     api_key: Optional[str] = None
+    # Serveur multimédia uniquement : Emby ou Jellyfin.
+    media_server: Optional[MediaServer] = None
     username: Optional[str] = None
     password: Optional[str] = None
 

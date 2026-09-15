@@ -10,6 +10,19 @@ export const LANGUAGES: { value: Language; label: string }[] = [
   { value: "en", label: "English" },
 ]
 
+export type MediaServer = "emby" | "jellyfin"
+export const MEDIA_SERVER_NAMES: Record<MediaServer, string> = { emby: "Emby", jellyfin: "Jellyfin" }
+
+// Variables disponibles dans TOUS les textes : le nom du serveur multimédia
+// configuré, et sa forme élidée en français (« d'Emby » / « de Jellyfin »).
+function mediaServerVars(language: Language, server: MediaServer): Vars {
+  const name = MEDIA_SERVER_NAMES[server]
+  return {
+    server: name,
+    deServer: language === "fr" ? (server === "emby" ? "d'Emby" : "de Jellyfin") : `from ${name}`,
+  }
+}
+
 // Pluriel : { one, other }, choisi selon la variable `count`.
 type Plural = { one: string; other: string }
 type Messages<T> = { [K in keyof T]: T[K] extends string ? string : T[K] extends Plural ? Plural : Messages<T[K]> }
@@ -79,6 +92,8 @@ interface I18nContextValue {
   language: Language
   locale: string
   setLanguage: (language: Language) => void
+  mediaServer: MediaServer
+  setMediaServer: (server: MediaServer) => void
   t: (key: MessageKey, vars?: Vars) => string
   // Variante acceptant des éléments React en variables (lien, <code>, <strong>...).
   rich: (key: MessageKey, vars: RichVars) => ReactNode
@@ -88,6 +103,7 @@ const I18nContext = createContext<I18nContextValue | null>(null)
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(currentLanguage)
+  const [mediaServer, setMediaServer] = useState<MediaServer>("emby")
 
   const setLanguage = useCallback((next: Language) => {
     applyLanguage(next)
@@ -99,23 +115,31 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   const value = useMemo<I18nContextValue>(() => {
+    const serverVars = mediaServerVars(language, mediaServer)
     return {
       language,
       locale: LOCALES[language],
       setLanguage,
-      t: (key, vars) =>
-        lookup(language, key, typeof vars?.count === "number" ? vars.count : undefined).replace(/\{(\w+)\}/g, (match, name) =>
-          vars && name in vars ? String(vars[name]) : match,
-        ),
-      rich: (key, vars) =>
-        lookup(language, key)
+      mediaServer,
+      setMediaServer,
+      t: (key, vars) => {
+        const all: Vars = { ...serverVars, ...vars }
+        return lookup(language, key, typeof vars?.count === "number" ? vars.count : undefined).replace(
+          /\{(\w+)\}/g,
+          (match, name) => (name in all ? String(all[name]) : match),
+        )
+      },
+      rich: (key, vars) => {
+        const all: RichVars = { ...serverVars, ...vars }
+        return lookup(language, key)
           .split(/(\{\w+\})/)
           .map((part, i) => {
             const name = part.match(/^\{(\w+)\}$/)?.[1]
-            return <Fragment key={i}>{name && name in vars ? vars[name] : part}</Fragment>
-          }),
+            return <Fragment key={i}>{name && name in all ? all[name] : part}</Fragment>
+          })
+      },
     }
-  }, [language, setLanguage])
+  }, [language, setLanguage, mediaServer])
 
   // `key` : un changement de langue remonte l'arbre, pour que les textes
   // formatés hors contexte (tailles, dates) soient eux aussi recalculés.

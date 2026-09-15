@@ -84,7 +84,7 @@ async def scan_stream() -> StreamingResponse:
 async def scan_diagnostics(session: Session = Depends(get_session)) -> DiagnosticsResult:
     settings = session.get(Settings, 1)
     if settings is None or not (settings.emby_url and settings.emby_api_key):
-        raise HTTPException(400, "Emby non configuré.")
+        raise HTTPException(400, "Serveur multimédia non configuré.")
     if not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
         raise HTTPException(400, "qBittorrent non configuré.")
     try:
@@ -120,7 +120,7 @@ async def scan_debug_emby_series(
     torrent est réellement hardlinké au fichier actif."""
     settings = session.get(Settings, 1)
     if settings is None or not (settings.emby_url and settings.emby_api_key):
-        raise HTTPException(400, "Emby non configuré.")
+        raise HTTPException(400, "Serveur multimédia non configuré.")
     return await debug_emby_series_files(settings, title_contains)
 
 
@@ -134,7 +134,7 @@ async def scan_debug_emby_movies(
     sur le même système de fichiers que la bibliothèque (device identique)."""
     settings = session.get(Settings, 1)
     if settings is None or not (settings.emby_url and settings.emby_api_key):
-        raise HTTPException(400, "Emby non configuré.")
+        raise HTTPException(400, "Serveur multimédia non configuré.")
     return await debug_emby_movies(settings, title_contains)
 
 
