@@ -1,5 +1,6 @@
 import httpx
 
+from app.clients.emby import EmbyClient
 from app.schemas.settings import ConnectionTestRequest, ConnectionTestResult
 
 TIMEOUT = 8.0
@@ -10,23 +11,36 @@ def _clean_url(url: str) -> str:
 
 
 async def test_emby(req: ConnectionTestRequest) -> ConnectionTestResult:
+    """Serveur multimédia : Emby ou Jellyfin (`req.media_server`)."""
     if not req.url or not req.api_key:
         return ConnectionTestResult(success=False, message="URL et clé API requises.")
 
-    url = f"{_clean_url(req.url)}/System/Info"
+    base = _clean_url(req.url)
+    server = EmbyClient(base, req.api_key, req.media_server or "emby")
+    expected = "Jellyfin" if server.is_jellyfin else "Emby"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(url, headers={"X-Emby-Token": req.api_key})
-        if resp.status_code == 401:
-            return ConnectionTestResult(success=False, message="Clé API refusée (401 Unauthorized).")
+            # Endpoint public : détecte un mauvais choix Emby/Jellyfin avant
+            # même d'essayer la clé (message clair plutôt qu'un simple 401).
+            public = await client.get(f"{base}/System/Info/Public")
+            product = str(public.json().get("ProductName") or "") if public.status_code == 200 else ""
+            if product and ("jellyfin" in product.lower()) != server.is_jellyfin:
+                actual = "Jellyfin" if "jellyfin" in product.lower() else "Emby"
+                return ConnectionTestResult(
+                    success=False,
+                    message=f"Le serveur à cette adresse est {actual}, pas {expected} : sélectionnez « {actual} » comme serveur multimédia.",
+                )
+            resp = await client.get(f"{base}/System/Info", headers=server.auth_headers())
+        if resp.status_code in (401, 403):
+            return ConnectionTestResult(success=False, message=f"Clé API refusée ({resp.status_code}).")
         resp.raise_for_status()
         data = resp.json()
-        name = data.get("ServerName", "Emby")
+        name = data.get("ServerName", expected)
         version = data.get("Version", "?")
-        return ConnectionTestResult(success=True, message=f"Connecté à {name} (version {version}).")
+        return ConnectionTestResult(success=True, message=f"Connecté à {name} ({expected} {version}).")
     except httpx.HTTPStatusError as exc:
         return ConnectionTestResult(success=False, message=f"Erreur HTTP {exc.response.status_code} : {exc.response.text[:200]}")
-    except httpx.RequestError as exc:
+    except (httpx.RequestError, ValueError) as exc:
         return ConnectionTestResult(success=False, message=f"Connexion impossible : {exc}")
 
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlmodel import Session, select
 
-from app.clients.emby import EmbyClient
+from app.clients.emby import media_server_client
 from app.clients.qbittorrent import QbittorrentAuthError
 from app.database import get_session
 from app.models.media import Media, MediaFile, Torrent
@@ -188,10 +188,9 @@ async def get_poster(media_id: int, session: Session = Depends(get_session)) -> 
     if cached is not None:
         content, content_type = cached
     else:
-        settings = session.get(Settings, 1)
-        if settings is None or not settings.emby_url or not settings.emby_api_key:
-            raise HTTPException(404, "Emby non configuré.")
-        emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+        emby = media_server_client(session.get(Settings, 1))
+        if emby is None:
+            raise HTTPException(404, "Serveur multimédia non configuré.")
         result = await emby.fetch_poster(media.emby_item_id)
         if result is None:
             raise HTTPException(404, "Jaquette introuvable.")

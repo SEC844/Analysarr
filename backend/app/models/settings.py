@@ -13,6 +13,10 @@ class Settings(SQLModel, table=True):
 
     id: Optional[int] = Field(default=1, primary_key=True)
 
+    # Serveur multimédia : "emby" ou "jellyfin" (même API à quelques détails
+    # près, voir clients/emby.py). Les champs emby_* désignent ce serveur,
+    # quel qu'il soit — noms conservés pour ne pas casser les configurations.
+    media_server: str = "emby"
     emby_url: Optional[str] = None
     emby_api_key: Optional[str] = None
 

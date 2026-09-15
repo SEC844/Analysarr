@@ -1,3 +1,5 @@
+import type { MediaServer } from "@/i18n"
+
 export interface ServiceApiKeyRead {
   url: string | null
   api_key_set: boolean
@@ -28,6 +30,7 @@ export interface ScheduleRead {
 
 export interface SettingsRead {
   configured: boolean
+  media_server: MediaServer
   watch: { excluded_emby_user_ids: string[] }
   emby: ServiceApiKeyRead
   sonarr: ServiceApiKeyRead
@@ -40,6 +43,7 @@ export interface SettingsRead {
 }
 
 export interface SettingsWrite {
+  media_server: MediaServer
   emby_url: string
   emby_api_key: string
   sonarr_url: string
@@ -79,6 +83,7 @@ export interface BrowseResult {
 export interface ConnectionTestRequest {
   url?: string
   api_key?: string
+  media_server?: MediaServer
   username?: string
   password?: string
 }
@@ -90,6 +95,7 @@ export interface ConnectionTestResult {
 
 export function emptySettingsWrite(): SettingsWrite {
   return {
+    media_server: "emby",
     emby_url: "",
     emby_api_key: "",
     sonarr_url: "",
@@ -116,6 +122,7 @@ export function emptySettingsWrite(): SettingsWrite {
 
 export function settingsReadToForm(s: SettingsRead): SettingsWrite {
   return {
+    media_server: s.media_server,
     emby_url: s.emby.url ?? "",
     emby_api_key: "",
     sonarr_url: s.sonarr.url ?? "",

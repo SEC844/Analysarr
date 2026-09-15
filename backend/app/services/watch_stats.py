@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 from sqlmodel import Session, delete, select
 
-from app.clients.emby import EmbyClient
+from app.clients.emby import EmbyClient, media_server_client
 from app.models.media import EmbyUser, Media, MediaType, MediaWatch
 from app.models.settings import Settings
 from app.schemas.media import MediaWatchStats, WatchUser
@@ -198,9 +198,9 @@ def recompute_all_aggregates(session: Session, settings: Settings | None) -> Non
 async def refresh_media_watch(session: Session, media: Media, settings: Settings | None) -> bool:
     """Rafraîchit en direct le visionnage d'un seul média. False (données du
     dernier scan conservées) si Emby n'est pas configuré ou injoignable."""
-    if not (media.emby_item_id and settings and settings.emby_url and settings.emby_api_key):
+    emby = media_server_client(settings)
+    if not (media.emby_item_id and emby):
         return False
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
     try:
         users = users_from_api(await emby.get_users())
     except (httpx.HTTPError, ValueError):

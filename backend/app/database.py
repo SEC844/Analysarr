@@ -79,6 +79,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("seer_url", "VARCHAR"),
     ("seer_api_key", "VARCHAR"),
     ("ui_preferences", "VARCHAR NOT NULL DEFAULT '{}'"),
+    ("media_server", "VARCHAR NOT NULL DEFAULT 'emby'"),
 ]
 
 

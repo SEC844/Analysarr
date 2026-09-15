@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlmodel import Session, select
 
-from app.clients.emby import EmbyClient
+from app.clients.emby import media_server_client
 from app.database import get_session
 from app.models.media import EmbyUser
 from app.models.settings import Settings
@@ -15,15 +15,10 @@ from app.services.watch_stats import users_from_api
 
 router = APIRouter()
 
-# Identifiants Emby : hexadécimal. Validé avant tout usage (chemin d'appel
-# Emby, nom de fichier du cache).
-_USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{1,64}$")
-
-
-def _emby(settings: Settings | None) -> EmbyClient | None:
-    if settings is None or not settings.emby_url or not settings.emby_api_key:
-        return None
-    return EmbyClient(settings.emby_url, settings.emby_api_key)
+# Identifiants Emby/Jellyfin : hexadécimal (GUID, tirets éventuels). Validé
+# avant tout usage (appel au serveur multimédia, nom de fichier du cache).
+_USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+_emby = media_server_client
 
 
 @router.get("/users", response_model=list[EmbyUserRead])

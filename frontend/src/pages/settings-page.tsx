@@ -20,7 +20,7 @@ import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
-import { useI18n, type MessageKey } from "@/i18n"
+import { MEDIA_SERVER_NAMES, useI18n, type MediaServer, type MessageKey } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { settingsReadToForm, type SettingsRead } from "@/types/settings"
 
@@ -139,7 +139,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                       : "text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
                 >
-                  {label(s.label)}
+                  {s.id === "emby" ? MEDIA_SERVER_NAMES[form.media_server] : label(s.label)}
                   {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
                 </button>
               ))}
@@ -157,6 +157,9 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
               apiKey={form[`${section}_api_key`]}
               onApiKeyChange={(v) => set(`${section}_api_key`, v)}
               apiKeySet={existing[section].api_key_set}
+              {...(section === "emby"
+                ? { mediaServer: form.media_server, onMediaServerChange: (v: MediaServer) => set("media_server", v) }
+                : {})}
             />
           )}
 

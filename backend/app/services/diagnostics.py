@@ -120,7 +120,7 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
         raise RuntimeError(f"Authentification qBittorrent refusée : {exc}") from exc
 
     emby_checks: list[PathCheck] = []
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
     movies = await emby.get_library_items("Movie")
     for m in movies:
         for source in _media_sources(m):
@@ -216,7 +216,7 @@ async def debug_emby_movies(settings: Settings, title_contains: str) -> list[Emb
     donné est vraiment sur le même système de fichiers que la bibliothèque
     (`device` identique) ou non, sans deviner."""
     needle = title_contains.lower()
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
     movies = await emby.get_library_items("Movie")
     matches = [m for m in movies if needle in m.get("Name", "").lower()][:MAX_SERIES_MATCHES]
 
@@ -237,7 +237,7 @@ async def debug_emby_series_files(settings: Settings, title_contains: str) -> li
     directement contre ceux calculés par debug_torrents() et trouver quel(s)
     torrent(s) sont réellement hardlinkés au fichier actuellement actif."""
     needle = title_contains.lower()
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key)
+    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
     series_list = await emby.get_library_items("Series")
     matches = [s for s in series_list if needle in s.get("Name", "").lower()][:MAX_SERIES_MATCHES]
 

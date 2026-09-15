@@ -20,7 +20,7 @@ function FullPageState({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  const { t, language, setLanguage } = useI18n()
+  const { t, language, setLanguage, setMediaServer } = useI18n()
   const authStatus = useAuthStatusQuery()
   const authenticated = authStatus.data?.authenticated ?? false
   // Ne part chercher /api/settings (protégé) qu'une fois l'authentification
@@ -35,6 +35,12 @@ function App() {
   useEffect(() => {
     if (savedLanguage && savedLanguage !== language) setLanguage(savedLanguage)
   }, [savedLanguage, language, setLanguage])
+
+  // Nom du serveur multimédia (Emby ou Jellyfin) injecté dans tous les textes.
+  const mediaServer = settings.data?.media_server
+  useEffect(() => {
+    if (mediaServer) setMediaServer(mediaServer)
+  }, [mediaServer, setMediaServer])
 
   // Nouvelle version du conteneur installée pendant que l'onglet était ouvert :
   // proposition de recharger (le code chargé dans la page est l'ancien).
