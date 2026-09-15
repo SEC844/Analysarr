@@ -269,3 +269,5 @@ class HardlinkRepairStepResult(BaseModel):
 
 class HardlinkRepairResult(BaseModel):
     steps: list[HardlinkRepairStepResult]
+    # Taille des copies distinctes remplacées par un lien (espace libéré).
+    freed_bytes: int = 0

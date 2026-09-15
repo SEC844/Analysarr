@@ -33,10 +33,10 @@ from app.schemas.media import (
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
-from app.services.media_delete import build_delete_footprint, execute_media_delete
+from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.action_log import MediaRef, record_action
-from app.services.notifications import notify
+from app.services.notifications import action_notification, notification_language, notify
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
@@ -273,8 +273,12 @@ async def delete_selection(
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
     ref = MediaRef.of(media)
+    # Empreinte calculée AVANT la suppression : les inodes ne sont plus
+    # lisibles ensuite.
+    footprint = await build_delete_footprint(session, media, settings)
+    freed = reclaimed_bytes(footprint, payload.torrent_ids, payload.media_file_ids)
     result = await execute_media_delete(session, media, settings, payload)
-    _log_and_notify(session, settings, "delete_selection", ref, result.steps)
+    _log_and_notify(session, settings, "delete_selection", ref, result.steps, freed)
     return result
 
 
@@ -331,12 +335,24 @@ async def hardlink_repair_execute(media_id: int, session: Session = Depends(get_
         result = await execute_repair(session, media, settings)
     except QbittorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
-    _log_and_notify(session, settings, "hardlink_repair", ref, result.steps)
+    _log_and_notify(session, settings, "hardlink_repair", ref, result.steps, result.freed_bytes)
     return result
 
 
 def _log_and_notify(session: Session, settings: Settings, action: str, ref: MediaRef, steps: list, freed: int | None = None) -> None:
     """Toute action effectuée est tracée dans l'historique et, si activé,
-    notifiée (Discord/ntfy/Gotify)."""
-    entry = record_action(session, action, ref, steps, freed_bytes=freed)
-    notify(settings, action, failed=entry.failure_count > 0, title=ref.title, success=entry.success_count, failures=entry.failure_count)
+    notifiée (Discord/ntfy/Gotify) avec la jaquette du média. L'espace libéré
+    n'est retenu que si aucune étape n'a échoué : il serait sinon surestimé."""
+    if any(not s.success for s in steps):
+        freed = None
+    entry = record_action(session, action, ref, steps, freed_bytes=freed or None)
+    notification = action_notification(
+        notification_language(settings),
+        action,
+        ref,
+        success=entry.success_count,
+        failures=entry.failure_count,
+        freed_bytes=entry.freed_bytes,
+        steps=steps,
+    )
+    notify(settings, action, notification, poster=ref)

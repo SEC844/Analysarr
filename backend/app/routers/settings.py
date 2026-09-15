@@ -25,7 +25,14 @@ from app.schemas.settings import (
     WatchRead,
 )
 from app.services.connection_test import TESTERS
-from app.services.notifications import is_discord_webhook, is_http_url, render, send, targets_from
+from app.services.notifications import (
+    is_discord_webhook,
+    is_http_url,
+    notification_language,
+    send,
+    targets_from,
+    build_test_notification,
+)
 from app.services.scheduler import configure_scan_schedule
 from app.services.watch_stats import excluded_user_ids, recompute_all_aggregates
 
@@ -208,8 +215,7 @@ async def test_notifications(session: Session = Depends(get_session)) -> Notific
     targets = targets_from(settings)
     if not targets.channels:
         raise HTTPException(400, "Aucun canal de notification enregistré.")
-    title, message = render(settings.language if settings else None, "test")
-    return NotificationTestResult(results=await send(targets, title, message))
+    return NotificationTestResult(results=await send(targets, build_test_notification(notification_language(settings))))
 
 
 @router.post("/test/{service}", response_model=ConnectionTestResult)

@@ -82,6 +82,19 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
     return MediaDeleteFootprint(units=units, torrents=torrent_items, files=file_items)
 
 
+def reclaimed_bytes(footprint: MediaDeleteFootprint, torrent_ids: list[int], media_file_ids: list[int]) -> int:
+    """Espace réellement libéré par une sélection — même calcul que le
+    frontend (lib/footprint.ts) : une unité disque ne compte que si autant de
+    ses liens sont sélectionnés qu'elle en a (`links`)."""
+    selected_links: dict[int, int] = {}
+    for items, ids in ((footprint.torrents, set(torrent_ids)), (footprint.files, set(media_file_ids))):
+        for item in items:
+            if item.id in ids:
+                for unit in item.units:
+                    selected_links[unit] = selected_links.get(unit, 0) + 1
+    return sum(footprint.units[i].size for i, count in selected_links.items() if count >= footprint.units[i].links)
+
+
 async def _delete_torrents(
     torrents: list[Torrent], settings: Settings, steps: list[DeleteStepResult], session: Session
 ) -> None:

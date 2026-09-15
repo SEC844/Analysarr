@@ -28,10 +28,21 @@ class MediaRef:
     id: int | None
     title: str
     media_type: str
+    year: int | None = None
+    # Jaquette jointe aux notifications (cache disque ou serveur multimédia).
+    emby_item_id: str | None = None
+    poster_image_tag: str | None = None
 
     @classmethod
     def of(cls, media: Media) -> "MediaRef":
-        return cls(id=media.id, title=media.title, media_type=media.media_type.value)
+        return cls(
+            id=media.id,
+            title=media.title,
+            media_type=media.media_type.value,
+            year=media.year,
+            emby_item_id=media.emby_item_id,
+            poster_image_tag=media.poster_image_tag,
+        )
 
 
 def record_action(

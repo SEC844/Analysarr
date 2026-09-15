@@ -159,6 +159,20 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     )
 
 
+def _separate_copy_size(target_path: str, source_path: str) -> int:
+    """Espace libéré en remplaçant `target_path` par un lien vers
+    `source_path` : sa taille s'il s'agit d'une copie distincte sans autre
+    lien (`st_nlink == 1`), sinon 0 (déjà lié, ou encore référencé ailleurs)."""
+    try:
+        target = os.stat(target_path)
+        source = os.stat(source_path)
+    except OSError:
+        return 0
+    if (target.st_ino, target.st_dev) == (source.st_ino, source.st_dev) or target.st_nlink > 1:
+        return 0
+    return target.st_size
+
+
 def _relink(target_path: str, source_path: str) -> bool:
     """Remplace `target_path` par un lien vers `source_path`, SANS jamais
     supprimer l'original avant d'être certain que le lien peut être créé : le
@@ -220,10 +234,13 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
     preview = await build_repair_preview(session, media, settings)
 
     steps: list[HardlinkRepairStepResult] = []
+    freed_bytes = 0
     for item in preview.items:
         label = item.episode_label or item.target_path
+        replaced_size = _separate_copy_size(item.target_path, item.source_path)
         try:
             used_symlink = _relink(item.target_path, item.source_path)
+            freed_bytes += replaced_size
             steps.append(
                 HardlinkRepairStepResult(
                     media_file_id=item.media_file_id, label=label, success=True, used_symlink=used_symlink
@@ -280,4 +297,4 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
     session.add(media)
     session.commit()
 
-    return HardlinkRepairResult(steps=steps)
+    return HardlinkRepairResult(steps=steps, freed_bytes=freed_bytes)
