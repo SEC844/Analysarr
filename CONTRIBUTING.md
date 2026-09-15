@@ -40,9 +40,11 @@ Open `http://localhost:5173`. Vite forwards `/api` to the backend on port 8000.
 ## Before opening a pull request
 
 ```bash
-cd frontend && npm run lint && npm run build
-cd backend && python -c "from app.main import app"
+cd frontend && npm run lint && npm test && npm run build
+cd backend && pip install -r requirements-dev.txt && pytest
 ```
+
+Tests never call real services: the media server, Sonarr, Radarr, qBittorrent, Seer and GitHub are simulated (see `backend/tests/conftest.py`). Add tests for any behavior you change — especially anything that deletes data or touches authentication.
 
 The CI runs the same checks, plus a dependency audit and a Docker build.
 
