@@ -6,12 +6,12 @@ services:
     container_name: analysarr
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "1818:1818"
     environment:
       # Seules variables à connaître : tout le reste (serveur multimédia,
       # Sonarr, Radarr, qBittorrent, Seer, cross-seed...) se configure depuis
       # l'assistant au premier lancement (aucun .env requis).
-      PORT: 8000
+      PORT: 1818
       # Base SQLite (réglages + cache de scan), rangée hors des médias.
       # Si vous utilisiez l'ancien exemple (base dans /data), gardez
       # DATABASE_PATH=/data/analysarr.db pour conserver votre configuration.

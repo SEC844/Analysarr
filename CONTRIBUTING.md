@@ -24,7 +24,7 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-DATABASE_PATH=./data/analysarr.db uvicorn app.main:app --reload --port 8000
+DATABASE_PATH=./data/analysarr.db uvicorn app.main:app --reload --port 1818
 ```
 
 **Frontend** (React + Vite), in another terminal:
@@ -35,7 +35,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`. Vite forwards `/api` to the backend on port 8000.
+Open `http://localhost:5173`. Vite forwards `/api` to the backend on port 1818.
 
 ## Before opening a pull request
 

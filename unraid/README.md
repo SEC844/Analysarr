@@ -8,7 +8,7 @@
 2. Dans **Template**, collez l'URL :
    `https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.xml`
 3. Vérifiez le chemin **Data (media and downloads)** puis **Apply**.
-4. Ouvrez l'interface (`http://<ip-unraid>:8000`), créez le compte administrateur et suivez l'assistant.
+4. Ouvrez l'interface (`http://<ip-unraid>:1818`), créez le compte administrateur et suivez l'assistant.
 
 ## Montage des données : le point essentiel
 

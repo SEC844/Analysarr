@@ -14,6 +14,7 @@
   <a href="https://github.com/SEC844/Analysarr/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SEC844/Analysarr/ci.yml?branch=dev&label=CI" alt="CI"></a>
   <a href="https://github.com/SEC844/Analysarr/pkgs/container/analysarr"><img src="https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white" alt="Image Docker"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/SEC844/Analysarr" alt="Licence"></a>
+  <a href="https://github.com/SEC844/Analysarr/stargazers"><img src="https://img.shields.io/github/stars/SEC844/Analysarr?style=flat" alt="Étoiles GitHub"></a>
 </p>
 
 <p align="center">
@@ -28,6 +29,8 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Quels fichiers sont des **doublons** laissés par un upgrade Sonarr/Radarr ?
 - Quels torrents sont **orphelins** (ancienne qualité, plus rien n'y est lié) ?
 - Qui l'a **regardé**, qui l'a **demandé**, et combien d'espace sa suppression libérerait **réellement** ?
+
+> **Analysarr vous plaît ?** Laissez-lui une ⭐ sur [GitHub](https://github.com/SEC844/Analysarr) : cela aide d'autres personnes à découvrir le projet et encourage son développement.
 
 ## Fonctionnalités
 
@@ -50,7 +53,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Confort au quotidien**
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
-- Notifications Discord, ntfy ou Gotify après un scan, un échec de scan ou une action.
+- Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape) après un scan, un échec de scan ou une action.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.
 - Notification quand une nouvelle version est publiée.
@@ -78,7 +81,7 @@ services:
     container_name: analysarr
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "1818:1818"
     environment:
       DATABASE_PATH: /config/analysarr.db
     volumes:
@@ -98,7 +101,7 @@ https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.xml
 
 ### Premier lancement
 
-Ouvrez `http://<hôte>:8000`, créez le compte administrateur, puis suivez l'assistant de configuration. Aucun fichier de configuration à éditer : tout se règle depuis l'interface, avec un bouton **Tester la connexion** pour chaque service.
+Ouvrez `http://<hôte>:1818`, créez le compte administrateur, puis suivez l'assistant de configuration. Aucun fichier de configuration à éditer : tout se règle depuis l'interface, avec un bouton **Tester la connexion** pour chaque service.
 
 ## Chemins et hardlinks
 
@@ -119,9 +122,12 @@ L'accès en écriture aux données ne sert qu'à la suppression de médias et à
 
 Téléchargez la nouvelle image et recréez le conteneur. Réglages et cache sont conservés dans `/config`. L'interface signale quand une nouvelle version est disponible (**Réglages → Application**, désactivable).
 
+**Mise à jour depuis une version antérieure à 0.19.0 ?** Le port par défaut passe de 8000 à **1818**. Adaptez la redirection de port (`1818:1818`, ou le port du conteneur sur Unraid), ou définissez la variable d'environnement `PORT=8000` pour garder l'ancien port.
+
 ## Sécurité
 
 - Un seul compte administrateur ; mots de passe hachés avec bcrypt ; connexion bloquée 15 minutes après 5 échecs.
+- Double authentification optionnelle (application TOTP) avec codes de secours à usage unique.
 - Sessions stockées côté serveur, transmises par cookie `httpOnly`.
 - Les clés API et mots de passe de vos services restent sur le serveur : ils ne sont jamais renvoyés au navigateur.
 - Seules connexions sortantes : les services que vous configurez (canaux de notification compris), et une vérification optionnelle des mises à jour auprès de l'API GitHub (seule la version d'Analysarr est transmise).

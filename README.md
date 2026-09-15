@@ -14,6 +14,7 @@
   <a href="https://github.com/SEC844/Analysarr/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SEC844/Analysarr/ci.yml?branch=dev&label=CI" alt="CI"></a>
   <a href="https://github.com/SEC844/Analysarr/pkgs/container/analysarr"><img src="https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white" alt="Docker image"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/SEC844/Analysarr" alt="License"></a>
+  <a href="https://github.com/SEC844/Analysarr/stargazers"><img src="https://img.shields.io/github/stars/SEC844/Analysarr?style=flat" alt="GitHub stars"></a>
 </p>
 
 <p align="center">
@@ -28,6 +29,8 @@ Analysarr shows, for every movie and series, its state across your whole stack ‚
 - Which files are **duplicates** left behind by a Sonarr/Radarr upgrade?
 - Which torrents are **orphans** (old quality, nothing links to them anymore)?
 - Who **watched** it, who **requested** it, and how much space would deleting it **really** free?
+
+> **Like Analysarr?** Give it a ‚≠ê on [GitHub](https://github.com/SEC844/Analysarr): it helps other people find the project and keeps it moving.
 
 ## Features
 
@@ -50,7 +53,7 @@ Analysarr shows, for every movie and series, its state across your whole stack ‚
 
 **Everyday comfort**
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
-- Notifications on Discord, ntfy or Gotify after a scan, a failed scan or an action.
+- Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step) after a scan, a failed scan or an action.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.
 - Update notification when a new version is released.
@@ -78,7 +81,7 @@ services:
     container_name: analysarr
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "1818:1818"
     environment:
       DATABASE_PATH: /config/analysarr.db
     volumes:
@@ -98,7 +101,7 @@ https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.xml
 
 ### First launch
 
-Open `http://<host>:8000`, create the administrator account, then follow the setup wizard. There is no configuration file to edit: everything is configured from the interface, with a **Test connection** button for every service.
+Open `http://<host>:1818`, create the administrator account, then follow the setup wizard. There is no configuration file to edit: everything is configured from the interface, with a **Test connection** button for every service.
 
 ## Paths and hardlinks
 
@@ -119,9 +122,12 @@ Write access to the data share is only used when you delete media or repair hard
 
 Pull the new image and recreate the container. Your settings and cache live in `/config` and are kept. The interface shows a notification when a new version is available (**Settings ‚Üí Application**, can be disabled).
 
+**Upgrading from a version older than 0.19.0?** The default port changed from 8000 to **1818**. Update your port mapping (`1818:1818`, or the container port on Unraid), or set the `PORT=8000` environment variable to keep the previous port.
+
 ## Security
 
 - A single administrator account; passwords hashed with bcrypt; login locked for 15 minutes after 5 failed attempts.
+- Optional two-factor authentication (TOTP authenticator app) with single-use recovery codes.
 - Sessions stored server-side, sent as an `httpOnly` cookie.
 - API keys and passwords of your services stay on the server: they are never sent back to the browser.
 - The only outbound connections are the services you configure (notification channels included), plus an optional update check against the GitHub API (sends only the Analysarr version).
