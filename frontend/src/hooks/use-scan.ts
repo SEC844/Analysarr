@@ -30,10 +30,31 @@ export function useScanRunner() {
     setIsRunning(true)
     setEvent({ type: "started" })
 
+    let triggered = false
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined
+
     const cleanup = () => {
+      clearTimeout(fallbackTimer)
       source.close()
       sourceRef.current = null
       setIsRunning(false)
+    }
+
+    const trigger = () => {
+      if (triggered) return
+      triggered = true
+      clearTimeout(fallbackTimer)
+      startScan()
+        .then((result) => {
+          if (!result.started) {
+            setEvent({ type: "failed", message: result.message ?? t("scan.alreadyRunning") })
+            cleanup()
+          }
+        })
+        .catch((error: unknown) => {
+          setEvent({ type: "failed", message: error instanceof Error ? error.message : String(error) })
+          cleanup()
+        })
     }
 
     source.onmessage = (e) => {
@@ -48,14 +69,11 @@ export function useScanRunner() {
       cleanup()
     }
 
-    source.onopen = () => {
-      startScan().then((result) => {
-        if (!result.started) {
-          setEvent({ type: "failed", message: result.message ?? t("scan.alreadyRunning") })
-          cleanup()
-        }
-      })
-    }
+    source.onopen = trigger
+    // Filet de sécurité : si l'ouverture du flux n'est jamais signalée (proxy
+    // qui met la réponse en tampon), le scan est lancé quand même plutôt que
+    // de rester indéfiniment sur « Démarrage du scan... ».
+    fallbackTimer = setTimeout(trigger, 3000)
   }, [queryClient, t])
 
   return { start, isRunning, event }

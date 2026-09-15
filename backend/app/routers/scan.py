@@ -24,6 +24,12 @@ from app.services.scan import is_scan_running, run_scan
 
 router = APIRouter()
 
+_running_tasks: set[asyncio.Task] = set()
+
+# Ping SSE (commentaire ignoré par EventSource) : garde la connexion vivante
+# derrière un reverse-proxy qui coupe les connexions inactives.
+STREAM_HEARTBEAT_SECONDS = 15
+
 
 def _to_read(run: ScanRun) -> ScanRunRead:
     return ScanRunRead(
@@ -46,7 +52,11 @@ def _to_read(run: ScanRun) -> ScanRunRead:
 async def start_scan() -> dict:
     if is_scan_running():
         return {"started": False, "message": "Un scan est déjà en cours."}
-    asyncio.create_task(run_scan())
+    # Référence forte : asyncio ne garde qu'une référence faible sur les tâches,
+    # un scan pourrait sinon être collecté par le ramasse-miettes en cours de route.
+    task = asyncio.create_task(run_scan())
+    _running_tasks.add(task)
+    task.add_done_callback(_running_tasks.discard)
     return {"started": True}
 
 
@@ -69,15 +79,31 @@ async def scan_stream() -> StreamingResponse:
 
     async def gen():
         try:
+            # Premier octet immédiat : le frontend attend l'ouverture du flux
+            # (`onopen`) pour lancer le scan. Sans rien à envoyer avant le
+            # premier événement, un reverse-proxy qui met la réponse en tampon
+            # ne transmet jamais l'ouverture — l'interface restait bloquée sur
+            # « Démarrage du scan... » sans que le scan ne parte.
+            yield ": connected\n\n"
             while True:
-                event = await queue.get()
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=STREAM_HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
                 yield f"data: {json.dumps(event)}\n\n"
                 if event.get("type") in ("completed", "failed"):
                     break
         finally:
             scan_events.unsubscribe(queue)
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        # no-transform + X-Accel-Buffering : ni compression ni mise en tampon
+        # par un proxy (nginx, Nginx Proxy Manager, SWAG...).
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/diagnostics", response_model=DiagnosticsResult)
