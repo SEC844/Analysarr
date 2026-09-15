@@ -33,10 +33,10 @@ export const fr = {
     updateAvailable: "Mise à jour disponible",
   },
   servicesStatus: {
-    title: "État des services",
-    allOk: "Tous les services répondent",
+    ok: "Service joignable",
     someDown: { one: "{count} service ne répond pas", other: "{count} services ne répondent pas" },
-    checked: "vérifié {time}",
+    alertTitle: { one: "Ce service ne répond pas", other: "Ces services ne répondent pas" },
+    checked: "Dernière vérification {time}",
     refresh: "Vérifier maintenant",
   },
   auth: {

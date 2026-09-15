@@ -55,7 +55,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
 - Plusieurs instances Sonarr et Radarr (ex : un Radarr dédié à la 4K) : chaque média reste rattaché à l'instance qui le suit, et une version suivie par une autre instance n'est jamais comptée comme un doublon.
 - Fichiers de la bibliothèque rapprochés de Sonarr/Radarr même quand les conteneurs montent la bibliothèque à des chemins différents.
-- État de connexion de chaque service affiché en permanence dans l'en-tête.
+- État de connexion de chaque service dans les réglages, avec une alerte dans l'en-tête dès qu'un service ne répond plus.
 - Widget de tableau de bord en lecture seule (`/api/status`) pour Homepage, Homarr ou tout outil capable de lire du JSON.
 - Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape) après un scan, un échec de scan ou une action.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.

@@ -55,7 +55,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
 - Several Sonarr and Radarr instances (e.g. a dedicated 4K Radarr): each media stays linked to the instance tracking it, and a version tracked by another instance is never treated as a duplicate.
 - Library files are matched to Sonarr/Radarr even when containers mount the library at different paths.
-- Live connection status of every service in the header.
+- Connection status of every service in the settings, with an alert in the header as soon as one becomes unreachable.
 - Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
 - Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step) after a scan, a failed scan or an action.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.

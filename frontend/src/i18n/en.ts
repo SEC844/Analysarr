@@ -33,10 +33,10 @@ export const en: Dictionary = {
     updateAvailable: "Update available",
   },
   servicesStatus: {
-    title: "Service status",
-    allOk: "All services are reachable",
+    ok: "Service reachable",
     someDown: { one: "{count} service is unreachable", other: "{count} services are unreachable" },
-    checked: "checked {time}",
+    alertTitle: { one: "This service is unreachable", other: "These services are unreachable" },
+    checked: "Last checked {time}",
     refresh: "Check now",
   },
   auth: {

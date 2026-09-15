@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, RefreshCw, XCircle } from "lucide-react"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -19,12 +19,16 @@ import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
 import { WidgetSection } from "@/components/settings/widget-section"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
+import { useRefreshServicesStatusMutation, useServicesStatusQuery } from "@/hooks/use-services"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n, type MediaServer, type MessageKey } from "@/i18n"
+import { formatRelativeTime } from "@/lib/format"
+import { summarizeServices, type SectionServiceStatus } from "@/lib/services"
 import { cn } from "@/lib/utils"
 import { settingsReadToForm, type SettingsRead } from "@/types/settings"
 
@@ -91,6 +95,21 @@ export function SettingsPage() {
   return <SettingsForm key={JSON.stringify(data)} existing={data} />
 }
 
+function ServiceDot({ status }: { status: SectionServiceStatus }) {
+  const { t } = useI18n()
+  if (!status.ok) {
+    return <PulseDot tone="danger" label={t("servicesStatus.someDown", { count: status.down.length })} />
+  }
+  return (
+    <span
+      role="img"
+      aria-label={t("servicesStatus.ok")}
+      title={t("servicesStatus.ok")}
+      className="size-2 shrink-0 rounded-full bg-emerald-500"
+    />
+  )
+}
+
 function SettingsForm({ existing }: { existing: SettingsRead }) {
   const { t } = useI18n()
   // Section dans l'URL : lien direct possible (pastille de mise à jour →
@@ -104,6 +123,12 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
   const saveSettings = useSaveSettingsMutation()
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
+  // Pastille par service dans la navigation ; encadré d'erreur dans la section
+  // d'un service qui ne répond pas (lien direct depuis l'en-tête).
+  const { data: services } = useServicesStatusQuery()
+  const refreshServices = useRefreshServicesStatusMutation()
+  const serviceStatuses = summarizeServices(services)
+  const sectionStatus = serviceStatuses.bySection[section]
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -152,6 +177,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                   )}
                 >
                   {label(s.label)}
+                  {serviceStatuses.bySection[s.id] && <ServiceDot status={serviceStatuses.bySection[s.id]} />}
                   {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
                 </button>
               ))}
@@ -160,6 +186,37 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
         </nav>
 
         <div className="min-w-0 flex-1 space-y-6">
+          {sectionStatus && !sectionStatus.ok && (
+            <Alert variant="destructive">
+              <XCircle className="size-4" />
+              <AlertTitle>{t("servicesStatus.alertTitle", { count: sectionStatus.down.length })}</AlertTitle>
+              <AlertDescription className="space-y-2">
+                <ul className="space-y-1">
+                  {sectionStatus.down.map((service, index) => (
+                    <li key={`${service.name}-${index}`} className="break-words">
+                      <span className="font-medium">{service.name}</span> — {service.message}
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={refreshServices.isPending}
+                    onClick={() => refreshServices.mutate()}
+                  >
+                    <RefreshCw className={cn("size-4", refreshServices.isPending && "animate-spin")} />
+                    {t("servicesStatus.refresh")}
+                  </Button>
+                  <span className="text-xs">
+                    {t("servicesStatus.checked", { time: formatRelativeTime(services?.checked_at) ?? "—" })}
+                  </span>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {(section === "emby" || section === "sonarr" || section === "radarr") && (
             <ApiKeyServiceCard
               key={section}
