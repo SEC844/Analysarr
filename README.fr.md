@@ -32,6 +32,13 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 > **Analysarr vous plaît ?** Laissez-lui une ⭐ sur [GitHub](https://github.com/SEC844/Analysarr) : cela aide d'autres personnes à découvrir le projet et encourage son développement.
 
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Bibliothèque : séries en cours de visionnage, avec statuts de santé, quota de visionnage et poids" width="100%">
+</p>
+<p align="center">
+  <img src="docs/screenshots/media-detail.png" alt="Fiche média : demande Seer, visionnage et torrents hardlinkés sur plusieurs trackers" width="100%">
+</p>
+
 ## Fonctionnalités
 
 **Détection**

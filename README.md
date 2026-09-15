@@ -32,6 +32,13 @@ Analysarr shows, for every movie and series, its state across your whole stack ‚
 
 > **Like Analysarr?** Give it a ‚≠ê on [GitHub](https://github.com/SEC844/Analysarr): it helps other people find the project and keeps it moving.
 
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Library: series currently being watched, with health statuses, watch quota and size" width="100%">
+</p>
+<p align="center">
+  <img src="docs/screenshots/media-detail.png" alt="Media page: Seer request, watch activity and hardlinked torrents across trackers" width="100%">
+</p>
+
 ## Features
 
 **Detection**
