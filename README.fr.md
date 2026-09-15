@@ -53,6 +53,10 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Confort au quotidien**
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
+- Plusieurs instances Sonarr et Radarr (ex : un Radarr dédié à la 4K) : chaque média reste rattaché à l'instance qui le suit, et une version suivie par une autre instance n'est jamais comptée comme un doublon.
+- Fichiers de la bibliothèque rapprochés de Sonarr/Radarr même quand les conteneurs montent la bibliothèque à des chemins différents.
+- État de connexion de chaque service affiché en permanence dans l'en-tête.
+- Widget de tableau de bord en lecture seule (`/api/status`) pour Homepage, Homarr ou tout outil capable de lire du JSON.
 - Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape) après un scan, un échec de scan ou une action.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.
@@ -118,6 +122,28 @@ C'est l'organisation recommandée par les [TRaSH Guides](https://trash-guides.in
 
 L'accès en écriture aux données ne sert qu'à la suppression de médias et à la réparation des hardlinks, toujours après confirmation.
 
+## Widget de tableau de bord
+
+Générez une clé dans **Réglages → Configuration → Widget**, puis interrogez `http://<hôte>:1818/api/status` avec l'en-tête `X-Api-Key` (ou `Authorization: Bearer`). La réponse ne contient que des compteurs : total des médias, films, séries, médias sains, médias par statut, espace récupérable, dernier scan et état des services. Exemple pour [Homepage](https://gethomepage.dev/widgets/services/customapi/) :
+
+```yaml
+- Analysarr:
+    href: http://analysarr:1818
+    widget:
+      type: customapi
+      url: http://analysarr:1818/api/status
+      headers:
+        X-Api-Key: VOTRE_CLE
+      mappings:
+        - field: { media: total }
+          label: Médias
+        - field: { statuses: doublon }
+          label: Doublons
+        - field: reclaimable_bytes
+          label: Récupérable
+          format: bytes
+```
+
 ## Mise à jour
 
 Téléchargez la nouvelle image et recréez le conteneur. Réglages et cache sont conservés dans `/config`. L'interface signale quand une nouvelle version est disponible (**Réglages → Application**, désactivable).
@@ -128,6 +154,7 @@ Téléchargez la nouvelle image et recréez le conteneur. Réglages et cache son
 
 - Un seul compte administrateur ; mots de passe hachés avec bcrypt ; connexion bloquée 15 minutes après 5 échecs.
 - Double authentification optionnelle (application TOTP) avec codes de secours à usage unique.
+- Le widget exige sa propre clé (stockée hachée, acceptée uniquement dans un en-tête), n'expose que des compteurs (aucun titre, chemin ni adresse de service) et ne déclenche jamais de requête vers vos services.
 - Sessions stockées côté serveur, transmises par cookie `httpOnly`.
 - Les clés API et mots de passe de vos services restent sur le serveur : ils ne sont jamais renvoyés au navigateur.
 - Seules connexions sortantes : les services que vous configurez (canaux de notification compris), et une vérification optionnelle des mises à jour auprès de l'API GitHub (seule la version d'Analysarr est transmise).
