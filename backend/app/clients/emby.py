@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -18,7 +19,7 @@ class EmbyClient:
                 params={
                     "Recursive": "true",
                     "IncludeItemTypes": item_types,
-                    "Fields": "ProviderIds,Path,MediaSources,ImageTags",
+                    "Fields": "ProviderIds,Path,MediaSources,ImageTags,DateCreated",
                 },
             )
             resp.raise_for_status()
@@ -38,12 +39,51 @@ class EmbyClient:
             resp.raise_for_status()
             return resp.json().get("Items", [])
 
-    def poster_url(self, item_id: str) -> str:
-        return f"{self.base_url}/Items/{item_id}/Images/Primary?api_key={self.api_key}"
-
-    async def fetch_poster(self, item_id: str) -> tuple[bytes, str] | None:
+    async def get_users(self) -> list[dict[str, Any]]:
         async with self._client() as client:
-            resp = await client.get(f"/Items/{item_id}/Images/Primary")
+            resp = await client.get("/Users")
+            resp.raise_for_status()
+            return resp.json()
+
+    async def get_user_items(
+        self,
+        user_id: str,
+        item_type: str,
+        *,
+        ids: str | None = None,
+        parent_id: str | None = None,
+        filters: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Éléments visibles par CET utilisateur (bibliothèques auxquelles il a
+        accès), avec son état de lecture (`UserData`). Sans `ids`/`parent_id` :
+        toute la bibliothèque, pour le scan ; avec : un seul média, pour
+        rafraîchir une fiche."""
+        params = {
+            "Recursive": "true",
+            "IncludeItemTypes": item_type,
+            "EnableUserData": "true",
+            "EnableImages": "false",
+        }
+        if ids:
+            params["Ids"] = ids
+        if parent_id:
+            params["ParentId"] = parent_id
+        if filters:
+            params["Filters"] = filters
+        async with self._client() as client:
+            resp = await client.get(f"/Users/{quote(user_id, safe='')}/Items", params=params)
+            resp.raise_for_status()
+            return resp.json().get("Items", [])
+
+    async def _fetch_image(self, path: str) -> tuple[bytes, str] | None:
+        async with self._client() as client:
+            resp = await client.get(path)
             if resp.status_code != 200:
                 return None
             return resp.content, resp.headers.get("content-type", "image/jpeg")
+
+    async def fetch_poster(self, item_id: str) -> tuple[bytes, str] | None:
+        return await self._fetch_image(f"/Items/{quote(item_id, safe='')}/Images/Primary")
+
+    async def fetch_user_avatar(self, user_id: str) -> tuple[bytes, str] | None:
+        return await self._fetch_image(f"/Users/{quote(user_id, safe='')}/Images/Primary")

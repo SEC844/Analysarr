@@ -5,7 +5,7 @@ import { useScanRunner } from "@/hooks/use-scan"
 import { useI18n, type MessageKey } from "@/i18n"
 
 // Étapes envoyées par le backend (événements SSE) : identifiants fixes.
-const STAGES = new Set(["radarr", "sonarr", "emby", "historique", "qbittorrent", "enregistrement"])
+const STAGES = new Set(["radarr", "sonarr", "emby", "historique", "qbittorrent", "enregistrement", "visionnage"])
 
 export function ScanButton() {
   const { t } = useI18n()

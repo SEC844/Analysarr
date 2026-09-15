@@ -11,6 +11,7 @@ import type {
   CrossSeedSearchResult,
   DeleteExecuteResult,
   DeletePreview,
+  EmbyUserRead,
   HardlinkRepairPreview,
   HardlinkRepairResult,
   MediaDeleteFootprint,
@@ -19,6 +20,7 @@ import type {
   MediaDetail,
   MediaListParams,
   MediaListResponse,
+  MediaWatchStats,
   ScanRunRead,
 } from "@/types/media"
 import type {
@@ -124,6 +126,7 @@ export function listMedia(params: MediaListParams): Promise<MediaListResponse> {
   const search = new URLSearchParams()
   if (params.status) search.set("status", params.status)
   if (params.media_type) search.set("media_type", params.media_type)
+  if (params.watch) search.set("watch", params.watch)
   if (params.search) search.set("search", params.search)
   if (params.sort) search.set("sort", params.sort)
   const qs = search.toString()
@@ -141,6 +144,20 @@ export function posterUrl(id: number, imageTag: string | null): string {
   // changement de jaquette change le tag, donc l'URL, donc force un nouveau
   // téléchargement automatiquement.
   return imageTag ? `/api/media/${id}/poster?v=${encodeURIComponent(imageTag)}` : `/api/media/${id}/poster`
+}
+
+export function getMediaWatch(id: number): Promise<MediaWatchStats> {
+  return request<MediaWatchStats>(`/api/media/${id}/watch`)
+}
+
+export function listEmbyUsers(): Promise<EmbyUserRead[]> {
+  return request<EmbyUserRead[]>("/api/emby/users")
+}
+
+// Même principe que posterUrl : `v` (étiquette de l'avatar Emby) rend l'URL
+// propre à cette version de l'image, cachable indéfiniment par le navigateur.
+export function embyAvatarUrl(userId: string, imageTag: string): string {
+  return `/api/emby/users/${encodeURIComponent(userId)}/avatar?v=${encodeURIComponent(imageTag)}`
 }
 
 export function deletePreview(id: number): Promise<DeletePreview> {

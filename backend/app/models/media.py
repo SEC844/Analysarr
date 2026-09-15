@@ -53,6 +53,23 @@ class Media(SQLModel, table=True):
     # Taille totale récupérable estimée (fichiers en doublon + torrents orphelins), en octets.
     reclaimable_bytes: int = 0
 
+    # Taille des fichiers actuellement suivis (hors doublons), en octets —
+    # sert au tri "candidats au nettoyage" sans recharger les fichiers.
+    total_size: int = 0
+
+    # Date d'ajout dans Emby (`DateCreated`) et, pour une série, nombre
+    # d'épisodes présents dans Emby (dénominateur du visionnage "18/20").
+    emby_date_added: Optional[datetime] = None
+    episode_count: int = 0
+
+    # Agrégats de visionnage (voir services/watch_stats.py), calculés sur les
+    # seuls utilisateurs Emby pris en compte : actifs, ayant accès au média,
+    # non exclus dans les réglages. Stockés pour filtrer/trier la bibliothèque.
+    watch_user_count: int = 0
+    watch_played_count: int = 0
+    watch_in_progress_count: int = 0
+    last_played_at: Optional[datetime] = None
+
     last_scanned_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -139,6 +156,36 @@ class Torrent(SQLModel, table=True):
 
     # JSON list [{"domain": str, "status": str}]
     trackers_json: str = "[]"
+
+
+class EmbyUser(SQLModel, table=True):
+    """Utilisateur Emby (cache reconstruit à chaque scan et à chaque
+    rafraîchissement d'une fiche). `id` : identifiant Emby."""
+
+    id: str = Field(primary_key=True)
+    name: str
+    # Étiquette de version de l'avatar (`PrimaryImageTag`) : clé de cache,
+    # comme pour les jaquettes. None = pas d'avatar.
+    image_tag: Optional[str] = None
+    is_disabled: bool = False
+
+
+class MediaWatch(SQLModel, table=True):
+    """État de visionnage d'un média par un utilisateur Emby. Une ligne
+    n'existe que si l'utilisateur a accès au média dans Emby."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    media_id: int = Field(foreign_key="media.id", index=True)
+    emby_user_id: str = Field(index=True)
+
+    # Vu entièrement (film marqué vu, ou tous les épisodes d'une série vus).
+    played: bool = False
+    # Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
+    progress: float = 0
+    # Lecture commencée sans être terminée (film entamé, épisode en cours ou
+    # série partiellement vue).
+    in_progress: bool = False
+    last_played_at: Optional[datetime] = None
 
 
 class ScanStatus(str, Enum):

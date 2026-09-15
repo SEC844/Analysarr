@@ -7,6 +7,7 @@ import { AccountCard } from "@/components/settings/account-card"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
+import { EmbyUsersCard } from "@/components/settings/emby-users-card"
 import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
 import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
@@ -152,6 +153,13 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
               apiKey={form[`${section}_api_key`]}
               onApiKeyChange={(v) => set(`${section}_api_key`, v)}
               apiKeySet={existing[section].api_key_set}
+            />
+          )}
+
+          {section === "emby" && existing.emby.api_key_set && (
+            <EmbyUsersCard
+              excluded={form.excluded_emby_user_ids}
+              onExcludedChange={(v) => set("excluded_emby_user_ids", v)}
             />
           )}
 

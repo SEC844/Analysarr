@@ -18,6 +18,7 @@ import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
 import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { StatusBadgeList } from "@/components/media/status-badge"
+import { WatchSummary } from "@/components/media/watch-stats"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -202,6 +203,7 @@ export function MediaDetailPage() {
             </p>
           </div>
           <StatusBadgeList statuses={media.statuses} />
+          <WatchSummary mediaId={media.id} />
           {media.missing_emby_episodes.length > 0 && (
             <p className="text-muted-foreground text-sm">
               {t("media.missingEmby", { list: media.missing_emby_episodes.join(", ") })}

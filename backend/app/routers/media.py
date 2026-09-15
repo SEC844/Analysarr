@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -24,6 +25,7 @@ from app.schemas.media import (
     MediaFileRead,
     MediaListItem,
     MediaListResponse,
+    MediaWatchStats,
     TorrentRead,
     TrackerRead,
 )
@@ -31,7 +33,8 @@ from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
 from app.services.media_delete import build_delete_footprint, execute_media_delete
-from app.services.poster_cache import read_cached_poster, write_cached_poster
+from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
+from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
 router = APIRouter()
 
@@ -49,18 +52,41 @@ def _to_list_item(media: Media) -> MediaListItem:
         year=media.year,
         statuses=[s for s in media.statuses.split(",") if s],
         reclaimable_bytes=media.reclaimable_bytes,
+        total_size=media.total_size,
         has_poster=media.has_poster,
         poster_image_tag=media.poster_image_tag,
         last_scanned_at=media.last_scanned_at,
+        has_emby_item=bool(media.emby_item_id),
+        date_added=as_utc(media.emby_date_added),
+        watch_user_count=media.watch_user_count,
+        watch_played_count=media.watch_played_count,
+        watch_in_progress_count=media.watch_in_progress_count,
+        last_played_at=as_utc(media.last_played_at),
     )
+
+
+def _matches_watch_filter(media: Media, watch: str) -> bool:
+    if watch == "never":
+        return media.watch_user_count > 0 and media.watch_played_count == 0 and media.watch_in_progress_count == 0
+    if watch == "in_progress":
+        return media.watch_in_progress_count > 0
+    if watch == "all":
+        return media.watch_user_count > 0 and media.watch_played_count == media.watch_user_count
+    return True
+
+
+def _idle_since(media: Media) -> datetime | None:
+    """Dernière activité connue : dernière lecture, sinon date d'ajout."""
+    return as_utc(media.last_played_at) or as_utc(media.emby_date_added)
 
 
 @router.get("", response_model=MediaListResponse)
 def list_media(
     status: Optional[str] = Query(None, description="doublon | orphelin_qbit | non_hardlink | tracker_unique | sain"),
     media_type: Optional[str] = Query(None, description="movie | series"),
+    watch: Optional[str] = Query(None, description="never | in_progress | all"),
     search: Optional[str] = None,
-    sort: str = Query("title", description="title | year | size"),
+    sort: str = Query("title", description="title | year | size | last_played | cleanup"),
     session: Session = Depends(get_session),
 ) -> MediaListResponse:
     medias = list(session.exec(select(Media)).all())
@@ -75,11 +101,28 @@ def list_media(
             medias = [m for m in medias if not m.statuses]
         else:
             medias = [m for m in medias if status in m.statuses.split(",")]
+    if watch:
+        medias = [m for m in medias if _matches_watch_filter(m, watch)]
 
+    now = datetime.now(timezone.utc)
     if sort == "year":
         medias.sort(key=lambda m: m.year or 0, reverse=True)
     elif sort == "size":
         medias.sort(key=lambda m: m.reclaimable_bytes, reverse=True)
+    elif sort == "last_played":
+        # Plus longtemps sans lecture en premier ; jamais lus d'abord, du plus
+        # anciennement ajouté au plus récent.
+        medias.sort(key=lambda m: (m.last_played_at is not None, _idle_since(m) or now))
+    elif sort == "cleanup":
+        # Candidats au nettoyage : poids × jours sans activité — un gros
+        # fichier jamais regardé depuis un an passe devant un petit fichier vu
+        # le mois dernier.
+        def cleanup_score(m: Media) -> float:
+            since = _idle_since(m)
+            idle_days = max((now - since).days, 1) if since else 1
+            return (m.total_size or 0) * idle_days
+
+        medias.sort(key=cleanup_score, reverse=True)
     else:
         medias.sort(key=lambda m: m.title.lower())
 
@@ -146,7 +189,10 @@ async def get_poster(media_id: int, session: Session = Depends(get_session)) -> 
         result = await emby.fetch_poster(media.emby_item_id)
         if result is None:
             raise HTTPException(404, "Jaquette introuvable.")
-        content, content_type = result
+        content = result[0]
+        content_type = safe_image_type(result[1])
+        if content_type is None:
+            raise HTTPException(404, "Jaquette introuvable.")
         write_cached_poster(media.emby_item_id, media.poster_image_tag, content, content_type)
 
     # L'URL est déjà propre à cette version précise de la jaquette (voir
@@ -156,8 +202,20 @@ async def get_poster(media_id: int, session: Session = Depends(get_session)) -> 
     return Response(
         content=content,
         media_type=content_type,
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        headers={"Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff"},
     )
+
+
+@router.get("/{media_id}/watch", response_model=MediaWatchStats)
+async def get_media_watch(media_id: int, session: Session = Depends(get_session)) -> MediaWatchStats:
+    """Visionnage par utilisateur Emby, rafraîchi en direct à l'ouverture de
+    la fiche (repli sur le dernier scan si Emby est injoignable)."""
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    live = await refresh_media_watch(session, media, settings)
+    return build_watch_stats(session, media, settings, live)
 
 
 @router.post("/{media_id}/delete/preview", response_model=DeletePreview)

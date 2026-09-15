@@ -28,6 +28,9 @@ _CURRENT_SCHEMA_MARKERS = [
     ("media", "poster_image_tag"),
     ("torrent", "category"),
     ("mediafile", "arr_file_id"),
+    ("media", "watch_in_progress_count"),
+    ("mediawatch", "in_progress"),
+    ("embyuser", "image_tag"),
 ]
 
 
@@ -56,7 +59,7 @@ def _reset_media_cache_if_stale() -> None:
         return
 
     with engine.begin() as conn:
-        for table in ("torrent", "mediafile", "scanrun", "media"):
+        for table in ("mediawatch", "embyuser", "torrent", "mediafile", "scanrun", "media"):
             conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
 
@@ -70,6 +73,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("scan_schedule_interval_minutes", "INTEGER"),
     ("language", "VARCHAR"),
     ("update_check_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("excluded_emby_user_ids", "VARCHAR NOT NULL DEFAULT '[]'"),
 ]
 
 
@@ -87,7 +91,7 @@ def _ensure_settings_columns() -> None:
 def init_db() -> None:
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
-    from app.models.media import Media, MediaFile, ScanRun, Torrent  # noqa: F401
+    from app.models.media import EmbyUser, Media, MediaFile, MediaWatch, ScanRun, Torrent  # noqa: F401
     from app.models.settings import Settings  # noqa: F401
 
     _reset_media_cache_if_stale()

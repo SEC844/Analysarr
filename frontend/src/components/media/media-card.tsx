@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { Clapperboard, Tv } from "lucide-react"
+import { Clapperboard, Tv, Users } from "lucide-react"
 
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { useI18n } from "@/i18n"
@@ -12,6 +12,7 @@ export function MediaCard({ media }: { media: MediaListItem }) {
   const { t } = useI18n()
   const [imgError, setImgError] = useState(false)
   const Icon = media.media_type === "movie" ? Clapperboard : Tv
+  const showQuota = media.has_emby_item && media.watch_user_count > 0
 
   return (
     <Link
@@ -39,10 +40,21 @@ export function MediaCard({ media }: { media: MediaListItem }) {
           {media.year && <p className="text-muted-foreground text-xs">{media.year}</p>}
         </div>
         <StatusBadgeList statuses={media.statuses} />
-        {media.reclaimable_bytes > 0 && (
-          <p className="text-muted-foreground mt-auto text-xs">
-            {t("library.reclaimable", { size: formatBytes(media.reclaimable_bytes) })}
-          </p>
+        {(showQuota || media.reclaimable_bytes > 0) && (
+          <div className="text-muted-foreground mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs">
+            {showQuota && (
+              <span
+                className="inline-flex items-center gap-1 tabular-nums"
+                title={t("watch.summary", { count: media.watch_played_count, total: media.watch_user_count })}
+              >
+                <Users className="size-3" />
+                {media.watch_played_count}/{media.watch_user_count}
+              </span>
+            )}
+            {media.reclaimable_bytes > 0 && (
+              <span>{t("library.reclaimable", { size: formatBytes(media.reclaimable_bytes) })}</span>
+            )}
+          </div>
         )}
       </div>
     </Link>

@@ -10,6 +10,7 @@ from app.database import engine, init_db
 from app.models.settings import Settings
 from app.routers import app as app_router
 from app.routers import auth as auth_router
+from app.routers import emby as emby_router
 from app.routers import media as media_router
 from app.routers import scan as scan_router
 from app.routers import settings as settings_router
@@ -57,6 +58,7 @@ app.include_router(app_router.router, prefix="/api/app", tags=["app"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(scan_router.router, prefix="/api/scan", tags=["scan"])
 app.include_router(media_router.router, prefix="/api/media", tags=["media"])
+app.include_router(emby_router.router, prefix="/api/emby", tags=["emby"])
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 

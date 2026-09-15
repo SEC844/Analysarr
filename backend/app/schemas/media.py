@@ -47,9 +47,48 @@ class MediaListItem(BaseModel):
     year: Optional[int]
     statuses: list[str]
     reclaimable_bytes: int
+    total_size: int
     has_poster: bool
     poster_image_tag: Optional[str]
     last_scanned_at: datetime
+    has_emby_item: bool
+    date_added: Optional[datetime]
+    watch_user_count: int
+    watch_played_count: int
+    watch_in_progress_count: int
+    last_played_at: Optional[datetime]
+
+
+class WatchUser(BaseModel):
+    id: str
+    name: str
+    image_tag: Optional[str]
+    played: bool
+    in_progress: bool
+    # Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
+    progress: float
+    last_played_at: Optional[datetime]
+
+
+class MediaWatchStats(BaseModel):
+    # False : média absent d'Emby, aucune statistique possible.
+    available: bool
+    # False : Emby injoignable, chiffres du dernier scan.
+    live: bool
+    total_episodes: Optional[int]
+    users: list[WatchUser]
+    played_count: int
+    in_progress_count: int
+    last_played_at: Optional[datetime]
+    last_played_by: Optional[str]
+    date_added: Optional[datetime]
+
+
+class EmbyUserRead(BaseModel):
+    id: str
+    name: str
+    image_tag: Optional[str]
+    is_disabled: bool
 
 
 class MediaDetail(MediaListItem):

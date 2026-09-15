@@ -28,6 +28,7 @@ export interface ScheduleRead {
 
 export interface SettingsRead {
   configured: boolean
+  watch: { excluded_emby_user_ids: string[] }
   emby: ServiceApiKeyRead
   sonarr: ServiceApiKeyRead
   radarr: ServiceApiKeyRead
@@ -55,6 +56,7 @@ export interface SettingsWrite {
   cross_seed_library_path: string
   scan_schedule_enabled: boolean
   scan_schedule_interval_minutes: number | null
+  excluded_emby_user_ids: string[]
 }
 
 export type ServiceName = "emby" | "sonarr" | "radarr" | "qbittorrent" | "cross_seed"
@@ -101,6 +103,7 @@ export function emptySettingsWrite(): SettingsWrite {
     cross_seed_library_path: "",
     scan_schedule_enabled: false,
     scan_schedule_interval_minutes: null,
+    excluded_emby_user_ids: [],
   }
 }
 
@@ -123,6 +126,7 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     cross_seed_library_path: s.cross_seed.library_path ?? "",
     scan_schedule_enabled: s.schedule.enabled,
     scan_schedule_interval_minutes: s.schedule.interval_minutes,
+    excluded_emby_user_ids: s.watch.excluded_emby_user_ids,
   }
 }
 

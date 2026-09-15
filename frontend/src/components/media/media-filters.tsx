@@ -26,15 +26,26 @@ const STATUS_OPTIONS: [string, MessageKey][] = [
   ["manquant_emby", "status.manquant_emby"],
   ["manquant_qbit", "status.manquant_qbit"],
 ]
+// "any" (et non "all", déjà une valeur de filtre : "vu par tous").
+const WATCH_OPTIONS: [string, MessageKey][] = [
+  ["any", "watch.filterAny"],
+  ["never", "watch.filterNever"],
+  ["in_progress", "watch.filterInProgress"],
+  ["all", "watch.filterAllWatched"],
+]
 const SORT_OPTIONS: [string, MessageKey][] = [
   ["title", "filters.sortTitle"],
   ["year", "filters.sortYear"],
   ["size", "filters.sortSize"],
+  ["last_played", "watch.sortLastPlayed"],
+  ["cleanup", "watch.sortCleanup"],
 ]
 
 export function MediaFilters({ value, onChange }: MediaFiltersProps) {
   const { t } = useI18n()
-  const hasActiveFilters = Boolean(value.status || value.media_type || value.search || (value.sort && value.sort !== "title"))
+  const hasActiveFilters = Boolean(
+    value.status || value.media_type || value.watch || value.search || (value.sort && value.sort !== "title"),
+  )
   const labelOf = (options: [string, MessageKey][]) => (v: string) => {
     const key = options.find(([option]) => option === v)?.[1]
     return key ? t(key) : v
@@ -94,8 +105,24 @@ export function MediaFilters({ value, onChange }: MediaFiltersProps) {
         </SelectContent>
       </Select>
 
-      <Select value={value.sort ?? "title"} onValueChange={(v) => onChange({ ...value, sort: v as MediaListParams["sort"] })}>
+      <Select
+        value={value.watch ?? "any"}
+        onValueChange={(v) => onChange({ ...value, watch: v === "any" ? undefined : (v as MediaListParams["watch"]) })}
+      >
         <SelectTrigger className="w-44">
+          <SelectValue placeholder={t("watch.filter")}>{labelOf(WATCH_OPTIONS)}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {WATCH_OPTIONS.map(([option, key]) => (
+            <SelectItem key={option} value={option}>
+              {t(key)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={value.sort ?? "title"} onValueChange={(v) => onChange({ ...value, sort: v as MediaListParams["sort"] })}>
+        <SelectTrigger className="w-52">
           <SelectValue placeholder={t("filters.sortBy")}>{labelOf(SORT_OPTIONS)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
