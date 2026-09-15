@@ -28,8 +28,28 @@ export interface ScheduleRead {
   interval_minutes: number | null
 }
 
+export type NotificationChannel = "discord" | "ntfy" | "gotify"
+
+// Secrets (webhook Discord, sujet ntfy, jetons) : seul leur état est renvoyé.
+export interface NotificationsRead {
+  discord_set: boolean
+  ntfy_set: boolean
+  ntfy_token_set: boolean
+  gotify_url: string | null
+  gotify_token_set: boolean
+  on_scan: boolean
+  on_scan_failure: boolean
+  on_actions: boolean
+}
+
+export interface NotificationTestResult {
+  // Canal -> message d'erreur, ou null si l'envoi a réussi.
+  results: Partial<Record<NotificationChannel, string | null>>
+}
+
 export interface SettingsRead {
   configured: boolean
+  notifications: NotificationsRead
   media_server: MediaServer
   watch: { excluded_emby_user_ids: string[] }
   emby: ServiceApiKeyRead
@@ -64,6 +84,15 @@ export interface SettingsWrite {
   seer_api_key: string
   scan_schedule_enabled: boolean
   scan_schedule_interval_minutes: number | null
+  notify_discord_webhook: string
+  notify_ntfy_url: string
+  notify_ntfy_token: string
+  notify_gotify_url: string
+  notify_gotify_token: string
+  notify_clear: NotificationChannel[]
+  notify_on_scan: boolean
+  notify_on_scan_failure: boolean
+  notify_on_actions: boolean
   excluded_emby_user_ids: string[]
 }
 
@@ -116,6 +145,15 @@ export function emptySettingsWrite(): SettingsWrite {
     seer_api_key: "",
     scan_schedule_enabled: false,
     scan_schedule_interval_minutes: null,
+    notify_discord_webhook: "",
+    notify_ntfy_url: "",
+    notify_ntfy_token: "",
+    notify_gotify_url: "",
+    notify_gotify_token: "",
+    notify_clear: [],
+    notify_on_scan: false,
+    notify_on_scan_failure: true,
+    notify_on_actions: true,
     excluded_emby_user_ids: [],
   }
 }
@@ -143,6 +181,15 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     seer_api_key: "",
     scan_schedule_enabled: s.schedule.enabled,
     scan_schedule_interval_minutes: s.schedule.interval_minutes,
+    notify_discord_webhook: "",
+    notify_ntfy_url: "",
+    notify_ntfy_token: "",
+    notify_gotify_url: s.notifications.gotify_url ?? "",
+    notify_gotify_token: "",
+    notify_clear: [],
+    notify_on_scan: s.notifications.on_scan,
+    notify_on_scan_failure: s.notifications.on_scan_failure,
+    notify_on_actions: s.notifications.on_actions,
     excluded_emby_user_ids: s.watch.excluded_emby_user_ids,
   }
 }

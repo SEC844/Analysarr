@@ -80,6 +80,14 @@ _SETTINGS_NEW_COLUMNS = [
     ("seer_api_key", "VARCHAR"),
     ("ui_preferences", "VARCHAR NOT NULL DEFAULT '{}'"),
     ("media_server", "VARCHAR NOT NULL DEFAULT 'emby'"),
+    ("notify_discord_webhook", "VARCHAR"),
+    ("notify_ntfy_url", "VARCHAR"),
+    ("notify_ntfy_token", "VARCHAR"),
+    ("notify_gotify_url", "VARCHAR"),
+    ("notify_gotify_token", "VARCHAR"),
+    ("notify_on_scan", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("notify_on_scan_failure", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("notify_on_actions", "BOOLEAN NOT NULL DEFAULT 1"),
 ]
 
 
@@ -95,6 +103,7 @@ def _ensure_settings_columns() -> None:
 
 
 def init_db() -> None:
+    from app.models.activity import ActionLog  # noqa: F401
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
     from app.models.media import EmbyUser, Media, MediaFile, MediaRequest, MediaWatch, ScanRun, Torrent  # noqa: F401

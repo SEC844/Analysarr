@@ -27,7 +27,7 @@ const GRID_OPTIONS: [GridSizePreference, MessageKey][] = [
   ["small", "grid.small"],
 ]
 
-function SettingRow({ id, label, help, children }: { id: string; label: string; help?: string; children: ReactNode }) {
+export function SettingRow({ id, label, help, children }: { id: string; label: string; help?: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 py-2">
       <div className="space-y-0.5">

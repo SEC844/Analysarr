@@ -28,6 +28,7 @@ from app.models.media import (
 from app.models.settings import Settings
 from app.services.events import scan_events
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
+from app.services.notifications import notify
 from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.trackers import extract_tracker_domain, status_label
 from app.services.watch_stats import (
@@ -183,7 +184,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
     await scan_events.publish({"type": "started", "run_id": run_id})
 
     if settings is None:
-        await _fail_scan(run_id, "Aucune configuration enregistrée.")
+        await _fail_scan(run_id, "Aucune configuration enregistrée.", settings)
         return
 
     missing = [
@@ -200,13 +201,13 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         if not ok
     ]
     if missing:
-        await _fail_scan(run_id, f"Services non configurés : {', '.join(missing)}.")
+        await _fail_scan(run_id, f"Services non configurés : {', '.join(missing)}.", settings)
         return
 
     try:
         results, qbit_torrent_count, emby_users = await _collect(settings, run_id)
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
-        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}")
+        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", settings)
         return
 
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
@@ -262,9 +263,17 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         }
 
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
+    notify(
+        settings,
+        "scan_completed",
+        media=counts["media_count"],
+        duplicates=counts["duplicate_count"],
+        orphans=counts["orphan_count"],
+    )
 
 
-async def _fail_scan(run_id: int, message: str) -> None:
+async def _fail_scan(run_id: int, message: str, settings: Settings | None = None) -> None:
+    notify(settings, "scan_failed", failed=True, error=message)
     with Session(engine) as session:
         run = session.get(ScanRun, run_id)
         if run:

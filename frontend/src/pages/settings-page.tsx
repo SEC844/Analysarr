@@ -4,10 +4,12 @@ import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { AccountCard } from "@/components/settings/account-card"
+import { ActionHistory } from "@/components/settings/action-history"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
 import { EmbyUsersCard } from "@/components/settings/emby-users-card"
+import { NotificationsSection } from "@/components/settings/notifications-section"
 import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
 import { PreferencesSection } from "@/components/settings/preferences-section"
@@ -42,6 +44,8 @@ const SECTION_GROUPS = [
     sections: [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
+      { id: "notifications", label: "settings.sections.notifications" },
+      { id: "history", label: "settings.sections.history" },
       { id: "account", label: "settings.sections.account" },
       { id: "preferences", label: "settings.sections.preferences" },
       { id: "application", label: "settings.sections.application" },
@@ -53,7 +57,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["account", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["history", "account", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -231,6 +235,12 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
               <ScanHistoryTable />
             </div>
           )}
+
+          {section === "notifications" && (
+            <NotificationsSection form={form} onChange={set} status={existing.notifications} />
+          )}
+
+          {section === "history" && <ActionHistory />}
 
           {section === "account" && <AccountCard />}
 

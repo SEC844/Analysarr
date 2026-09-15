@@ -44,6 +44,19 @@ class WatchRead(BaseModel):
     excluded_emby_user_ids: list[str] = []
 
 
+class NotificationsRead(BaseModel):
+    # Secrets (URL de webhook Discord, URL de sujet ntfy, jetons) : seul le
+    # fait qu'ils soient configurés est renvoyé.
+    discord_set: bool = False
+    ntfy_set: bool = False
+    ntfy_token_set: bool = False
+    gotify_url: Optional[str] = None
+    gotify_token_set: bool = False
+    on_scan: bool = False
+    on_scan_failure: bool = True
+    on_actions: bool = True
+
+
 class SettingsRead(BaseModel):
     configured: bool
     media_server: MediaServer = "emby"
@@ -56,6 +69,7 @@ class SettingsRead(BaseModel):
     cross_seed: CrossSeedRead
     seer: SeerRead
     schedule: ScheduleRead
+    notifications: NotificationsRead = NotificationsRead()
 
 
 class SettingsWrite(BaseModel):
@@ -92,6 +106,18 @@ class SettingsWrite(BaseModel):
     scan_schedule_enabled: bool = False
     scan_schedule_interval_minutes: Optional[int] = None
 
+    # Notifications : un champ secret vide conserve la valeur enregistrée ;
+    # `notify_clear` retire explicitement un canal.
+    notify_discord_webhook: Optional[str] = None
+    notify_ntfy_url: Optional[str] = None
+    notify_ntfy_token: Optional[str] = None
+    notify_gotify_url: Optional[str] = None
+    notify_gotify_token: Optional[str] = None
+    notify_clear: list[Literal["discord", "ntfy", "gotify"]] = []
+    notify_on_scan: bool = False
+    notify_on_scan_failure: bool = True
+    notify_on_actions: bool = True
+
     # Identifiants Emby exclus des statistiques de visionnage.
     excluded_emby_user_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(default=[], max_length=500)
 
@@ -103,6 +129,11 @@ class ConnectionTestRequest(BaseModel):
     media_server: Optional[MediaServer] = None
     username: Optional[str] = None
     password: Optional[str] = None
+
+
+class NotificationTestResult(BaseModel):
+    # Canal -> message d'erreur, ou None si l'envoi a réussi.
+    results: dict[str, Optional[str]]
 
 
 class ConnectionTestResult(BaseModel):

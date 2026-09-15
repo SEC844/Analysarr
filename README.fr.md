@@ -50,6 +50,8 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Confort au quotidien**
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
+- Notifications Discord, ntfy ou Gotify après un scan, un échec de scan ou une action.
+- Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.
 - Notification quand une nouvelle version est publiée.
 
@@ -122,7 +124,8 @@ Téléchargez la nouvelle image et recréez le conteneur. Réglages et cache son
 - Un seul compte administrateur ; mots de passe hachés avec bcrypt ; connexion bloquée 15 minutes après 5 échecs.
 - Sessions stockées côté serveur, transmises par cookie `httpOnly`.
 - Les clés API et mots de passe de vos services restent sur le serveur : ils ne sont jamais renvoyés au navigateur.
-- Seules connexions sortantes : les services que vous configurez, et une vérification optionnelle des mises à jour auprès de l'API GitHub (seule la version d'Analysarr est transmise).
+- Seules connexions sortantes : les services que vous configurez (canaux de notification compris), et une vérification optionnelle des mises à jour auprès de l'API GitHub (seule la version d'Analysarr est transmise).
+- Webhooks et jetons de notification ne sont jamais renvoyés non plus ; seules les URL officielles de webhook Discord sont acceptées, et le test n'envoie que vers les canaux enregistrés.
 - Analysarr peut supprimer des fichiers : ne l'exposez pas directement sur internet. Placez-le derrière un reverse proxy en HTTPS, ou gardez-le sur votre réseau local / VPN.
 
 Une faille de sécurité ? Signalez-la de façon privée, voir [SECURITY.md](SECURITY.md).

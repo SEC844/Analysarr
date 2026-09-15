@@ -50,6 +50,8 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 
 **Everyday comfort**
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
+- Notifications on Discord, ntfy or Gotify after a scan, a failed scan or an action.
+- Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.
 - Update notification when a new version is released.
 
@@ -122,7 +124,8 @@ Pull the new image and recreate the container. Your settings and cache live in `
 - A single administrator account; passwords hashed with bcrypt; login locked for 15 minutes after 5 failed attempts.
 - Sessions stored server-side, sent as an `httpOnly` cookie.
 - API keys and passwords of your services stay on the server: they are never sent back to the browser.
-- The only outbound connections are the services you configure, plus an optional update check against the GitHub API (sends only the Analysarr version).
+- The only outbound connections are the services you configure (notification channels included), plus an optional update check against the GitHub API (sends only the Analysarr version).
+- Notification webhooks and tokens are write-only too; only official Discord webhook URLs are accepted, and test notifications only go to saved channels.
 - Analysarr can delete files: do not expose it directly to the internet. Put it behind a reverse proxy with HTTPS, or keep it on your local network / VPN.
 
 Found a vulnerability? Please report it privately, see [SECURITY.md](SECURITY.md).

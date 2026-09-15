@@ -7,6 +7,7 @@ import type {
   SetupRequest,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
+import type { ActionLogEntry } from "@/types/history"
 import type {
   CrossSeedSearchResult,
   DeleteExecuteResult,
@@ -27,6 +28,7 @@ import type {
   BrowseResult,
   ConnectionTestRequest,
   ConnectionTestResult,
+  NotificationTestResult,
   ServiceName,
   SettingsRead,
   SettingsWrite,
@@ -120,6 +122,19 @@ export function testConnection(
     method: "POST",
     body: JSON.stringify(payload),
   })
+}
+
+// Envoie sur les canaux ENREGISTRÉS uniquement (jamais sur une URL saisie non enregistrée).
+export function testNotifications(): Promise<NotificationTestResult> {
+  return request<NotificationTestResult>("/api/settings/notifications/test", { method: "POST" })
+}
+
+export function getActionHistory(limit = 200): Promise<ActionLogEntry[]> {
+  return request<ActionLogEntry[]>(`/api/history?limit=${limit}`)
+}
+
+export function clearActionHistory(): Promise<void> {
+  return request<void>("/api/history", { method: "DELETE" })
 }
 
 export function listMedia(params: MediaListParams): Promise<MediaListResponse> {
