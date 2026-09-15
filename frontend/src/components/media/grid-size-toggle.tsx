@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button"
+import { useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 export type GridSize = "small" | "medium" | "large"
@@ -14,10 +15,10 @@ export const GRID_SIZE_CLASSES: Record<GridSize, string> = {
 // Un seul carré, une grille de 4, une grille de 9 — toutes dans le même
 // encombrement : le pictogramme montre directement le résultat (nombre de
 // cartes par rangée), pas une métaphore à interpréter.
-const OPTIONS: { value: GridSize; cells: number; label: string }[] = [
-  { value: "large", cells: 1, label: "Grande" },
-  { value: "medium", cells: 4, label: "Moyenne" },
-  { value: "small", cells: 9, label: "Petite" },
+const OPTIONS: { value: GridSize; cells: number }[] = [
+  { value: "large", cells: 1 },
+  { value: "medium", cells: 4 },
+  { value: "small", cells: 9 },
 ]
 
 function GridSizeIcon({ cells }: { cells: number }) {
@@ -35,6 +36,7 @@ function GridSizeIcon({ cells }: { cells: number }) {
 }
 
 export function GridSizeToggle({ value, onChange }: { value: GridSize; onChange: (size: GridSize) => void }) {
+  const { t } = useI18n()
   return (
     <div className="border-border flex items-center gap-0.5 rounded-lg border p-0.5">
       {OPTIONS.map((option) => {
@@ -47,7 +49,7 @@ export function GridSizeToggle({ value, onChange }: { value: GridSize; onChange:
             size="icon-sm"
             className={cn(!active && "text-muted-foreground")}
             onClick={() => onChange(option.value)}
-            aria-label={`Taille des cartes : ${option.label}`}
+            aria-label={t("grid.label", { size: t(`grid.${option.value}`) })}
             aria-pressed={active}
           >
             <GridSizeIcon cells={option.cells} />

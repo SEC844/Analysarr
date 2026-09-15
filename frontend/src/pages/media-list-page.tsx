@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMediaListQuery } from "@/hooks/use-media"
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration"
+import { useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 import type { MediaListParams } from "@/types/media"
 
@@ -46,6 +47,7 @@ function filtersToParams(filters: MediaListParams): URLSearchParams {
 }
 
 export function MediaListPage() {
+  const { t, rich } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = paramsToFilters(searchParams)
   const [gridSize, setGridSize] = useState<GridSize>(loadGridSize)
@@ -66,9 +68,9 @@ export function MediaListPage() {
     <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Bibliothèque</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("library.title")}</h1>
           <p className="text-muted-foreground text-sm">
-            {data ? `${data.total} média${data.total > 1 ? "s" : ""}` : "Chargement..."}
+            {data ? t("library.count", { count: data.total }) : t("common.loading")}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -89,17 +91,19 @@ export function MediaListPage() {
         </div>
       )}
 
-      {isError && <p className="text-destructive">Impossible de charger la bibliothèque.</p>}
+      {isError && <p className="text-destructive">{t("library.loadFailed")}</p>}
 
       {data && data.items.length === 0 && (
         <div className="text-muted-foreground flex flex-col items-center gap-3 py-16 text-center">
-          <p>Aucun média trouvé.</p>
+          <p>{t("library.empty")}</p>
           <p className="text-sm">
-            Lancez un premier scan avec le bouton ci-dessus, ou vérifiez vos{" "}
-            <Button variant="link" className="h-auto p-0" render={<Link to="/settings" />}>
-              réglages
-            </Button>
-            .
+            {rich("library.emptyHint", {
+              link: (
+                <Button variant="link" className="h-auto p-0" render={<Link to="/settings" />}>
+                  {t("library.settingsLink")}
+                </Button>
+              ),
+            })}
           </p>
         </div>
       )}

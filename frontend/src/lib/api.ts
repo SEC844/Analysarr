@@ -1,3 +1,4 @@
+import type { AppInfo, AppPreferences } from "@/types/app"
 import type {
   AuthStatus,
   ChangePasswordRequest,
@@ -52,7 +53,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // corps non-JSON : on garde le texte brut
     }
-    throw new Error(message || `Erreur HTTP ${res.status}`)
+    throw new Error(message || `HTTP ${res.status}`)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -80,6 +81,18 @@ export function getCurrentUser(): Promise<CurrentUser> {
 
 export function changePassword(payload: ChangePasswordRequest): Promise<CurrentUser> {
   return request<CurrentUser>("/api/auth/password", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function getAppInfo(): Promise<AppInfo> {
+  return request<AppInfo>("/api/app/info")
+}
+
+export function checkUpdates(): Promise<AppInfo> {
+  return request<AppInfo>("/api/app/check-updates", { method: "POST" })
+}
+
+export function saveAppPreferences(payload: AppPreferences): Promise<AppInfo> {
+  return request<AppInfo>("/api/app/preferences", { method: "PUT", body: JSON.stringify(payload) })
 }
 
 export function getSettings(): Promise<SettingsRead> {

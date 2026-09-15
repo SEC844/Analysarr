@@ -2,6 +2,7 @@ import { PathBrowserButton } from "@/components/settings/path-browser-dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useI18n } from "@/i18n"
 
 interface PathsCardProps {
   embyLibraryPath: string
@@ -16,19 +17,19 @@ export function PathsCard({
   qbittorrentDownloadPath,
   onQbittorrentDownloadPathChange,
 }: PathsCardProps) {
+  const { t, rich } = useI18n()
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Chemins des dossiers</CardTitle>
+        <CardTitle>{t("paths.title")}</CardTitle>
         <CardDescription>
-          Ces chemins servent à détecter les hardlinks entre les téléchargements et la bibliothèque. Ils doivent
-          être saisis tels que vus <strong>depuis le conteneur Analysarr</strong>, après montage des volumes — pas
-          le chemin sur la machine hôte.
+          {rich("paths.description", { emphasis: <strong>{t("paths.fromContainer")}</strong> })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="emby-library-path">Dossier de la bibliothèque Emby</Label>
+          <Label htmlFor="emby-library-path">{t("paths.embyLibrary")}</Label>
           <div className="flex gap-2">
             <Input
               id="emby-library-path"
@@ -39,13 +40,11 @@ export function PathsCard({
             />
             <PathBrowserButton value={embyLibraryPath} onSelect={onEmbyLibraryPathChange} />
           </div>
-          <p className="text-muted-foreground text-sm">
-            Le point de montage du volume de bibliothèque dans le conteneur Analysarr.
-          </p>
+          <p className="text-muted-foreground text-sm">{t("paths.embyLibraryHelp")}</p>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="qbit-download-path">Dossier de téléchargement qBittorrent</Label>
+          <Label htmlFor="qbit-download-path">{t("paths.qbitDownload")}</Label>
           <div className="flex gap-2">
             <Input
               id="qbit-download-path"
@@ -56,9 +55,7 @@ export function PathsCard({
             />
             <PathBrowserButton value={qbittorrentDownloadPath} onSelect={onQbittorrentDownloadPathChange} />
           </div>
-          <p className="text-muted-foreground text-sm">
-            Le point de montage du volume de téléchargement dans le conteneur Analysarr.
-          </p>
+          <p className="text-muted-foreground text-sm">{t("paths.qbitDownloadHelp")}</p>
         </div>
       </CardContent>
     </Card>

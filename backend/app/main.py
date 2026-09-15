@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from app.database import engine, init_db
 from app.models.settings import Settings
+from app.routers import app as app_router
 from app.routers import auth as auth_router
 from app.routers import media as media_router
 from app.routers import scan as scan_router
@@ -52,6 +53,7 @@ def health() -> dict:
 
 
 app.include_router(auth_router.router, prefix="/api/auth", tags=["auth"])
+app.include_router(app_router.router, prefix="/api/app", tags=["app"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(scan_router.router, prefix="/api/scan", tags=["scan"])
 app.include_router(media_router.router, prefix="/api/media", tags=["media"])

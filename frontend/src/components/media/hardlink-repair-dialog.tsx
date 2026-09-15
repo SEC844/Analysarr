@@ -12,10 +12,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useHardlinkRepairExecuteMutation, useHardlinkRepairPreviewMutation } from "@/hooks/use-media"
+import { useI18n } from "@/i18n"
 import { formatBytes } from "@/lib/format"
 import type { HardlinkRepairPreview, HardlinkRepairResult } from "@/types/media"
 
 export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<HardlinkRepairPreview | null>(null)
   const [result, setResult] = useState<HardlinkRepairResult | null>(null)
@@ -41,28 +43,24 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="secondary" />}>
         <Link2 className="size-4" />
-        Réparer les hardlinks
+        {t("repair.button")}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Réparation des hardlinks</DialogTitle>
-          <DialogDescription>
-            Confirmez pour réparer automatiquement chaque fichier ci-dessous : la copie non protégée est remplacée
-            par un hardlink vers un fichier déjà valide (bibliothèque ou torrent, selon le cas) — aucune étape
-            manuelle à faire, et un hardlink déjà fonctionnel n'est jamais touché.
-          </DialogDescription>
+          <DialogTitle>{t("repair.title")}</DialogTitle>
+          <DialogDescription>{t("repair.description")}</DialogDescription>
         </DialogHeader>
 
         {!result && (
           <>
             {previewMutation.isPending && (
               <div className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
-                <Loader2 className="size-4 animate-spin" /> Calcul de l'aperçu...
+                <Loader2 className="size-4 animate-spin" /> {t("common.previewing")}
               </div>
             )}
 
             {preview && preview.items.length === 0 && (
-              <p className="text-muted-foreground py-4 text-sm">Rien à réparer automatiquement pour ce média.</p>
+              <p className="text-muted-foreground py-4 text-sm">{t("repair.nothing")}</p>
             )}
 
             {preview && preview.items.length > 0 && (
@@ -74,10 +72,10 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
                   >
                     <div className="min-w-0">
                       <p className="text-muted-foreground text-xs">
-                        {item.episode_label ?? "Fichier"} —{" "}
+                        {item.episode_label ?? t("repair.file")} —{" "}
                         {item.direction === "torrent_to_library"
-                          ? `depuis ${item.torrent_name}`
-                          : `${item.torrent_name} rejoint le hardlink de la bibliothèque`}
+                          ? t("repair.fromTorrent", { name: item.torrent_name })
+                          : t("repair.joinsLibrary", { name: item.torrent_name })}
                       </p>
                       <p className="break-all">{item.target_path}</p>
                     </div>
@@ -89,7 +87,7 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
 
             {preview && preview.unmatched_torrents.length > 0 && (
               <p className="text-muted-foreground text-xs">
-                Sans fichier correspondant trouvé avec certitude : {preview.unmatched_torrents.join(", ")}
+                {t("repair.unmatched", { list: preview.unmatched_torrents.join(", ") })}
               </p>
             )}
           </>
@@ -107,10 +105,7 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
                 <div>
                   <p className="break-all">{step.label}</p>
                   {step.success && step.used_symlink && (
-                    <p className="text-muted-foreground text-xs">
-                      Réparé par lien symbolique (systèmes de fichiers différents) — vérifiez que le fichier se lit
-                      toujours bien dans Emby, ou que le torrent seede toujours normalement.
-                    </p>
+                    <p className="text-muted-foreground text-xs">{t("repair.symlinkHint")}</p>
                   )}
                   {step.error && <p className="text-destructive text-xs">{step.error}</p>}
                 </div>
@@ -123,11 +118,11 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
           {!result && preview && preview.items.length > 0 && (
             <Button type="button" disabled={executeMutation.isPending} onClick={handleConfirm}>
               {executeMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
-              Confirmer la réparation
+              {t("repair.confirm")}
             </Button>
           )}
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-            Fermer
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

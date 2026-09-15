@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { useI18n } from "@/i18n"
 import { browseFilesystem } from "@/lib/api"
 import type { BrowseResult } from "@/types/settings"
 
@@ -23,6 +24,7 @@ interface PathBrowserButtonProps {
 // plutôt qu'en le tapant à l'aveugle — parcourt le système de fichiers du
 // conteneur Analysarr lui-même (pas celui de la machine hôte).
 export function PathBrowserButton({ value, onSelect }: PathBrowserButtonProps) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [result, setResult] = useState<BrowseResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -33,7 +35,7 @@ export function PathBrowserButton({ value, onSelect }: PathBrowserButtonProps) {
     setError(null)
     browseFilesystem(path)
       .then(setResult)
-      .catch((err) => setError(err instanceof Error ? err.message : "Impossible de lister ce dossier."))
+      .catch((err) => setError(err instanceof Error ? err.message : t("pathBrowser.listFailed")))
       .finally(() => setLoading(false))
   }
 
@@ -46,14 +48,12 @@ export function PathBrowserButton({ value, onSelect }: PathBrowserButtonProps) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>
         <FolderOpen className="size-4" />
-        Parcourir
+        {t("common.browse")}
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Choisir un dossier</DialogTitle>
-          <DialogDescription>
-            Navigation dans le système de fichiers du conteneur Analysarr — pas celui de la machine hôte.
-          </DialogDescription>
+          <DialogTitle>{t("pathBrowser.title")}</DialogTitle>
+          <DialogDescription>{t("pathBrowser.description")}</DialogDescription>
         </DialogHeader>
 
         <p className="text-muted-foreground bg-muted/50 break-all rounded-md border px-2 py-1.5 font-mono text-xs">
@@ -62,7 +62,7 @@ export function PathBrowserButton({ value, onSelect }: PathBrowserButtonProps) {
 
         {loading && (
           <div className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
-            <Loader2 className="size-4 animate-spin" /> Chargement...
+            <Loader2 className="size-4 animate-spin" /> {t("common.loading")}
           </div>
         )}
 
@@ -77,12 +77,12 @@ export function PathBrowserButton({ value, onSelect }: PathBrowserButtonProps) {
                   className="hover:bg-muted flex w-full items-center gap-2 px-3 py-2 text-left"
                   onClick={() => load(result.parent!)}
                 >
-                  .. (dossier parent)
+                  {t("pathBrowser.parent")}
                 </button>
               </li>
             )}
             {result.directories.length === 0 && (
-              <li className="text-muted-foreground px-3 py-2">Aucun sous-dossier.</li>
+              <li className="text-muted-foreground px-3 py-2">{t("pathBrowser.empty")}</li>
             )}
             {result.directories.map((d) => (
               <li key={d.path}>
@@ -111,10 +111,10 @@ export function PathBrowserButton({ value, onSelect }: PathBrowserButtonProps) {
               }
             }}
           >
-            Sélectionner ce dossier
+            {t("pathBrowser.select")}
           </Button>
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-            Annuler
+            {t("common.cancel")}
           </Button>
         </DialogFooter>
       </DialogContent>

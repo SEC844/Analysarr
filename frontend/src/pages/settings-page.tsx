@@ -1,9 +1,11 @@
 import { useState } from "react"
 import { Loader2 } from "lucide-react"
+import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { AccountCard } from "@/components/settings/account-card"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
+import { ApplicationSection } from "@/components/settings/application-section"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
 import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
@@ -11,14 +13,18 @@ import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { Button } from "@/components/ui/button"
+import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useAppInfoQuery } from "@/hooks/use-app"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
+import { useI18n, type MessageKey } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { settingsReadToForm, type SettingsRead } from "@/types/settings"
 
+// Noms de services : jamais traduits. Sections système : clés de traduction.
 const SECTION_GROUPS = [
   {
-    label: "Services",
+    label: "settings.groups.services",
     sections: [
       { id: "emby", label: "Emby" },
       { id: "sonarr", label: "Sonarr" },
@@ -28,18 +34,24 @@ const SECTION_GROUPS = [
     ],
   },
   {
-    label: "Système",
+    label: "settings.groups.system",
     sections: [
-      { id: "paths", label: "Chemins" },
-      { id: "schedule", label: "Planification" },
-      { id: "account", label: "Compte" },
+      { id: "paths", label: "settings.sections.paths" },
+      { id: "schedule", label: "settings.sections.schedule" },
+      { id: "account", label: "settings.sections.account" },
+      { id: "application", label: "settings.sections.application" },
     ],
   },
 ] as const
 
 type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
+const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
+// Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["account", "application"])
+
 export function SettingsPage() {
+  const { t } = useI18n()
   const { data, isLoading, isError } = useSettingsQuery()
 
   if (isLoading) {
@@ -54,7 +66,7 @@ export function SettingsPage() {
   if (isError || !data) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-10">
-        <p className="text-destructive">Impossible de charger les réglages.</p>
+        <p className="text-destructive">{t("settings.loadFailed")}</p>
       </div>
     )
   }
@@ -63,9 +75,18 @@ export function SettingsPage() {
 }
 
 function SettingsForm({ existing }: { existing: SettingsRead }) {
-  const [section, setSection] = useState<SectionId>("emby")
+  const { t } = useI18n()
+  // Section dans l'URL : lien direct possible (pastille de mise à jour →
+  // onglet Application) et conservée quand l'interface change de langue.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requested = searchParams.get("section")
+  const section: SectionId = requested && SECTION_IDS.has(requested) ? (requested as SectionId) : "emby"
+  const setSection = (id: SectionId) => setSearchParams({ section: id }, { replace: true })
+
   const [form, setForm] = useState(() => settingsReadToForm(existing))
   const saveSettings = useSaveSettingsMutation()
+  const { data: appInfo } = useAppInfoQuery()
+  const updateAvailable = appInfo?.update?.update_available ?? false
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -74,20 +95,22 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
   async function handleSave() {
     try {
       await saveSettings.mutateAsync(form)
-      toast.success("Réglages enregistrés.")
+      toast.success(t("settings.saved"))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Échec de l'enregistrement.")
+      toast.error(err instanceof Error ? err.message : t("common.saveFailed"))
     }
   }
+
+  const label = (value: string) => (value.startsWith("settings.") ? t(value as MessageKey) : value)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Réglages</h1>
-        {section !== "account" && (
+        <h1 className="text-2xl font-semibold tracking-tight">{t("settings.title")}</h1>
+        {!SELF_SAVING_SECTIONS.has(section) && (
           <Button type="button" onClick={handleSave} disabled={saveSettings.isPending}>
             {saveSettings.isPending && <Loader2 className="size-4 animate-spin" />}
-            Enregistrer
+            {t("common.save")}
           </Button>
         )}
       </div>
@@ -97,7 +120,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           {SECTION_GROUPS.map((group) => (
             <div key={group.label} className="flex flex-col gap-0.5">
               <p className="text-muted-foreground px-2 pb-1 text-xs font-medium tracking-wide uppercase">
-                {group.label}
+                {label(group.label)}
               </p>
               {group.sections.map((s) => (
                 <button
@@ -105,13 +128,14 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                   type="button"
                   onClick={() => setSection(s.id)}
                   className={cn(
-                    "rounded-md px-2 py-1.5 text-left text-sm whitespace-nowrap transition-colors",
+                    "flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm whitespace-nowrap transition-colors",
                     section === s.id
                       ? "bg-secondary text-secondary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
                 >
-                  {s.label}
+                  {label(s.label)}
+                  {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
                 </button>
               ))}
             </div>
@@ -119,51 +143,15 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
         </nav>
 
         <div className="min-w-0 flex-1 space-y-6">
-          {section === "emby" && (
+          {(section === "emby" || section === "sonarr" || section === "radarr") && (
             <ApiKeyServiceCard
-              service="emby"
-              title="Emby"
-              description="Votre serveur multimédia, source de vérité pour les fichiers de la bibliothèque."
-              url={form.emby_url}
-              onUrlChange={(v) => set("emby_url", v)}
-              urlPlaceholder="http://emby:8096"
-              urlHelp="L'URL accessible depuis le conteneur Analysarr (nom du service Docker ou IP)."
-              apiKey={form.emby_api_key}
-              onApiKeyChange={(v) => set("emby_api_key", v)}
-              apiKeyHelp="Tableau de bord Emby → Paramètres avancés → API Keys."
-              apiKeySet={existing.emby.api_key_set}
-            />
-          )}
-
-          {section === "sonarr" && (
-            <ApiKeyServiceCard
-              service="sonarr"
-              title="Sonarr"
-              description="Gestion des séries TV."
-              url={form.sonarr_url}
-              onUrlChange={(v) => set("sonarr_url", v)}
-              urlPlaceholder="http://sonarr:8989"
-              urlHelp="L'URL accessible depuis le conteneur Analysarr."
-              apiKey={form.sonarr_api_key}
-              onApiKeyChange={(v) => set("sonarr_api_key", v)}
-              apiKeyHelp="Sonarr → Réglages → Général → Sécurité → Clé API."
-              apiKeySet={existing.sonarr.api_key_set}
-            />
-          )}
-
-          {section === "radarr" && (
-            <ApiKeyServiceCard
-              service="radarr"
-              title="Radarr"
-              description="Gestion des films."
-              url={form.radarr_url}
-              onUrlChange={(v) => set("radarr_url", v)}
-              urlPlaceholder="http://radarr:7878"
-              urlHelp="L'URL accessible depuis le conteneur Analysarr."
-              apiKey={form.radarr_api_key}
-              onApiKeyChange={(v) => set("radarr_api_key", v)}
-              apiKeyHelp="Radarr → Réglages → Général → Sécurité → Clé API."
-              apiKeySet={existing.radarr.api_key_set}
+              key={section}
+              service={section}
+              url={form[`${section}_url`]}
+              onUrlChange={(v) => set(`${section}_url`, v)}
+              apiKey={form[`${section}_api_key`]}
+              onApiKeyChange={(v) => set(`${section}_api_key`, v)}
+              apiKeySet={existing[section].api_key_set}
             />
           )}
 
@@ -218,6 +206,8 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           )}
 
           {section === "account" && <AccountCard />}
+
+          {section === "application" && <ApplicationSection />}
         </div>
       </div>
     </div>

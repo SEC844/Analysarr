@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
+import { useI18n } from "@/i18n"
 import { getScanHistory, startScan } from "@/lib/api"
 import type { ScanEvent } from "@/types/media"
 
@@ -12,6 +13,7 @@ export function useScanHistoryQuery() {
 }
 
 export function useScanRunner() {
+  const { t } = useI18n()
   const queryClient = useQueryClient()
   const [event, setEvent] = useState<ScanEvent | null>(null)
   const [isRunning, setIsRunning] = useState(false)
@@ -49,12 +51,12 @@ export function useScanRunner() {
     source.onopen = () => {
       startScan().then((result) => {
         if (!result.started) {
-          setEvent({ type: "failed", message: result.message ?? "Un scan est déjà en cours." })
+          setEvent({ type: "failed", message: result.message ?? t("scan.alreadyRunning") })
           cleanup()
         }
       })
     }
-  }, [queryClient])
+  }, [queryClient, t])
 
   return { start, isRunning, event }
 }

@@ -1,9 +1,12 @@
+import { useEffect } from "react"
 import { Route, Routes } from "react-router-dom"
 
 import { AppShell } from "@/components/layout/app-shell"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useAppInfoQuery } from "@/hooks/use-app"
 import { useAuthStatusQuery } from "@/hooks/use-auth"
 import { useSettingsQuery } from "@/hooks/use-settings"
+import { useI18n } from "@/i18n"
 import { LoginPage } from "@/pages/login-page"
 import { MediaDetailPage } from "@/pages/media-detail-page"
 import { MediaListPage } from "@/pages/media-list-page"
@@ -16,11 +19,21 @@ function FullPageState({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const { t, language, setLanguage } = useI18n()
   const authStatus = useAuthStatusQuery()
+  const authenticated = authStatus.data?.authenticated ?? false
   // Ne part chercher /api/settings (protégé) qu'une fois l'authentification
   // confirmée — sinon un 401 pendant l'écran de connexion déclenche la
   // redirection sur 401 générique de request() (lib/api.ts) et boucle.
-  const settings = useSettingsQuery(authStatus.data?.authenticated ?? false)
+  const settings = useSettingsQuery(authenticated)
+  const appInfo = useAppInfoQuery(authenticated)
+
+  // La langue enregistrée côté serveur l'emporte sur celle détectée dans ce
+  // navigateur (localStorage / langue du navigateur) dès qu'elle est connue.
+  const savedLanguage = appInfo.data?.language
+  useEffect(() => {
+    if (savedLanguage && savedLanguage !== language) setLanguage(savedLanguage)
+  }, [savedLanguage, language, setLanguage])
 
   if (authStatus.isLoading) {
     return (
@@ -33,9 +46,7 @@ function App() {
   if (authStatus.isError || !authStatus.data) {
     return (
       <FullPageState>
-        <p className="text-destructive">
-          Impossible de contacter l'API Analysarr. Vérifiez que le conteneur est bien démarré.
-        </p>
+        <p className="text-destructive">{t("common.apiUnreachable")}</p>
       </FullPageState>
     )
   }
@@ -44,7 +55,7 @@ function App() {
     return <SetupAdminPage />
   }
 
-  if (!authStatus.data.authenticated) {
+  if (!authenticated) {
     return <LoginPage />
   }
 
@@ -63,9 +74,7 @@ function App() {
   if (settings.isError || !settings.data) {
     return (
       <FullPageState>
-        <p className="text-destructive">
-          Impossible de contacter l'API Analysarr. Vérifiez que le conteneur est bien démarré.
-        </p>
+        <p className="text-destructive">{t("common.apiUnreachable")}</p>
       </FullPageState>
     )
   }

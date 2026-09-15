@@ -7,10 +7,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useChangePasswordMutation } from "@/hooks/use-auth"
+import { useI18n } from "@/i18n"
 
 const MIN_PASSWORD_LENGTH = 8
 
 export function AccountCard() {
+  const { t } = useI18n()
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirm, setConfirm] = useState("")
@@ -22,24 +24,24 @@ export function AccountCard() {
   async function handleSubmit() {
     try {
       await changePassword.mutateAsync({ current_password: currentPassword, new_password: newPassword })
-      toast.success("Mot de passe mis à jour.")
+      toast.success(t("account.updated"))
       setCurrentPassword("")
       setNewPassword("")
       setConfirm("")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Échec du changement de mot de passe.")
+      toast.error(err instanceof Error ? err.message : t("account.failed"))
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Compte</CardTitle>
-        <CardDescription>Changer le mot de passe du compte administrateur.</CardDescription>
+        <CardTitle>{t("account.title")}</CardTitle>
+        <CardDescription>{t("account.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="current-password">Mot de passe actuel</Label>
+          <Label htmlFor="current-password">{t("account.currentPassword")}</Label>
           <Input
             id="current-password"
             type="password"
@@ -49,7 +51,7 @@ export function AccountCard() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="new-password">Nouveau mot de passe</Label>
+          <Label htmlFor="new-password">{t("account.newPassword")}</Label>
           <Input
             id="new-password"
             type="password"
@@ -59,7 +61,7 @@ export function AccountCard() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="confirm-password">Confirmation</Label>
+          <Label htmlFor="confirm-password">{t("common.confirmation")}</Label>
           <Input
             id="confirm-password"
             type="password"
@@ -67,15 +69,13 @@ export function AccountCard() {
             onChange={(e) => setConfirm(e.target.value)}
             autoComplete="new-password"
           />
-          {mismatch && <p className="text-destructive text-sm">Les mots de passe ne correspondent pas.</p>}
+          {mismatch && <p className="text-destructive text-sm">{t("common.passwordsMismatch")}</p>}
         </div>
         <Button type="button" disabled={!canSubmit || changePassword.isPending} onClick={handleSubmit}>
           {changePassword.isPending ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-          Mettre à jour le mot de passe
+          {t("account.submit")}
         </Button>
-        <p className="text-muted-foreground text-sm">
-          Changer le mot de passe déconnecte automatiquement toutes les autres sessions actives.
-        </p>
+        <p className="text-muted-foreground text-sm">{t("account.hint")}</p>
       </CardContent>
     </Card>
   )
