@@ -7,8 +7,10 @@ import {
   deleteSelectionExecute,
   getDeleteFootprint,
   getMedia,
+  getMediaWatch,
   hardlinkRepairExecute,
   hardlinkRepairPreview,
+  listEmbyUsers,
   listMedia,
   type CrossSeedSearchScope,
 } from "@/lib/api"
@@ -26,6 +28,21 @@ export function useMediaDetailQuery(id: number) {
     queryKey: ["media", "detail", id],
     queryFn: () => getMedia(id),
   })
+}
+
+// Rafraîchi en direct côté backend (appels Emby) : une minute de fraîcheur
+// suffit, la fiche et la fenêtre de suppression partagent le même résultat.
+export function useMediaWatchQuery(id: number, enabled = true) {
+  return useQuery({
+    queryKey: ["media", "watch", id],
+    queryFn: () => getMediaWatch(id),
+    enabled,
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useEmbyUsersQuery(enabled = true) {
+  return useQuery({ queryKey: ["emby", "users"], queryFn: listEmbyUsers, enabled })
 }
 
 export function useDeletePreviewMutation() {

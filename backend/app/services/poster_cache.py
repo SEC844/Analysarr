@@ -15,6 +15,14 @@ _EXT_BY_CONTENT_TYPE = {v: k for k, v in _CONTENT_TYPE_BY_EXT.items()}
 _DEFAULT_EXT = ".img"
 
 
+def safe_image_type(content_type: str | None) -> str | None:
+    """Type MIME d'image accepté pour être servi, ou None. Jamais le type
+    brut d'une réponse Emby : une réponse inattendue (HTML, SVG avec script)
+    servie sous l'origine d'Analysarr ouvrirait la porte à du XSS."""
+    base = (content_type or "").split(";")[0].strip().lower()
+    return base if base in _EXT_BY_CONTENT_TYPE or base == "image/gif" else None
+
+
 def _sanitize(value: str) -> str:
     return _UNSAFE_CHARS.sub("_", value)
 

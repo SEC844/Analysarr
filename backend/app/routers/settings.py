@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime, timezone
 
@@ -18,9 +19,11 @@ from app.schemas.settings import (
     ServiceApiKeyRead,
     SettingsRead,
     SettingsWrite,
+    WatchRead,
 )
 from app.services.connection_test import TESTERS
 from app.services.scheduler import configure_scan_schedule
+from app.services.watch_stats import excluded_user_ids, recompute_all_aggregates
 
 router = APIRouter()
 
@@ -51,6 +54,7 @@ def _to_read(s: Settings | None) -> SettingsRead:
     if s is None:
         return SettingsRead(
             configured=False,
+            watch=WatchRead(),
             emby=ServiceApiKeyRead(),
             sonarr=ServiceApiKeyRead(),
             radarr=ServiceApiKeyRead(),
@@ -62,6 +66,7 @@ def _to_read(s: Settings | None) -> SettingsRead:
 
     return SettingsRead(
         configured=_is_configured(s),
+        watch=WatchRead(excluded_emby_user_ids=sorted(excluded_user_ids(s))),
         emby=ServiceApiKeyRead(url=s.emby_url, api_key_set=bool(s.emby_api_key)),
         sonarr=ServiceApiKeyRead(url=s.sonarr_url, api_key_set=bool(s.sonarr_api_key)),
         radarr=ServiceApiKeyRead(url=s.radarr_url, api_key_set=bool(s.radarr_api_key)),
@@ -112,6 +117,8 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     row.cross_seed_library_path = payload.cross_seed_library_path
     row.scan_schedule_enabled = payload.scan_schedule_enabled
     row.scan_schedule_interval_minutes = payload.scan_schedule_interval_minutes
+    previous_exclusions = excluded_user_ids(row)
+    row.excluded_emby_user_ids = json.dumps(sorted(set(payload.excluded_emby_user_ids)))
 
     # Champs sensibles : une valeur vide/absente conserve la valeur en base
     # (le frontend ne reçoit jamais la vraie clé, donc "vide" veut dire
@@ -134,6 +141,8 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     session.refresh(row)
 
     configure_scan_schedule(row.scan_schedule_interval_minutes if row.scan_schedule_enabled else None)
+    if excluded_user_ids(row) != previous_exclusions:
+        recompute_all_aggregates(session, row)
 
     return _to_read(row)
 

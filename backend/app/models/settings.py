@@ -50,5 +50,10 @@ class Settings(SQLModel, table=True):
     # (voir services/updates.py). Désactivable : aucune requête sortante alors.
     update_check_enabled: bool = True
 
+    # Identifiants des utilisateurs Emby exclus des statistiques de visionnage
+    # (liste JSON) — comptes de test, TV partagée... Les comptes désactivés
+    # dans Emby sont exclus d'office, sans figurer ici.
+    excluded_emby_user_ids: str = "[]"
+
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

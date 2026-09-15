@@ -6,17 +6,26 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from sqlmodel import Session, delete
 
 from app.clients.arr import RadarrClient, SonarrClient
 from app.clients.emby import EmbyClient
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.database import engine
-from app.models.media import Media, MediaFile, MediaType, ScanRun, ScanStatus, Torrent
+from app.models.media import EmbyUser, Media, MediaFile, MediaType, MediaWatch, ScanRun, ScanStatus, Torrent
 from app.models.settings import Settings
 from app.services.events import scan_events
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.trackers import extract_tracker_domain, status_label
+from app.services.watch_stats import (
+    apply_aggregates,
+    build_watch_rows,
+    collect_watch_data,
+    excluded_user_ids,
+    parse_emby_date,
+    users_from_api,
+)
 
 _scan_lock = asyncio.Lock()
 
@@ -38,6 +47,15 @@ class MediaBuildResult:
     # seulement — la série elle-même est bien dans Emby). Voir la boucle
     # séries plus bas et compute_statuses.
     missing_emby_episodes: list[str] = field(default_factory=list)
+    # État de visionnage par utilisateur Emby (voir services/watch_stats.py).
+    watches: list[MediaWatch] = field(default_factory=list)
+
+
+def current_files_size(files: list[MediaFile]) -> int:
+    """Poids réellement occupé par le média : ses fichiers actuellement suivis
+    (hors doublons), ou tous ses fichiers si aucun n'a pu être identifié."""
+    current = [f for f in files if f.is_current] or files
+    return sum(f.size or 0 for f in current)
 
 
 def is_scan_running() -> bool:
@@ -172,7 +190,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         return
 
     try:
-        results, qbit_torrent_count = await _collect(settings, run_id)
+        results, qbit_torrent_count, emby_users = await _collect(settings, run_id)
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
         await _fail_scan(run_id, f"{type(exc).__name__} : {exc}")
         return
@@ -180,11 +198,15 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
 
     with Session(engine) as session:
+        session.exec(delete(MediaWatch))
+        session.exec(delete(EmbyUser))
         session.exec(delete(Torrent))
         session.exec(delete(MediaFile))
         session.exec(delete(Media))
         session.commit()
 
+        for user in emby_users:
+            session.add(user)
         for result in results:
             session.add(result.media)
         session.commit()
@@ -196,6 +218,9 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             for t in result.torrents:
                 t.media_id = result.media.id
                 session.add(t)
+            for w in result.watches:
+                w.media_id = result.media.id
+                session.add(w)
         session.commit()
 
         run = session.get(ScanRun, run_id)
@@ -233,7 +258,7 @@ async def _fail_scan(run_id: int, message: str) -> None:
     await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
 
 
-async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResult], int]:
+async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResult], int, list[EmbyUser]]:
     assert settings.emby_url and settings.emby_api_key
     assert settings.sonarr_url and settings.sonarr_api_key
     assert settings.radarr_url and settings.radarr_api_key
@@ -291,6 +316,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             media.emby_item_id = emby_item.get("Id")
             media.has_poster = bool(emby_item.get("Id"))
             media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
+            media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
             for source in _media_sources(emby_item):
                 path = source.get("Path")
                 inode = stat_inode(path)
@@ -336,6 +362,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             media.emby_item_id = emby_item.get("Id")
             media.has_poster = bool(emby_item.get("Id"))
             media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
+            media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
 
             current_paths: set[str] = set()
             try:
@@ -364,6 +391,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
                 pass
 
             episodes = await emby.get_episodes(emby_item["Id"])
+            media.episode_count = len(episodes)
             for episode in episodes:
                 label = _episode_label(episode)
                 for source in _media_sources(episode):
@@ -665,8 +693,23 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
         )
         result.media.statuses = ",".join(sorted(statuses))
         result.media.reclaimable_bytes = reclaimable
+        result.media.total_size = current_files_size(result.files)
 
-    return results, len(torrents)
+    # --- Visionnage Emby -----------------------------------------------
+    # Purement informatif : un échec (Emby trop ancien, droits insuffisants)
+    # laisse les statistiques vides sans jamais faire échouer le scan.
+    await progress("visionnage")
+    try:
+        emby_users = users_from_api(await emby.get_users())
+        watch_data = await collect_watch_data(emby, emby_users)
+    except (httpx.HTTPError, ValueError):
+        emby_users, watch_data = [], {}
+    excluded = excluded_user_ids(settings)
+    for result in results:
+        result.watches = build_watch_rows(result.media, emby_users, watch_data)
+        apply_aggregates(result.media, result.watches, excluded)
+
+    return results, len(torrents), emby_users
 
 
 def compute_statuses(

@@ -9,11 +9,11 @@ import os
 import stat as stat_module
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
 from app.clients.arr import RadarrClient, SonarrClient
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
-from app.models.media import Media, MediaFile, MediaType, Torrent
+from app.models.media import Media, MediaFile, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
     DeleteFootprintItem,
@@ -24,7 +24,7 @@ from app.schemas.media import (
     MediaDeleteSelectionResult,
 )
 from app.services.hardlink import resolve_torrent_files
-from app.services.scan import compute_statuses
+from app.services.scan import compute_statuses, current_files_size
 
 
 async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
@@ -249,6 +249,7 @@ async def execute_media_delete(
         # chaque scan, voir database.py) plutôt que de rester affichée vide,
         # "manquant_emby" + "manquant_qbit" pour toujours jusqu'au prochain
         # scan complet.
+        session.exec(delete(MediaWatch).where(MediaWatch.media_id == media.id))
         session.delete(media)
         session.commit()
         return MediaDeleteSelectionResult(steps=steps, media_deleted=True)
@@ -258,6 +259,7 @@ async def execute_media_delete(
     statuses, reclaimable = compute_statuses(list(remaining_files), list(remaining_torrents), bool(media.emby_item_id))
     media.statuses = ",".join(sorted(statuses))
     media.reclaimable_bytes = reclaimable
+    media.total_size = current_files_size(list(remaining_files))
     session.add(media)
     session.commit()
 

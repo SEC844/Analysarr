@@ -8,10 +8,49 @@ export interface MediaListItem {
   year: number | null
   statuses: MediaStatus[]
   reclaimable_bytes: number
+  total_size: number
   has_poster: boolean
   poster_image_tag: string | null
   last_scanned_at: string
+  has_emby_item: boolean
+  date_added: string | null
+  watch_user_count: number
+  watch_played_count: number
+  watch_in_progress_count: number
+  last_played_at: string | null
 }
+
+export interface WatchUser {
+  id: string
+  name: string
+  image_tag: string | null
+  played: boolean
+  in_progress: boolean
+  // Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
+  progress: number
+  last_played_at: string | null
+}
+
+export interface MediaWatchStats {
+  available: boolean
+  live: boolean
+  total_episodes: number | null
+  users: WatchUser[]
+  played_count: number
+  in_progress_count: number
+  last_played_at: string | null
+  last_played_by: string | null
+  date_added: string | null
+}
+
+export interface EmbyUserRead {
+  id: string
+  name: string
+  image_tag: string | null
+  is_disabled: boolean
+}
+
+export type WatchFilter = "never" | "in_progress" | "all"
 
 export interface MediaListResponse {
   items: MediaListItem[]
@@ -145,8 +184,9 @@ export interface HardlinkRepairResult {
 export interface MediaListParams {
   status?: MediaStatus | "sain"
   media_type?: MediaTypeFilter
+  watch?: WatchFilter
   search?: string
-  sort?: "title" | "year" | "size"
+  sort?: "title" | "year" | "size" | "last_played" | "cleanup"
 }
 
 export type ScanRunStatus = "running" | "completed" | "failed"

@@ -1,6 +1,6 @@
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 
 ServiceName = Literal["emby", "sonarr", "radarr", "qbittorrent", "cross_seed"]
 
@@ -33,8 +33,13 @@ class ScheduleRead(BaseModel):
     interval_minutes: Optional[int] = None
 
 
+class WatchRead(BaseModel):
+    excluded_emby_user_ids: list[str] = []
+
+
 class SettingsRead(BaseModel):
     configured: bool
+    watch: WatchRead
     emby: ServiceApiKeyRead
     sonarr: ServiceApiKeyRead
     radarr: ServiceApiKeyRead
@@ -72,6 +77,9 @@ class SettingsWrite(BaseModel):
 
     scan_schedule_enabled: bool = False
     scan_schedule_interval_minutes: Optional[int] = None
+
+    # Identifiants Emby exclus des statistiques de visionnage.
+    excluded_emby_user_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(default=[], max_length=500)
 
 
 class ConnectionTestRequest(BaseModel):

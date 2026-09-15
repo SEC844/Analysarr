@@ -32,6 +32,7 @@ function paramsToFilters(params: URLSearchParams): MediaListParams {
   return {
     status: (params.get("status") as MediaListParams["status"]) ?? undefined,
     media_type: (params.get("type") as MediaListParams["media_type"]) ?? undefined,
+    watch: (params.get("watch") as MediaListParams["watch"]) ?? undefined,
     search: params.get("q") ?? undefined,
     sort: (params.get("sort") as MediaListParams["sort"]) ?? "title",
   }
@@ -41,6 +42,7 @@ function filtersToParams(filters: MediaListParams): URLSearchParams {
   const params = new URLSearchParams()
   if (filters.status) params.set("status", filters.status)
   if (filters.media_type) params.set("type", filters.media_type)
+  if (filters.watch) params.set("watch", filters.watch)
   if (filters.search) params.set("q", filters.search)
   if (filters.sort && filters.sort !== "title") params.set("sort", filters.sort)
   return params

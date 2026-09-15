@@ -1,5 +1,15 @@
 import { useMemo, useState, type ReactNode } from "react"
-import { CheckCircle2, ChevronRight, Clapperboard, HardDriveDownload, Loader2, Trash2, Tv, XCircle } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Clapperboard,
+  HardDriveDownload,
+  Loader2,
+  Trash2,
+  Tv,
+  XCircle,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -13,7 +23,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation } from "@/hooks/use-media"
+import { watchProgressLabel } from "@/components/media/watch-stats"
+import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation, useMediaWatchQuery } from "@/hooks/use-media"
 import { useI18n } from "@/i18n"
 import { formatBytes } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -206,6 +217,9 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
 
   const executeMutation = useDeleteSelectionExecuteMutation()
   const footprintQuery = useDeleteFootprintQuery(media.id, open && !result)
+  const watchQuery = useMediaWatchQuery(media.id, open && !result)
+  const watchStats = watchQuery.data
+  const watchingUsers = watchStats?.users.filter((u) => u.in_progress) ?? []
 
   const tree = useMemo(() => buildTree(media, t), [media, t])
   const allKeys = useMemo(() => tree.flatMap((n) => n.leafKeys), [tree])
@@ -353,6 +367,20 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
                 <TreeRow key={node.key} node={node} state={treeState} />
               ))}
             </ul>
+
+            {selectedFiles.length > 0 && watchStats && watchingUsers.length > 0 && (
+              // Supprimer la bibliothèque couperait la lecture en cours de ces
+              // utilisateurs : avertissement avant confirmation.
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {t("watch.deleteWarning", {
+                    count: watchingUsers.length,
+                    list: watchingUsers.map((u) => `${u.name} (${watchProgressLabel(u, watchStats, t)})`).join(", "),
+                  })}
+                </span>
+              </div>
+            )}
 
             {showArrOption && (
               <label className="flex items-center gap-2 text-sm">
