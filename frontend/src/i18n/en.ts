@@ -139,6 +139,15 @@ export const en: Dictionary = {
     libraryPathHelp:
       "Optional — only fill this in if the cross-seed container mounts the same library folder at a different path than Analysarr (Paths tab). Otherwise a cross-seed search on a media that was never seeded may fail with “accessible path must be provided” — cross-seed cannot find the file on its own filesystem.",
   },
+  arrInstances: {
+    title: "Additional instances",
+    description:
+      "Other {service} instances, for example dedicated to 4K or anime. Every instance is analyzed on each scan, and each media item stays linked to the instance that tracks it.",
+    name: "Name",
+    add: "Add an instance",
+    remove: "Remove {name}",
+    hint: "Save, then run a new scan to apply the changes.",
+  },
   paths: {
     title: "Folder paths",
     description:

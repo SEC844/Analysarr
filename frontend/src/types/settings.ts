@@ -47,9 +47,32 @@ export interface NotificationTestResult {
   results: Partial<Record<NotificationChannel, string | null>>
 }
 
+export type ArrKind = "sonarr" | "radarr"
+
+export interface ArrInstanceRead {
+  id: number
+  kind: ArrKind
+  name: string
+  url: string
+  api_key_set: boolean
+}
+
+// Instance supplémentaire dans le formulaire. `key` : identifiant local pour
+// React (une nouvelle instance n'a pas encore d'id).
+export interface ArrInstanceForm {
+  key: string
+  id: number | null
+  kind: ArrKind
+  name: string
+  url: string
+  // Vide : conserve la clé enregistrée.
+  api_key: string
+}
+
 export interface SettingsRead {
   configured: boolean
   notifications: NotificationsRead
+  arr_instances: ArrInstanceRead[]
   media_server: MediaServer
   watch: { excluded_emby_user_ids: string[] }
   emby: ServiceApiKeyRead
@@ -93,6 +116,7 @@ export interface SettingsWrite {
   notify_on_scan: boolean
   notify_on_scan_failure: boolean
   notify_on_actions: boolean
+  arr_instances: ArrInstanceForm[]
   excluded_emby_user_ids: string[]
 }
 
@@ -154,6 +178,7 @@ export function emptySettingsWrite(): SettingsWrite {
     notify_on_scan: false,
     notify_on_scan_failure: true,
     notify_on_actions: true,
+    arr_instances: [],
     excluded_emby_user_ids: [],
   }
 }
@@ -190,6 +215,14 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     notify_on_scan: s.notifications.on_scan,
     notify_on_scan_failure: s.notifications.on_scan_failure,
     notify_on_actions: s.notifications.on_actions,
+    arr_instances: s.arr_instances.map((i) => ({
+      key: `saved-${i.id}`,
+      id: i.id,
+      kind: i.kind,
+      name: i.name,
+      url: i.url,
+      api_key: "",
+    })),
     excluded_emby_user_ids: s.watch.excluded_emby_user_ids,
   }
 }

@@ -9,7 +9,6 @@ from typing import Any
 import httpx
 from sqlmodel import Session, delete
 
-from app.clients.arr import RadarrClient, SonarrClient
 from app.clients.emby import EmbyClient, media_server_name
 from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
 from app.database import engine
@@ -26,6 +25,7 @@ from app.models.media import (
     Torrent,
 )
 from app.models.settings import Settings
+from app.services.arr_instances import ArrTarget, arr_targets
 from app.services.events import scan_events
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.notifications import (
@@ -156,6 +156,63 @@ def _current_flags(candidates: list[tuple[str | None, int | None]], arr_file: di
     return [strength == best for strength in strengths]
 
 
+def _without_other_instance_files(
+    sources: list[dict[str, Any]], own_file: dict[str, Any] | None, other_files: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Retire les fichiers suivis par une AUTRE instance Sonarr/Radarr (ex : la
+    version 4K d'un film réunie dans le même item du serveur multimédia) : ce
+    ne sont pas des doublons de cette instance, et les proposer au nettoyage
+    supprimerait la version de l'autre instance."""
+    if not other_files:
+        return sources
+    kept = []
+    for source in sources:
+        path, size = source.get("Path"), source.get("Size")
+        other = max(_file_match_strength(path, size, f) for f in other_files)
+        if other and other > _file_match_strength(path, size, own_file):
+            continue
+        kept.append(source)
+    return kept
+
+
+def _index_items(items: list[dict[str, Any]], provider: str) -> dict[str, list[dict[str, Any]]]:
+    """Items du serveur multimédia par identifiant externe. Plusieurs items
+    peuvent partager un identifiant (bibliothèques séparées, ex : 1080p et 4K)."""
+    index: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        key = _provider_id(item.get("ProviderIds"), provider)
+        if key:
+            index.setdefault(key, []).append(item)
+    return index
+
+
+def _pick_emby_item(candidates: list[dict[str, Any]], arr_files: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Item retenu pour un film : celui qui contient un fichier suivi par cette
+    instance quand plusieurs items partagent l'identifiant, sinon le dernier
+    (comportement historique)."""
+    if len(candidates) > 1:
+        for item in candidates:
+            sources = _media_sources(item)
+            if any(_file_match_strength(s.get("Path"), s.get("Size"), f) for s in sources for f in arr_files):
+                return item
+    return candidates[-1] if candidates else None
+
+
+async def _pick_series_item(
+    emby: EmbyClient, candidates: list[dict[str, Any]], episode_files: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Même principe que `_pick_emby_item` pour une série, sur ses épisodes.
+    Renvoie l'item et ses épisodes (déjà récupérés)."""
+    if len(candidates) > 1:
+        for item in candidates:
+            episodes = await emby.get_episodes(item["Id"])
+            sources = [s for episode in episodes for s in _media_sources(episode)]
+            if any(_file_match_strength(s.get("Path"), s.get("Size"), f) for s in sources for f in episode_files):
+                return item, episodes
+    item = candidates[-1]
+    return item, await emby.get_episodes(item["Id"])
+
+
 def _is_usable_root(root_path: str, qbittorrent_download_path: str | None) -> bool:
     """Faux si `root_path` est trop générique pour servir de repli de rattachement
     par chemin — c'est-à-dire s'il est égal à, ou un ancêtre de, la racine des
@@ -229,6 +286,8 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             # (sinon SQLAlchemy expire l'instance à la fermeture et tout accès lève
             # DetachedInstanceError).
             session.expunge(settings)
+        radarr_targets = arr_targets(session, settings, "radarr")
+        sonarr_targets = arr_targets(session, settings, "sonarr")
         run = ScanRun(status=ScanStatus.running, trigger=trigger)
         session.add(run)
         session.commit()
@@ -259,7 +318,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         return
 
     try:
-        results, qbit_torrent_count, emby_users = await _collect(settings, run_id)
+        results, qbit_torrent_count, emby_users = await _collect(settings, run_id, radarr_targets, sonarr_targets)
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
         await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", settings)
         return
@@ -350,37 +409,62 @@ async def _fail_scan(run_id: int, message: str, settings: Settings | None = None
     await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
 
 
-async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResult], int, list[EmbyUser]]:
+async def _collect(
+    settings: Settings, run_id: int, radarr_targets: list[ArrTarget], sonarr_targets: list[ArrTarget]
+) -> tuple[list[MediaBuildResult], int, list[EmbyUser]]:
+    """Instances Radarr/Sonarr : la principale d'abord, puis les
+    supplémentaires (voir services/arr_instances.py). Chaque film/série suivi
+    par une instance donne un média distinct."""
     assert settings.emby_url and settings.emby_api_key
-    assert settings.sonarr_url and settings.sonarr_api_key
-    assert settings.radarr_url and settings.radarr_api_key
+    assert radarr_targets and sonarr_targets
     assert settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password
 
     emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
-    radarr = RadarrClient(settings.radarr_url, settings.radarr_api_key)
-    sonarr = SonarrClient(settings.sonarr_url, settings.sonarr_api_key)
 
     async def progress(stage: str) -> None:
         await scan_events.publish({"type": "progress", "run_id": run_id, "stage": stage})
 
     await progress("radarr")
-    movies = await radarr.get_movies()
+    movie_entries = [(target, movie) for target in radarr_targets for movie in await target.radarr().get_movies()]
 
     await progress("sonarr")
-    series_list = await sonarr.get_series()
+    series_entries = [(target, series) for target in sonarr_targets for series in await target.sonarr().get_series()]
 
     await progress("emby")
     emby_movies = await emby.get_library_items("Movie")
     emby_series = await emby.get_library_items("Series")
 
-    emby_movie_by_tmdb = {_provider_id(m.get("ProviderIds"), "Tmdb"): m for m in emby_movies if m.get("ProviderIds")}
-    emby_movie_by_imdb = {_provider_id(m.get("ProviderIds"), "Imdb"): m for m in emby_movies if m.get("ProviderIds")}
-    emby_series_by_tvdb = {_provider_id(s.get("ProviderIds"), "Tvdb"): s for s in emby_series if s.get("ProviderIds")}
+    emby_movies_by_tmdb = _index_items(emby_movies, "Tmdb")
+    emby_movies_by_imdb = _index_items(emby_movies, "Imdb")
+    emby_series_by_tvdb = _index_items(emby_series, "Tvdb")
+
+    # Un même film/une même série peut être suivi par plusieurs instances
+    # (ex : Radarr et Radarr 4K) : fichiers suivis par chaque instance, pour ne
+    # jamais compter la version d'une autre instance comme un doublon.
+    movie_files_by_tmdb: dict[str, list[tuple[ArrTarget, dict[str, Any]]]] = {}
+    for target, movie in movie_entries:
+        if movie.get("hasFile") and movie.get("movieFile") and movie.get("tmdbId"):
+            movie_files_by_tmdb.setdefault(str(movie["tmdbId"]), []).append((target, movie["movieFile"]))
+    series_by_tvdb: dict[str, list[tuple[ArrTarget, int]]] = {}
+    for target, series in series_entries:
+        if (series.get("statistics") or {}).get("episodeFileCount") and series.get("tvdbId"):
+            series_by_tvdb.setdefault(str(series["tvdbId"]), []).append((target, series["id"]))
+
+    episode_files_cache: dict[tuple[int | None, int], list[dict[str, Any]]] = {}
+
+    async def episode_files_for(target: ArrTarget, series_id: int) -> list[dict[str, Any]]:
+        key = (target.instance_id, series_id)
+        if key not in episode_files_cache:
+            try:
+                episode_files_cache[key] = await target.sonarr().get_episode_files(series_id)
+            except Exception:  # noqa: BLE001 - purement informatif pour is_current, ne doit pas bloquer le scan
+                episode_files_cache[key] = []
+        return episode_files_cache[key]
 
     results: list[MediaBuildResult] = []
 
     # --- Films -----------------------------------------------------------
-    for movie in movies:
+    for target, movie in movie_entries:
         if not movie.get("hasFile"):
             continue  # pas encore téléchargé : rien à analyser pour ce film
         media = Media(
@@ -388,6 +472,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             title=movie.get("title") or "Sans titre",
             year=movie.get("year"),
             radarr_id=movie.get("id"),
+            arr_instance_id=target.instance_id,
             tmdb_id=movie.get("tmdbId"),
             imdb_id=movie.get("imdbId"),
         )
@@ -402,13 +487,20 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
         movie_file = movie.get("movieFile") or None
         current_movie_file_id = (movie_file or {}).get("id")
 
-        emby_item = emby_movie_by_tmdb.get(str(movie.get("tmdbId"))) or emby_movie_by_imdb.get(movie.get("imdbId"))
+        tmdb_key = str(movie.get("tmdbId")) if movie.get("tmdbId") else None
+        candidates = (emby_movies_by_tmdb.get(tmdb_key, []) if tmdb_key else []) or emby_movies_by_imdb.get(
+            movie.get("imdbId") or "", []
+        )
+        emby_item = _pick_emby_item(candidates, [movie_file] if movie_file else [])
         if emby_item:
             media.emby_item_id = emby_item.get("Id")
             media.has_poster = bool(emby_item.get("Id"))
             media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
             media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
-            sources = _media_sources(emby_item)
+            other_files = [
+                f for other, f in movie_files_by_tmdb.get(tmdb_key or "", []) if other.instance_id != target.instance_id
+            ]
+            sources = _without_other_instance_files(_media_sources(emby_item), movie_file, other_files)
             flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], movie_file)
             for source, is_current in zip(sources, flags):
                 path = source.get("Path")
@@ -431,14 +523,16 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
         results.append(result)
 
     # --- Séries ------------------------------------------------------------
-    for series in series_list:
+    for target, series in series_entries:
         if not (series.get("statistics") or {}).get("episodeFileCount"):
             continue  # aucun épisode téléchargé : rien à analyser pour cette série
+        sonarr = target.sonarr()
         media = Media(
             media_type=MediaType.series,
             title=series.get("title") or "Sans titre",
             year=series.get("year"),
             sonarr_id=series.get("id"),
+            arr_instance_id=target.instance_id,
             tvdb_id=series.get("tvdbId"),
         )
         alt_titles = [a.get("title") for a in series.get("alternateTitles") or []]
@@ -449,21 +543,23 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
         )
 
         tvdb_key = str(series.get("tvdbId")) if series.get("tvdbId") else None
-        emby_item = emby_series_by_tvdb.get(tvdb_key) if tvdb_key else None
-        if emby_item:
+        candidates = emby_series_by_tvdb.get(tvdb_key, []) if tvdb_key else []
+        if candidates:
+            episode_files = await episode_files_for(target, series["id"])
+            current_paths: set[str] = {f["path"] for f in episode_files if f.get("path")}
+            episode_files_by_id: dict[int, dict[str, Any]] = {f["id"]: f for f in episode_files if f.get("id")}
+            other_files = [
+                f
+                for other, other_series_id in series_by_tvdb.get(tvdb_key or "", [])
+                if other.instance_id != target.instance_id
+                for f in await episode_files_for(other, other_series_id)
+            ]
+
+            emby_item, episodes = await _pick_series_item(emby, candidates, episode_files)
             media.emby_item_id = emby_item.get("Id")
             media.has_poster = bool(emby_item.get("Id"))
             media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
             media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
-
-            current_paths: set[str] = set()
-            episode_files_by_id: dict[int, dict[str, Any]] = {}
-            try:
-                episode_files = await sonarr.get_episode_files(series["id"])
-                current_paths = {f["path"] for f in episode_files if f.get("path")}
-                episode_files_by_id = {f["id"]: f for f in episode_files if f.get("id")}
-            except Exception:  # noqa: BLE001 - purement informatif pour is_current, ne doit pas bloquer le scan
-                pass
 
             # Épisodes que Sonarr considère téléchargés (episodeFile existant),
             # indépendamment de ce qu'Emby en a repris — voir plus bas. Sert
@@ -484,7 +580,6 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             except Exception:  # noqa: BLE001 - purement informatif, ne doit pas bloquer le scan
                 pass
 
-            episodes = await emby.get_episodes(emby_item["Id"])
             media.episode_count = len(episodes)
             # Fichiers regroupés par épisode : un doublon peut être un item Emby
             # distinct du même épisode, pas seulement une seconde source.
@@ -494,6 +589,7 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             for label, sources in sources_by_label.items():
                 sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
                 episode_file = episode_files_by_id.get(sonarr_episode_file_id) if sonarr_episode_file_id else None
+                sources = _without_other_instance_files(sources, episode_file, other_files)
                 if episode_file is not None:
                     flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], episode_file)
                 else:
@@ -530,16 +626,21 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
     # (indexé par id Radarr/Sonarr, pas par position : certains films/séries
     # sans fichier ont été exclus de `results` plus haut)
     await progress("historique")
-    radarr_id_to_index = {r.media.radarr_id: i for i, r in enumerate(results) if r.media.radarr_id is not None}
-    sonarr_id_to_index = {r.media.sonarr_id: i for i, r in enumerate(results) if r.media.sonarr_id is not None}
+    # Clé (instance, id) : les ids Sonarr/Radarr de deux instances se recouvrent.
+    radarr_id_to_index = {
+        (r.media.arr_instance_id, r.media.radarr_id): i for i, r in enumerate(results) if r.media.radarr_id is not None
+    }
+    sonarr_id_to_index = {
+        (r.media.arr_instance_id, r.media.sonarr_id): i for i, r in enumerate(results) if r.media.sonarr_id is not None
+    }
 
     hash_to_index: dict[str, int] = {}
-    for movie in movies:
-        index = radarr_id_to_index.get(movie.get("id"))
+    for target, movie in movie_entries:
+        index = radarr_id_to_index.get((target.instance_id, movie.get("id")))
         if index is None:
             continue
         try:
-            history = await radarr.get_history_for_movie(movie["id"])
+            history = await target.radarr().get_history_for_movie(movie["id"])
         except Exception:  # noqa: BLE001 - un échec d'historique ne doit pas interrompre le scan
             history = []
         for event in history:
@@ -547,12 +648,12 @@ async def _collect(settings: Settings, run_id: int) -> tuple[list[MediaBuildResu
             if download_id:
                 hash_to_index[download_id.lower()] = index
 
-    for series in series_list:
-        index = sonarr_id_to_index.get(series.get("id"))
+    for target, series in series_entries:
+        index = sonarr_id_to_index.get((target.instance_id, series.get("id")))
         if index is None:
             continue
         try:
-            history = await sonarr.get_history_for_series(series["id"])
+            history = await target.sonarr().get_history_for_series(series["id"])
         except Exception:  # noqa: BLE001
             history = []
         for event in history:

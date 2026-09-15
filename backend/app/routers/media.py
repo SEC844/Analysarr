@@ -30,6 +30,7 @@ from app.schemas.media import (
     TorrentRead,
     TrackerRead,
 )
+from app.services.arr_instances import instance_names
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
@@ -48,7 +49,7 @@ def _is_cross_seed(torrent: Torrent) -> bool:
     return any(h and "cross-seed" in h.lower() for h in haystacks)
 
 
-def _to_list_item(media: Media, seer_enabled: bool = False) -> MediaListItem:
+def _to_list_item(media: Media, seer_enabled: bool = False, names: dict[int, str] | None = None) -> MediaListItem:
     return MediaListItem(
         id=media.id,
         media_type=media.media_type.value,
@@ -68,6 +69,7 @@ def _to_list_item(media: Media, seer_enabled: bool = False) -> MediaListItem:
         last_played_at=as_utc(media.last_played_at),
         # Seer désactivé : aucune trace dans l'interface, même d'un scan passé.
         requested_by=media.requested_by if seer_enabled else None,
+        arr_instance_name=(names or {}).get(media.arr_instance_id) if media.arr_instance_id is not None else None,
     )
 
 
@@ -133,7 +135,8 @@ def list_media(
         medias.sort(key=lambda m: m.title.lower())
 
     seer_enabled = seer_configured(session.get(Settings, 1))
-    return MediaListResponse(items=[_to_list_item(m, seer_enabled) for m in medias], total=len(medias))
+    names = instance_names(session)
+    return MediaListResponse(items=[_to_list_item(m, seer_enabled, names) for m in medias], total=len(medias))
 
 
 @router.get("/{media_id}", response_model=MediaDetail)
@@ -147,7 +150,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
     seer_enabled = seer_configured(session.get(Settings, 1))
 
     return MediaDetail(
-        **_to_list_item(media, seer_enabled).model_dump(),
+        **_to_list_item(media, seer_enabled, instance_names(session)).model_dump(),
         requests=build_requests_read(session, media) if seer_enabled else [],
         radarr_id=media.radarr_id,
         sonarr_id=media.sonarr_id,

@@ -141,6 +141,15 @@ export const fr = {
     libraryPathHelp:
       "Optionnel — à remplir seulement si le conteneur cross-seed monte le même dossier de bibliothèque à un chemin différent de celui d'Analysarr (onglet Chemins). Sans ça, une recherche cross-seed lancée sur un média jamais seedé peut échouer avec « accessible path must be provided » — cross-seed ne retrouve pas le fichier sur son propre système de fichiers.",
   },
+  arrInstances: {
+    title: "Instances supplémentaires",
+    description:
+      "D'autres instances {service}, par exemple dédiées à la 4K ou aux animés. Chaque instance est analysée à chaque scan, et chaque média reste rattaché à l'instance qui le suit.",
+    name: "Nom",
+    add: "Ajouter une instance",
+    remove: "Retirer {name}",
+    hint: "Enregistrez puis relancez un scan pour prendre en compte les changements.",
+  },
   paths: {
     title: "Chemins des dossiers",
     description:

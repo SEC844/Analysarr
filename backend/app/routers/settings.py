@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.database import get_session
+from app.models.arr_instance import ArrInstance
 from app.models.settings import Settings
 from app.schemas.settings import (
+    ArrInstanceRead,
     BrowseEntry,
     BrowseResult,
     ConnectionTestRequest,
@@ -24,6 +26,7 @@ from app.schemas.settings import (
     SettingsWrite,
     WatchRead,
 )
+from app.services.arr_instances import ARR_KINDS, MAX_EXTRA_INSTANCES, extra_instances
 from app.services.connection_test import TESTERS
 from app.services.notifications import (
     is_discord_webhook,
@@ -61,7 +64,7 @@ def _is_configured(s: Settings) -> bool:
     )
 
 
-def _to_read(s: Settings | None) -> SettingsRead:
+def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
     if s is None:
         return SettingsRead(
             configured=False,
@@ -113,12 +116,15 @@ def _to_read(s: Settings | None) -> SettingsRead:
             enabled=s.scan_schedule_enabled,
             interval_minutes=s.scan_schedule_interval_minutes,
         ),
+        arr_instances=[
+            ArrInstanceRead(id=i.id, kind=i.kind, name=i.name, url=i.url, api_key_set=bool(i.api_key)) for i in instances
+        ],
     )
 
 
 @router.get("", response_model=SettingsRead)
 def get_settings(session: Session = Depends(get_session)) -> SettingsRead:
-    return _to_read(_get_row(session))
+    return _to_read(_get_row(session), extra_instances(session))
 
 
 @router.put("", response_model=SettingsRead)
@@ -164,6 +170,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
         row.seer_api_key = payload.seer_api_key
 
     _apply_notifications(row, payload)
+    _apply_arr_instances(session, payload)
 
     row.updated_at = datetime.now(timezone.utc)
 
@@ -175,7 +182,44 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     if excluded_user_ids(row) != previous_exclusions:
         recompute_all_aggregates(session, row)
 
-    return _to_read(row)
+    return _to_read(row, extra_instances(session))
+
+
+def _apply_arr_instances(session: Session, payload: SettingsWrite) -> None:
+    """Instances Sonarr/Radarr supplémentaires : la liste envoyée remplace la
+    liste enregistrée (absente = inchangée). Clé API write-only, comme celles
+    des autres services. Aucune écriture n'est validée si une entrée est
+    invalide (exception avant le commit)."""
+    if payload.arr_instances is None:
+        return
+    existing = {row.id: row for row in extra_instances(session)}
+    kept: set[int] = set()
+    counts = dict.fromkeys(ARR_KINDS, 0)
+    for item in payload.arr_instances:
+        name, url = item.name.strip(), item.url.strip()
+        if not name:
+            raise HTTPException(400, "Chaque instance supplémentaire doit avoir un nom.")
+        if not is_http_url(url):
+            raise HTTPException(400, f"L'URL de l'instance « {name} » doit commencer par http:// ou https://.")
+        counts[item.kind] += 1
+        if counts[item.kind] > MAX_EXTRA_INSTANCES:
+            raise HTTPException(400, f"{MAX_EXTRA_INSTANCES} instances supplémentaires maximum par service.")
+        if item.id is None:
+            if not item.api_key:
+                raise HTTPException(400, f"Clé API requise pour la nouvelle instance « {name} ».")
+            row = ArrInstance(kind=item.kind, name=name, url=url, api_key=item.api_key)
+        else:
+            row = existing.get(item.id)
+            if row is None or row.kind != item.kind:
+                raise HTTPException(400, f"Instance « {name} » introuvable : rechargez la page.")
+            kept.add(row.id)
+        row.name, row.url = name, url
+        if item.api_key:
+            row.api_key = item.api_key
+        session.add(row)
+    for row_id, row in existing.items():
+        if row_id not in kept:
+            session.delete(row)
 
 
 def _apply_notifications(row: Settings, payload: SettingsWrite) -> None:

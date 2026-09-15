@@ -26,6 +26,10 @@ class Media(SQLModel, table=True):
 
     radarr_id: Optional[int] = None
     sonarr_id: Optional[int] = None
+    # Instance Sonarr/Radarr supplémentaire qui suit ce média (ArrInstance.id) ;
+    # None = instance principale. Les ids Sonarr/Radarr ne sont uniques qu'au
+    # sein d'une instance.
+    arr_instance_id: Optional[int] = None
     emby_item_id: Optional[str] = None
 
     tmdb_id: Optional[int] = None

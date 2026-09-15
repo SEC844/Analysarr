@@ -19,6 +19,8 @@ export interface MediaListItem {
   watch_in_progress_count: number
   last_played_at: string | null
   requested_by: string | null
+  // Instance Sonarr/Radarr supplémentaire (ex : « Radarr 4K ») ; null = principale.
+  arr_instance_name: string | null
 }
 
 export interface SeerUserRead {

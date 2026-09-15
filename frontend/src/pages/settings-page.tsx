@@ -7,6 +7,7 @@ import { AccountSection } from "@/components/settings/account-card"
 import { ActionHistory } from "@/components/settings/action-history"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
+import { ArrInstancesCard } from "@/components/settings/arr-instances-card"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
 import { EmbyUsersCard } from "@/components/settings/emby-users-card"
 import { NotificationsSection } from "@/components/settings/notifications-section"
@@ -169,6 +170,15 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
               {...(section === "emby"
                 ? { mediaServer: form.media_server, onMediaServerChange: (v: MediaServer) => set("media_server", v) }
                 : {})}
+            />
+          )}
+
+          {(section === "sonarr" || section === "radarr") && (
+            <ArrInstancesCard
+              kind={section}
+              instances={form.arr_instances}
+              saved={existing.arr_instances}
+              onChange={(v) => set("arr_instances", v)}
             />
           )}
 

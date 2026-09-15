@@ -44,7 +44,11 @@ export function MediaCard({ media }: { media: MediaListItem }) {
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div>
           <p className="line-clamp-2 text-sm font-medium leading-tight">{media.title}</p>
-          {media.year && <p className="text-muted-foreground text-xs">{media.year}</p>}
+          {(media.year || media.arr_instance_name) && (
+            <p className="text-muted-foreground truncate text-xs">
+              {[media.year, media.arr_instance_name].filter(Boolean).join(" · ")}
+            </p>
+          )}
         </div>
         <StatusBadgeList statuses={media.statuses} />
         {(showQuota || showSize || showRequester || showReclaimable) && (
