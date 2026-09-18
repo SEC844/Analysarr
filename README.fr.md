@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Le tableau de bord de santé de votre stack média.</strong><br>
-  Emby ou Jellyfin · Sonarr · Radarr · qBittorrent · Seer · cross-seed
+  Emby ou Jellyfin · Sonarr · Radarr · qBittorrent, Deluge ou Transmission · Seer · cross-seed
 </p>
 
 <p align="center">
@@ -60,11 +60,13 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Confort au quotidien**
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
+- qBittorrent, Deluge ou Transmission : le client torrent est un réglage, tout le reste fonctionne à l'identique.
 - Plusieurs instances Sonarr et Radarr (ex : un Radarr dédié à la 4K) : chaque média reste rattaché à l'instance qui le suit, et une version suivie par une autre instance n'est jamais comptée comme un doublon.
 - Fichiers de la bibliothèque rapprochés de Sonarr/Radarr même quand les conteneurs montent la bibliothèque à des chemins différents.
 - État de connexion de chaque service dans les réglages, avec une alerte dans l'en-tête dès qu'un service ne répond plus.
 - Widget de tableau de bord en lecture seule (`/api/status`) pour Homepage, Homarr ou tout outil capable de lire du JSON.
-- Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape) après un scan, un échec de scan ou une action.
+- Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape). Plusieurs canaux, chacun avec ses propres événements : scan terminé, échec de scan, orphelins détectés, suppression, nettoyage, réparation des hardlinks, recherche cross-seed, automatisation.
+- Automatisations optionnelles : sur orphelins, doublons ou torrents non hardlinkés, nettoyer, réparer, chercher un cross-seed ou simplement notifier — avec conditions (ancienneté du seed, ratio, type de média, espace récupérable), mode simulation et plafond par exécution.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.
 - Notification quand une nouvelle version est publiée.
@@ -77,7 +79,9 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 | Jellyfin | 10.9 ou plus récent | Emby ou Jellyfin |
 | Sonarr | v3, v4 | Oui |
 | Radarr | v3 ou plus récent | Oui |
-| qBittorrent | 4.1 ou plus récent (WebUI API v2) | Oui |
+| qBittorrent | 4.1 ou plus récent (WebUI API v2) | Un client torrent |
+| Deluge | 2.x (interface web) | Un client torrent |
+| Transmission | 3.0 ou plus récent (RPC) | Un client torrent |
 | Seer (Overseerr, Jellyseerr, Seerr) | Versions actuelles | Optionnel |
 | cross-seed | Mode daemon | Optionnel |
 
@@ -161,6 +165,7 @@ Téléchargez la nouvelle image et recréez le conteneur. Réglages et cache son
 
 - Un seul compte administrateur ; mots de passe hachés avec bcrypt ; connexion bloquée 15 minutes après 5 échecs.
 - Double authentification optionnelle (application TOTP) avec codes de secours à usage unique.
+- Les automatisations ne tournent que si vous créez une règle : une nouvelle règle démarre en simulation, chaque exécution est plafonnée, et elles réutilisent les actions manuelles — un torrent protégé ou réparable n'est jamais supprimé.
 - Le widget exige sa propre clé (stockée hachée, acceptée uniquement dans un en-tête), n'expose que des compteurs (aucun titre, chemin ni adresse de service) et ne déclenche jamais de requête vers vos services.
 - Sessions stockées côté serveur, transmises par cookie `httpOnly`.
 - Les clés API et mots de passe de vos services restent sur le serveur : ils ne sont jamais renvoyés au navigateur.
