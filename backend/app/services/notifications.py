@@ -1,8 +1,12 @@
-"""Notifications vers Discord, ntfy et Gotify — toutes optionnelles.
+"""Notifications multi-canaux vers Discord, ntfy et Gotify — toutes optionnelles.
 
-- Contenu : titre, média concerné (jaquette en pièce jointe quand le canal
-  le permet), espace libéré, réussites/échecs et détail de chaque étape ;
-  résumé chiffré pour les scans.
+- Chaque canal est une entrée indépendante (`NotificationChannel`) avec son
+  adresse, son jeton et SA liste d'événements : plusieurs webhooks Discord
+  peuvent coexister, par exemple un pour les scans et un autre pour les
+  suppressions.
+- Contenu : titre, média concerné (jaquette en pièce jointe quand le canal le
+  permet), espace libéré, réussites/échecs et détail de chaque étape ; résumé
+  chiffré pour les scans.
 - Au mieux : un canal injoignable ne fait jamais échouer un scan ni une
   suppression (envoi en tâche de fond, erreurs journalisées).
 - Secrets : l'URL d'un webhook Discord ou un jeton ntfy/Gotify donne le droit
@@ -23,8 +27,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
 
 import httpx
+from sqlmodel import Session, select
 
 from app.clients.emby import EmbyClient, media_server_client
+from app.models.notification_channel import NotificationChannel
 from app.models.settings import Settings
 from app.services.poster_cache import read_cached_poster, safe_image_type
 
@@ -43,22 +49,39 @@ _pending: set[asyncio.Task] = set()
 # Icône du projet (même dépôt que le code), pour l'avatar Discord.
 ICON_URL = "https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.png"
 
+CHANNEL_KINDS = ("discord", "ntfy", "gotify")
+MAX_CHANNELS = 20
+
+# Événements notifiables, chacun activable canal par canal.
+NOTIFICATION_EVENTS = (
+    "scan_completed",
+    "scan_failed",
+    "orphan_detected",
+    "duplicate_detected",
+    "non_hardlink_detected",
+    "delete_selection",
+    "cascade_delete",
+    "hardlink_repair",
+    "cross_seed_search",
+    "automation",
+)
+# Sélection par défaut d'un nouveau canal : ce qui demande une action ou
+# signale un problème, jamais le simple résumé de scan (trop fréquent).
+DEFAULT_EVENTS = (
+    "scan_failed",
+    "orphan_detected",
+    "duplicate_detected",
+    "delete_selection",
+    "cascade_delete",
+    "hardlink_repair",
+)
+
 DISCORD_WEBHOOK_PREFIXES = (
     "https://discord.com/api/webhooks/",
     "https://discordapp.com/api/webhooks/",
     "https://ptb.discord.com/api/webhooks/",
     "https://canary.discord.com/api/webhooks/",
 )
-
-# Événement -> préférence qui l'active (None : toujours envoyé).
-_EVENT_SETTING = {
-    "scan_completed": "notify_on_scan",
-    "scan_failed": "notify_on_scan_failure",
-    "delete_selection": "notify_on_actions",
-    "cascade_delete": "notify_on_actions",
-    "hardlink_repair": "notify_on_actions",
-    "test": None,
-}
 
 _COLORS = {"success": 0x10B981, "warning": 0xF59E0B, "error": 0xEF4444, "info": 0x0EA5E9}
 _NTFY_TAGS = {"success": "white_check_mark", "warning": "warning", "error": "x", "info": "information_source"}
@@ -75,6 +98,8 @@ _TEXT = {
         "delete_selection": "Suppression effectuée",
         "cascade_delete": "Nettoyage effectué",
         "hardlink_repair": "Hardlinks réparés",
+        "cross_seed_search": "Recherche cross-seed",
+        "automation": "Automatisation exécutée",
         "type": "Type",
         "freed": "Espace libéré",
         "succeeded": "Réussites",
@@ -90,8 +115,17 @@ _TEXT = {
         "reclaimable": "Espace récupérable",
         "matched": "Torrents rattachés",
         "duration": "Durée",
+        "orphan_detected": "Nouveaux torrents orphelins",
+        "orphan_detected_summary": "Des torrents ne protègent plus aucun fichier de la bibliothèque.",
+        "duplicate_detected": "Nouveaux doublons",
+        "duplicate_detected_summary": "Plusieurs fichiers existent pour un même film ou épisode.",
+        "non_hardlink_detected": "Nouveaux torrents non hardlinkés",
+        "non_hardlink_detected_summary": "Le contenu est bien seedé, mais sans hardlink vers la bibliothèque.",
+        "affected_media": "Médias concernés",
         "test": "Notification de test",
-        "test_body": "Les notifications d'Analysarr fonctionnent : résumés de scan et actions effectuées arriveront ici.",
+        "test_body": "Les notifications d'Analysarr fonctionnent : les événements choisis pour ce canal arriveront ici.",
+        "rule": "Règle",
+        "trigger": "Déclencheur",
     },
     "en": {
         "colon": ": ",
@@ -101,6 +135,8 @@ _TEXT = {
         "delete_selection": "Deletion completed",
         "cascade_delete": "Cleanup completed",
         "hardlink_repair": "Hardlinks repaired",
+        "cross_seed_search": "Cross-seed search",
+        "automation": "Automation ran",
         "type": "Type",
         "freed": "Space freed",
         "succeeded": "Succeeded",
@@ -116,8 +152,17 @@ _TEXT = {
         "reclaimable": "Reclaimable space",
         "matched": "Matched torrents",
         "duration": "Duration",
+        "orphan_detected": "New orphan torrents",
+        "orphan_detected_summary": "Some torrents no longer protect any library file.",
+        "duplicate_detected": "New duplicates",
+        "duplicate_detected_summary": "Several files exist for the same movie or episode.",
+        "non_hardlink_detected": "New non-hardlinked torrents",
+        "non_hardlink_detected_summary": "The content is seeded, but without a hardlink to the library.",
+        "affected_media": "Media affected",
         "test": "Test notification",
-        "test_body": "Analysarr notifications are working: scan summaries and performed actions will show up here.",
+        "test_body": "Analysarr notifications are working: the events selected for this channel will show up here.",
+        "rule": "Rule",
+        "trigger": "Trigger",
     },
 }
 
@@ -144,37 +189,39 @@ class Notification:
 
 
 @dataclass(frozen=True)
-class Targets:
-    """Copie des réglages de notification au moment de l'événement : l'envoi
-    se fait en tâche de fond, après la fermeture de la session de base."""
+class ChannelTarget:
+    """Copie des réglages d'un canal au moment de l'événement : l'envoi se fait
+    en tâche de fond, après la fermeture de la session de base."""
 
-    discord_webhook: str | None
-    ntfy_url: str | None
-    ntfy_token: str | None
-    gotify_url: str | None
-    gotify_token: str | None
+    id: int
+    kind: str
+    name: str
+    url: str
+    token: str | None
+    events: tuple[str, ...]
 
-    @property
-    def channels(self) -> list[str]:
-        return [
-            name
-            for name, enabled in (
-                ("discord", bool(self.discord_webhook)),
-                ("ntfy", bool(self.ntfy_url)),
-                ("gotify", bool(self.gotify_url and self.gotify_token)),
-            )
-            if enabled
-        ]
+    def wants(self, event: str) -> bool:
+        return event in self.events
 
 
-def targets_from(settings: Settings | None) -> Targets:
-    return Targets(
-        discord_webhook=settings.notify_discord_webhook if settings else None,
-        ntfy_url=settings.notify_ntfy_url if settings else None,
-        ntfy_token=settings.notify_ntfy_token if settings else None,
-        gotify_url=settings.notify_gotify_url if settings else None,
-        gotify_token=settings.notify_gotify_token if settings else None,
-    )
+def channel_events(channel: NotificationChannel) -> tuple[str, ...]:
+    try:
+        events = json.loads(channel.events or "[]")
+    except ValueError:
+        return ()
+    return tuple(event for event in events if event in NOTIFICATION_EVENTS)
+
+
+def channel_targets(session: Session, only_enabled: bool = True) -> list[ChannelTarget]:
+    query = select(NotificationChannel).order_by(NotificationChannel.id)
+    if only_enabled:
+        query = query.where(NotificationChannel.enabled == True)  # noqa: E712 - SQLModel n'accepte pas `is True`
+    return [
+        ChannelTarget(
+            id=row.id, kind=row.kind, name=row.name, url=row.url, token=row.token, events=channel_events(row)
+        )
+        for row in session.exec(query).all()
+    ]
 
 
 def is_discord_webhook(url: str) -> bool:
@@ -224,6 +271,11 @@ def _detail_lines(steps: list[Step], more: str) -> list[str]:
     return lines
 
 
+def media_label(language: str, media_type: str) -> str:
+    text = _TEXT[language]
+    return text["series"] if media_type == "series" else text["movie"]
+
+
 def action_notification(
     language: str,
     action: str,
@@ -235,7 +287,7 @@ def action_notification(
     steps: list[Step],
 ) -> Notification:
     text = _TEXT[language]
-    fields = [(text["type"], text["series"] if media.media_type == "series" else text["movie"])]
+    fields = [(text["type"], media_label(language, media.media_type))]
     if freed_bytes:
         fields.append((text["freed"], format_bytes(freed_bytes, language)))
     fields.append((text["succeeded"], str(success)))
@@ -282,6 +334,52 @@ def scan_completed_notification(
 def scan_failed_notification(language: str, error: str) -> Notification:
     text = _TEXT[language]
     return Notification(title=text["scan_failed"], description=_shorten(error, 500), level="error", colon=text["colon"])
+
+
+def detection_notification(language: str, event: str, medias: list[tuple[str, int]]) -> Notification:
+    """Nouveau constat d'un scan : orphelins, doublons ou torrents non
+    hardlinkés apparus depuis le scan précédent. `medias` : (titre, espace
+    récupérable)."""
+    text = _TEXT[language]
+    total = sum(size for _, size in medias)
+    fields = [
+        (text["affected_media"], str(len(medias))),
+        (text["reclaimable"], format_bytes(total, language)),
+    ]
+    details = [f"• {_shorten(title)} — {format_bytes(size, language)}" for title, size in medias[:_MAX_DETAIL_LINES]]
+    if len(medias) > _MAX_DETAIL_LINES:
+        details.append(text["more"].format(count=len(medias) - _MAX_DETAIL_LINES))
+    return Notification(
+        title=text[event],
+        description=text[f"{event}_summary"],
+        level="warning",
+        fields=fields,
+        details_label=text["details"],
+        details=details,
+        colon=text["colon"],
+    )
+
+
+def automation_notification(
+    language: str, rule_name: str, trigger: str, steps: list[Step], *, freed_bytes: int | None = None
+) -> Notification:
+    text = _TEXT[language]
+    failures = sum(1 for s in steps if not s.success)
+    fields = [(text["rule"], rule_name), (text["trigger"], trigger)]
+    if freed_bytes:
+        fields.append((text["freed"], format_bytes(freed_bytes, language)))
+    fields.append((text["succeeded"], str(len(steps) - failures)))
+    if failures:
+        fields.append((text["failed"], str(failures)))
+    return Notification(
+        title=text["automation"],
+        description=rule_name,
+        level="success" if not failures else "warning",
+        fields=fields,
+        details_label=text["details"],
+        details=_detail_lines(steps, text["more"]),
+        colon=text["colon"],
+    )
 
 
 def build_test_notification(language: str) -> Notification:
@@ -395,38 +493,41 @@ def _safe_error(exc: Exception) -> str:
     return str(exc)
 
 
-async def send(targets: Targets, notification: Notification) -> dict[str, str | None]:
-    """Envoie sur chaque canal configuré. Renvoie {canal: erreur ou None}."""
+async def send(targets: list[ChannelTarget], notification: Notification) -> dict[str, str | None]:
+    """Envoie sur chaque canal donné. Renvoie {nom du canal: erreur ou None}."""
     results: dict[str, str | None] = {}
+    if not targets:
+        return results
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        for channel in targets.channels:
+        for target in targets:
             try:
-                if channel == "discord":
-                    resp = await _send_discord(client, targets.discord_webhook or "", notification)
-                elif channel == "ntfy":
-                    resp = await _send_ntfy(client, targets.ntfy_url or "", targets.ntfy_token, notification)
+                if target.kind == "discord":
+                    resp = await _send_discord(client, target.url, notification)
+                elif target.kind == "ntfy":
+                    resp = await _send_ntfy(client, target.url, target.token, notification)
                 else:
-                    resp = await _send_gotify(client, targets.gotify_url or "", targets.gotify_token or "", notification)
+                    resp = await _send_gotify(client, target.url, target.token or "", notification)
                 resp.raise_for_status()
-                results[channel] = None
+                results[target.name] = None
             except (httpx.HTTPError, ValueError) as exc:
-                results[channel] = _safe_error(exc)
-                logger.warning("Notification %s non envoyée : %s", channel, results[channel])
+                results[target.name] = _safe_error(exc)
+                logger.warning("Notification %s non envoyée : %s", target.name, results[target.name])
     return results
 
 
 def notify(
-    settings: Settings | None, event: str, notification: Notification, poster: "MediaRef | None" = None
+    targets: list[ChannelTarget],
+    event: str,
+    notification: Notification,
+    poster: "MediaRef | None" = None,
+    settings: Settings | None = None,
 ) -> None:
-    """Déclenche une notification en tâche de fond si l'événement est activé
-    et qu'au moins un canal est configuré. Ne lève jamais d'exception."""
-    if settings is None or event not in _EVENT_SETTING:
+    """Déclenche une notification en tâche de fond sur les canaux abonnés à cet
+    événement. Ne lève jamais d'exception."""
+    if event not in NOTIFICATION_EVENTS:
         return
-    preference = _EVENT_SETTING[event]
-    if preference is not None and not getattr(settings, preference, False):
-        return
-    targets = targets_from(settings)
-    if not targets.channels:
+    wanted = [target for target in targets if target.wants(event)]
+    if not wanted:
         return
     # Client créé maintenant : les réglages ne sont plus lisibles une fois la
     # session de base fermée.
@@ -435,7 +536,7 @@ def notify(
     async def deliver() -> None:
         if poster is not None:
             notification.image = await load_poster(client, poster)
-        await send(targets, notification)
+        await send(wanted, notification)
 
     try:
         task = asyncio.get_running_loop().create_task(deliver())

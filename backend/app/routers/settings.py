@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.database import get_session
+from app.clients.torrent import torrent_client_configured
 from app.models.arr_instance import ArrInstance
 from app.models.settings import Settings
 from app.schemas.settings import (
@@ -15,8 +16,6 @@ from app.schemas.settings import (
     ConnectionTestRequest,
     ConnectionTestResult,
     CrossSeedRead,
-    NotificationsRead,
-    NotificationTestResult,
     PathsRead,
     QbittorrentRead,
     ScheduleRead,
@@ -29,14 +28,7 @@ from app.schemas.settings import (
 )
 from app.services.arr_instances import ARR_KINDS, MAX_EXTRA_INSTANCES, extra_instances
 from app.services.connection_test import TESTERS
-from app.services.notifications import (
-    is_discord_webhook,
-    is_http_url,
-    notification_language,
-    send,
-    targets_from,
-    build_test_notification,
-)
+from app.services.notifications import is_http_url
 from app.services.scheduler import configure_scan_schedule
 from app.services.security import generate_token, hash_token
 from app.services.watch_stats import excluded_user_ids, recompute_all_aggregates
@@ -57,9 +49,7 @@ def _is_configured(s: Settings) -> bool:
             s.sonarr_api_key,
             s.radarr_url,
             s.radarr_api_key,
-            s.qbittorrent_url,
-            s.qbittorrent_username,
-            s.qbittorrent_password,
+            torrent_client_configured(s),
             s.emby_library_path,
             s.qbittorrent_download_path,
         ]
@@ -84,21 +74,12 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
     return SettingsRead(
         configured=_is_configured(s),
         media_server="jellyfin" if s.media_server == "jellyfin" else "emby",
-        notifications=NotificationsRead(
-            discord_set=bool(s.notify_discord_webhook),
-            ntfy_set=bool(s.notify_ntfy_url),
-            ntfy_token_set=bool(s.notify_ntfy_token),
-            gotify_url=s.notify_gotify_url,
-            gotify_token_set=bool(s.notify_gotify_token),
-            on_scan=s.notify_on_scan,
-            on_scan_failure=s.notify_on_scan_failure,
-            on_actions=s.notify_on_actions,
-        ),
         watch=WatchRead(excluded_emby_user_ids=sorted(excluded_user_ids(s))),
         emby=ServiceApiKeyRead(url=s.emby_url, api_key_set=bool(s.emby_api_key)),
         sonarr=ServiceApiKeyRead(url=s.sonarr_url, api_key_set=bool(s.sonarr_api_key)),
         radarr=ServiceApiKeyRead(url=s.radarr_url, api_key_set=bool(s.radarr_api_key)),
         qbittorrent=QbittorrentRead(
+            client=s.torrent_client if s.torrent_client in ("qbittorrent", "deluge", "transmission") else "qbittorrent",
             url=s.qbittorrent_url,
             username=s.qbittorrent_username,
             password_set=bool(s.qbittorrent_password),
@@ -138,6 +119,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
 
     # Champs non sensibles : toujours remplacés par la valeur envoyée.
     row.media_server = payload.media_server
+    row.torrent_client = payload.torrent_client
     row.emby_url = payload.emby_url
     row.sonarr_url = payload.sonarr_url
     row.radarr_url = payload.radarr_url
@@ -171,7 +153,6 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     if payload.seer_api_key:
         row.seer_api_key = payload.seer_api_key
 
-    _apply_notifications(row, payload)
     _apply_arr_instances(session, payload)
 
     row.updated_at = datetime.now(timezone.utc)
@@ -223,45 +204,6 @@ def _apply_arr_instances(session: Session, payload: SettingsWrite) -> None:
         if row_id not in kept:
             session.delete(row)
 
-
-def _apply_notifications(row: Settings, payload: SettingsWrite) -> None:
-    if payload.notify_discord_webhook and not is_discord_webhook(payload.notify_discord_webhook):
-        raise HTTPException(400, "L'URL Discord doit être une URL de webhook Discord (https://discord.com/api/webhooks/…).")
-    for url in (payload.notify_ntfy_url, payload.notify_gotify_url):
-        if url and not is_http_url(url):
-            raise HTTPException(400, "Les URL ntfy et Gotify doivent commencer par http:// ou https://.")
-
-    row.notify_on_scan = payload.notify_on_scan
-    row.notify_on_scan_failure = payload.notify_on_scan_failure
-    row.notify_on_actions = payload.notify_on_actions
-    if payload.notify_gotify_url is not None:
-        row.notify_gotify_url = payload.notify_gotify_url or None
-    # Secrets : même règle que les clés API (vide = inchangé).
-    if payload.notify_discord_webhook:
-        row.notify_discord_webhook = payload.notify_discord_webhook
-    if payload.notify_ntfy_url:
-        row.notify_ntfy_url = payload.notify_ntfy_url
-    if payload.notify_ntfy_token:
-        row.notify_ntfy_token = payload.notify_ntfy_token
-    if payload.notify_gotify_token:
-        row.notify_gotify_token = payload.notify_gotify_token
-    if "discord" in payload.notify_clear:
-        row.notify_discord_webhook = None
-    if "ntfy" in payload.notify_clear:
-        row.notify_ntfy_url = row.notify_ntfy_token = None
-    if "gotify" in payload.notify_clear:
-        row.notify_gotify_url = row.notify_gotify_token = None
-
-
-@router.post("/notifications/test", response_model=NotificationTestResult)
-async def test_notifications(session: Session = Depends(get_session)) -> NotificationTestResult:
-    """Envoie une notification de test sur chaque canal ENREGISTRÉ (jamais sur
-    une URL fournie dans la requête : pas de relais vers une adresse arbitraire)."""
-    settings = session.get(Settings, 1)
-    targets = targets_from(settings)
-    if not targets.channels:
-        raise HTTPException(400, "Aucun canal de notification enregistré.")
-    return NotificationTestResult(results=await send(targets, build_test_notification(notification_language(settings))))
 
 
 @router.get("/widget-key", response_model=WidgetKeyRead)

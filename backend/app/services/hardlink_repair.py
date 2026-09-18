@@ -3,7 +3,7 @@ import os
 
 from sqlmodel import Session, select
 
-from app.clients.qbittorrent import QbittorrentClient
+from app.clients.torrent_base import TorrentClient
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
@@ -81,7 +81,7 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     items: list[HardlinkRepairItem] = []
     matched_torrent_ids: set[int] = set()
 
-    async with QbittorrentClient(settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password) as qbit:
+    async with torrent_client(settings) as qbit:
         # `Torrent.inode`/`Torrent.device` (colonnes DB) ne retiennent QU'UN
         # SEUL fichier représentatif par torrent (le premier résolu au scan,
         # voir scan.py) — insuffisant pour un torrent multi-fichiers (pack

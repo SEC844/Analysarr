@@ -11,7 +11,7 @@ import stat as stat_module
 import httpx
 from sqlmodel import Session, delete, select
 
-from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
+from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_configured
 from app.models.media import Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
@@ -62,15 +62,12 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
     file_items = [DeleteFootprintItem(id=f.id, units=unit_for(f.path, f.size)) for f in files]
 
     torrent_files: dict[int, list[tuple[str, int | None]]] = {}
-    qbit_configured = settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password
-    if torrents and qbit_configured:
+    if torrents and torrent_client_configured(settings):
         try:
-            async with QbittorrentClient(
-                settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-            ) as qbit:
+            async with torrent_client(settings) as qbit:
                 for t in torrents:
                     torrent_files[t.id] = await resolve_torrent_files(qbit, t)
-        except (QbittorrentAuthError, httpx.HTTPError):
+        except (TorrentAuthError, httpx.HTTPError):
             torrent_files.clear()  # repli ci-dessous sur content_path
 
     torrent_items: list[DeleteFootprintItem] = []
@@ -101,14 +98,12 @@ async def _delete_torrents(
     if not torrents:
         return
     try:
-        async with QbittorrentClient(
-            settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-        ) as qbit:
+        async with torrent_client(settings) as qbit:
             await qbit.delete_torrents([t.hash for t in torrents], delete_files=True)
         for t in torrents:
             session.delete(t)
             steps.append(DeleteStepResult(kind="torrent", label=t.name, success=True))
-    except (QbittorrentAuthError, httpx.HTTPError) as exc:
+    except (TorrentAuthError, httpx.HTTPError) as exc:
         for t in torrents:
             steps.append(DeleteStepResult(kind="torrent", label=t.name, success=False, error=str(exc)))
 

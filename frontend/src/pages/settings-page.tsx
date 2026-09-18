@@ -8,13 +8,14 @@ import { ActionHistory } from "@/components/settings/action-history"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
 import { ArrInstancesCard } from "@/components/settings/arr-instances-card"
+import { AutomationsSection } from "@/components/settings/automations-section"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
 import { EmbyUsersCard } from "@/components/settings/emby-users-card"
 import { NotificationsSection } from "@/components/settings/notifications-section"
 import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
 import { PreferencesSection } from "@/components/settings/preferences-section"
-import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
+import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
@@ -40,7 +41,7 @@ const SECTION_GROUPS = [
       { id: "emby", label: "settings.sections.mediaServer" },
       { id: "sonarr", label: "Sonarr" },
       { id: "radarr", label: "Radarr" },
-      { id: "qbittorrent", label: "qBittorrent" },
+      { id: "qbittorrent", label: "settings.sections.torrentClient" },
       { id: "cross-seed", label: "cross-seed" },
       { id: "seer", label: "Seer" },
     ],
@@ -51,6 +52,7 @@ const SECTION_GROUPS = [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
       { id: "notifications", label: "settings.sections.notifications" },
+      { id: "automations", label: "settings.sections.automations" },
       { id: "widget", label: "settings.sections.widget" },
       { id: "preferences", label: "settings.sections.preferences" },
     ],
@@ -69,7 +71,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["widget", "history", "account", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "widget", "history", "account", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -249,7 +251,9 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           )}
 
           {section === "qbittorrent" && (
-            <QbittorrentCard
+            <TorrentClientCard
+              client={form.torrent_client}
+              onClientChange={(v) => set("torrent_client", v)}
               url={form.qbittorrent_url}
               onUrlChange={(v) => set("qbittorrent_url", v)}
               username={form.qbittorrent_username}
@@ -310,9 +314,9 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
             </div>
           )}
 
-          {section === "notifications" && (
-            <NotificationsSection form={form} onChange={set} status={existing.notifications} />
-          )}
+          {section === "notifications" && <NotificationsSection />}
+
+          {section === "automations" && <AutomationsSection />}
 
           {section === "widget" && <WidgetSection />}
 

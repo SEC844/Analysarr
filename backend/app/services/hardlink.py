@@ -2,7 +2,7 @@ import os
 import re
 import stat as stat_module
 
-from app.clients.qbittorrent import QbittorrentClient
+from app.clients.torrent_base import TorrentClient
 from app.models.media import MediaFile, MediaType, Torrent
 
 _EPISODE_PATTERN = re.compile(r"s(\d{1,2})e(\d{1,3})", re.IGNORECASE)
@@ -44,7 +44,7 @@ def stat_inode(path: str | None) -> tuple[int, int] | None:
     return st.st_ino, st.st_dev
 
 
-async def resolve_torrent_files(qbit: QbittorrentClient | None, torrent: Torrent) -> list[tuple[str, int | None]]:
+async def resolve_torrent_files(qbit: TorrentClient | None, torrent: Torrent) -> list[tuple[str, int | None]]:
     """[(chemin_absolu, taille)] pour chaque fichier réel du torrent — même
     logique que le scan (torrents/files + save_path), avec repli sur
     content_path si l'API n'a rien renvoyé ou si qBittorrent est injoignable

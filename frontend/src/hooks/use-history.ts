@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { clearActionHistory, getActionHistory, testNotifications } from "@/lib/api"
+import { clearActionHistory, getActionHistory } from "@/lib/api"
 
 const HISTORY_QUERY_KEY = ["history"] as const
 
@@ -19,6 +19,3 @@ export function useClearActionHistoryMutation() {
   })
 }
 
-export function useTestNotificationsMutation() {
-  return useMutation({ mutationFn: testNotifications })
-}

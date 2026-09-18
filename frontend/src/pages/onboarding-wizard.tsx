@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
 import { PathsCard } from "@/components/settings/paths-card"
-import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
+import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { Button } from "@/components/ui/button"
 import { useSaveSettingsMutation } from "@/hooks/use-settings"
 import { useI18n, type MediaServer } from "@/i18n"
@@ -19,7 +19,7 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
     t("settings.sections.mediaServer"),
     "Sonarr",
     "Radarr",
-    "qBittorrent",
+    t("settings.sections.torrentClient"),
     t("settings.sections.paths"),
     "cross-seed",
   ]
@@ -89,7 +89,9 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
             />
           ))}
       {step === 3 && (
-        <QbittorrentCard
+        <TorrentClientCard
+          client={form.torrent_client}
+          onClientChange={(v) => set("torrent_client", v)}
           url={form.qbittorrent_url}
           onUrlChange={(v) => set("qbittorrent_url", v)}
           username={form.qbittorrent_username}

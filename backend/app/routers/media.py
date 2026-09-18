@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from app.clients.emby import media_server_client
-from app.clients.qbittorrent import QbittorrentAuthError
+from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.database import get_session
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
@@ -37,7 +37,7 @@ from app.services.hardlink_repair import build_repair_preview, execute_repair
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.action_log import MediaRef, record_action
-from app.services.notifications import action_notification, notification_language, notify
+from app.services.notifications import action_notification, channel_targets, notification_language, notify
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
@@ -305,7 +305,7 @@ async def cross_seed_search(
     steps = [ActionStepRead(label=f"cross-seed ({scope})", success=True)] * result.triggered + [
         ActionStepRead(label=f"cross-seed ({scope})", success=False, error=error) for error in result.errors
     ]
-    record_action(session, "cross_seed_search", MediaRef.of(media), steps)
+    _log_and_notify(session, settings, "cross_seed_search", MediaRef.of(media), steps)
     return result
 
 
@@ -315,11 +315,11 @@ async def hardlink_repair_preview(media_id: int, session: Session = Depends(get_
     if media is None:
         raise HTTPException(404, "Média introuvable.")
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await build_repair_preview(session, media, settings)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"qBittorrent injoignable : {exc}") from exc
@@ -331,12 +331,12 @@ async def hardlink_repair_execute(media_id: int, session: Session = Depends(get_
     if media is None:
         raise HTTPException(404, "Média introuvable.")
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     ref = MediaRef.of(media)
     try:
         result = await execute_repair(session, media, settings)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
     _log_and_notify(session, settings, "hardlink_repair", ref, result.steps, result.freed_bytes)
     return result
@@ -358,4 +358,4 @@ def _log_and_notify(session: Session, settings: Settings, action: str, ref: Medi
         freed_bytes=entry.freed_bytes,
         steps=steps,
     )
-    notify(settings, action, notification, poster=ref)
+    notify(channel_targets(session), action, notification, poster=ref, settings=settings)

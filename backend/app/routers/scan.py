@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from app.database import engine, get_session
 from app.models.media import ScanRun
 from app.models.settings import Settings
-from app.clients.qbittorrent import QbittorrentAuthError
+from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.schemas.diagnostics import DiagnosticsResult, EmbyFileDebug, TorrentDebug, UnmatchedTorrent
 from app.schemas.media import ScanRunRead
 from app.services.diagnostics import (
@@ -23,6 +23,12 @@ from app.services.events import scan_events
 from app.services.scan import is_scan_running, run_scan
 
 router = APIRouter()
+
+_running_tasks: set[asyncio.Task] = set()
+
+# Ping SSE (commentaire ignoré par EventSource) : garde la connexion vivante
+# derrière un reverse-proxy qui coupe les connexions inactives.
+STREAM_HEARTBEAT_SECONDS = 15
 
 
 def _to_read(run: ScanRun) -> ScanRunRead:
@@ -46,7 +52,11 @@ def _to_read(run: ScanRun) -> ScanRunRead:
 async def start_scan() -> dict:
     if is_scan_running():
         return {"started": False, "message": "Un scan est déjà en cours."}
-    asyncio.create_task(run_scan())
+    # Référence forte : asyncio ne garde qu'une référence faible sur les tâches,
+    # un scan pourrait sinon être collecté par le ramasse-miettes en cours de route.
+    task = asyncio.create_task(run_scan())
+    _running_tasks.add(task)
+    task.add_done_callback(_running_tasks.discard)
     return {"started": True}
 
 
@@ -69,15 +79,31 @@ async def scan_stream() -> StreamingResponse:
 
     async def gen():
         try:
+            # Premier octet immédiat : le frontend attend l'ouverture du flux
+            # (`onopen`) pour lancer le scan. Sans rien à envoyer avant le
+            # premier événement, un reverse-proxy qui met la réponse en tampon
+            # ne transmet jamais l'ouverture — l'interface restait bloquée sur
+            # « Démarrage du scan... » sans que le scan ne parte.
+            yield ": connected\n\n"
             while True:
-                event = await queue.get()
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=STREAM_HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
                 yield f"data: {json.dumps(event)}\n\n"
                 if event.get("type") in ("completed", "failed"):
                     break
         finally:
             scan_events.unsubscribe(queue)
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        # no-transform + X-Accel-Buffering : ni compression ni mise en tampon
+        # par un proxy (nginx, Nginx Proxy Manager, SWAG...).
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/diagnostics", response_model=DiagnosticsResult)
@@ -85,8 +111,8 @@ async def scan_diagnostics(session: Session = Depends(get_session)) -> Diagnosti
     settings = session.get(Settings, 1)
     if settings is None or not (settings.emby_url and settings.emby_api_key):
         raise HTTPException(400, "Serveur multimédia non configuré.")
-    if not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await run_diagnostics(settings)
     except RuntimeError as exc:
@@ -102,11 +128,11 @@ async def scan_debug_torrents(
     contient `name_contains`. Utile pour comprendre pourquoi un torrent connu
     de qBittorrent n'apparaît sur aucune fiche média."""
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await debug_torrents(settings, name_contains)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
 
 
@@ -146,9 +172,9 @@ async def scan_debug_unmatched_torrents(session: Session = Depends(get_session))
     concrètement lesquels échappent au rattachement plutôt que de se fier
     seulement au chiffre agrégé."""
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await list_unmatched_torrents(session, settings)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc

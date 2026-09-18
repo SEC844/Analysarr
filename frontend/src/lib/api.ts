@@ -11,7 +11,9 @@ import type {
   TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
+import type { Automation, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
+import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
 import type { ServicesStatus } from "@/types/services"
 import type {
   CrossSeedSearchResult,
@@ -33,7 +35,6 @@ import type {
   BrowseResult,
   ConnectionTestRequest,
   ConnectionTestResult,
-  NotificationTestResult,
   ServiceName,
   WidgetKeyRead,
   SettingsRead,
@@ -166,9 +167,54 @@ export function testConnection(
   })
 }
 
-// Envoie sur les canaux ENREGISTRÉS uniquement (jamais sur une URL saisie non enregistrée).
-export function testNotifications(): Promise<NotificationTestResult> {
-  return request<NotificationTestResult>("/api/settings/notifications/test", { method: "POST" })
+// --- Canaux de notification -------------------------------------------------
+// Les adresses et jetons ne sont jamais relus : une valeur vide conserve celle
+// enregistrée (voir routers/notifications.py).
+export function listNotificationChannels(): Promise<NotificationChannel[]> {
+  return request<NotificationChannel[]>("/api/notifications/channels")
+}
+
+export function createNotificationChannel(payload: NotificationChannelWrite): Promise<NotificationChannel> {
+  return request<NotificationChannel>("/api/notifications/channels", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function updateNotificationChannel(id: number, payload: NotificationChannelWrite): Promise<NotificationChannel> {
+  return request<NotificationChannel>(`/api/notifications/channels/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function deleteNotificationChannel(id: number): Promise<void> {
+  return request<void>(`/api/notifications/channels/${id}`, { method: "DELETE" })
+}
+
+// Envoie sur le canal ENREGISTRÉ (jamais sur une adresse saisie non enregistrée).
+export function testNotificationChannel(id: number): Promise<ChannelTestResult> {
+  return request<ChannelTestResult>(`/api/notifications/channels/${id}/test`, { method: "POST" })
+}
+
+// --- Automatisations --------------------------------------------------------
+export function listAutomations(): Promise<Automation[]> {
+  return request<Automation[]>("/api/automations")
+}
+
+export function createAutomation(payload: AutomationWrite): Promise<Automation> {
+  return request<Automation>("/api/automations", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function updateAutomation(id: number, payload: AutomationWrite): Promise<Automation> {
+  return request<Automation>(`/api/automations/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function deleteAutomation(id: number): Promise<void> {
+  return request<void>(`/api/automations/${id}`, { method: "DELETE" })
+}
+
+/** Ce que la règle ferait maintenant, sans rien exécuter. */
+export function previewAutomation(id: number): Promise<AutomationRunResult> {
+  return request<AutomationRunResult>(`/api/automations/${id}/preview`)
+}
+
+export function runAutomation(id: number): Promise<AutomationRunResult> {
+  return request<AutomationRunResult>(`/api/automations/${id}/run`, { method: "POST" })
 }
 
 export function getWidgetKey(): Promise<WidgetKeyRead> {

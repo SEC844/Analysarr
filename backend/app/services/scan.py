@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -7,10 +8,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from sqlmodel import Session, delete
+from sqlmodel import Session, delete, select
 
 from app.clients.emby import EmbyClient, media_server_name
-from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
+from app.clients.torrent import (
+    TorrentAuthError,
+    torrent_client,
+    torrent_client_configured,
+    torrent_client_name,
+)
 from app.database import engine
 from app.clients.seer import SeerClient
 from app.models.media import (
@@ -29,6 +35,9 @@ from app.services.arr_instances import ArrTarget, arr_targets
 from app.services.events import scan_events
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.notifications import (
+    ChannelTarget,
+    channel_targets,
+    detection_notification,
     notification_language,
     notify,
     scan_completed_notification,
@@ -45,7 +54,15 @@ from app.services.watch_stats import (
     users_from_api,
 )
 
+logger = logging.getLogger("analysarr.scan")
 _scan_lock = asyncio.Lock()
+
+# Statuts dont l'APPARITION est notifiable (événement -> statut calculé au scan).
+DETECTION_EVENTS = {
+    "orphan_detected": "orphelin_qbit",
+    "duplicate_detected": "doublon",
+    "non_hardlink_detected": "non_hardlink",
+}
 
 
 @dataclass
@@ -288,6 +305,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             session.expunge(settings)
         radarr_targets = arr_targets(session, settings, "radarr")
         sonarr_targets = arr_targets(session, settings, "sonarr")
+        channels = channel_targets(session)
         run = ScanRun(status=ScanStatus.running, trigger=trigger)
         session.add(run)
         session.commit()
@@ -297,7 +315,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
     await scan_events.publish({"type": "started", "run_id": run_id})
 
     if settings is None:
-        await _fail_scan(run_id, "Aucune configuration enregistrée.", settings)
+        await _fail_scan(run_id, "Aucune configuration enregistrée.", channels, settings)
         return
 
     missing = [
@@ -307,25 +325,33 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             ("Sonarr", bool(settings.sonarr_url and settings.sonarr_api_key)),
             ("Radarr", bool(settings.radarr_url and settings.radarr_api_key)),
             (
-                "qBittorrent",
-                bool(settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password),
+                torrent_client_name(settings),
+                torrent_client_configured(settings),
             ),
         ]
         if not ok
     ]
     if missing:
-        await _fail_scan(run_id, f"Services non configurés : {', '.join(missing)}.", settings)
+        await _fail_scan(run_id, f"Services non configurés : {', '.join(missing)}.", channels, settings)
         return
 
     try:
         results, qbit_torrent_count, emby_users = await _collect(settings, run_id, radarr_targets, sonarr_targets)
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
-        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", settings)
+        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", channels, settings)
         return
 
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
 
     with Session(engine) as session:
+        # Avant de remplacer le cache : quels médias portaient DÉJÀ chaque
+        # statut ? Seule une NOUVELLE apparition est notifiée. Clé stable d'un
+        # scan à l'autre : les ids sont régénérés.
+        previous_medias = list(session.exec(select(Media)).all())
+        previously_flagged = {
+            event: {_media_key(media) for media in previous_medias if status in media.statuses.split(",")}
+            for event, status in DETECTION_EVENTS.items()
+        }
         session.exec(delete(MediaRequest))
         session.exec(delete(MediaWatch))
         session.exec(delete(EmbyUser))
@@ -386,7 +412,16 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         )
 
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
-    notify(settings, "scan_completed", summary)
+    notify(channels, "scan_completed", summary)
+    for event, status in DETECTION_EVENTS.items():
+        newly_flagged = [
+            (result.media.title, result.media.reclaimable_bytes)
+            for result in results
+            if status in result.media.statuses.split(",") and _media_key(result.media) not in previously_flagged[event]
+        ]
+        if newly_flagged:
+            notify(channels, event, detection_notification(notification_language(settings), event, newly_flagged))
+    await _run_automations(channels)
 
 
 def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> int | None:
@@ -396,8 +431,29 @@ def _duration_seconds(started_at: datetime | None, finished_at: datetime | None)
     return max(0, int((finished_at.replace(tzinfo=None) - started_at.replace(tzinfo=None)).total_seconds()))
 
 
-async def _fail_scan(run_id: int, message: str, settings: Settings | None = None) -> None:
-    notify(settings, "scan_failed", scan_failed_notification(notification_language(settings), message))
+async def _run_automations(channels: list[ChannelTarget]) -> None:
+    """Règles d'automatisation activées, sur les statuts que ce scan vient de
+    calculer. Import différé : automations.py dépend des services d'action,
+    qui dépendent eux-mêmes de ce module."""
+    from app.services.automations import run_automations
+
+    with Session(engine) as session:
+        try:
+            await run_automations(session, session.get(Settings, 1), channels)
+        except Exception:  # noqa: BLE001 - une règle défaillante ne doit jamais faire échouer le scan
+            logger.exception("Échec d'une automatisation après le scan")
+
+
+def _media_key(media: Media) -> tuple[str, str, int | None]:
+    """Identité d'un média d'un scan à l'autre : les ids de la table sont
+    régénérés à chaque scan."""
+    return media.media_type.value, media.title, media.year
+
+
+async def _fail_scan(
+    run_id: int, message: str, channels: list[ChannelTarget], settings: Settings | None = None
+) -> None:
+    notify(channels, "scan_failed", scan_failed_notification(notification_language(settings), message))
     with Session(engine) as session:
         run = session.get(ScanRun, run_id)
         if run:
@@ -417,7 +473,7 @@ async def _collect(
     par une instance donne un média distinct."""
     assert settings.emby_url and settings.emby_api_key
     assert radarr_targets and sonarr_targets
-    assert settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password
+    assert torrent_client_configured(settings)
 
     emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
 
@@ -664,9 +720,7 @@ async def _collect(
     # --- Torrents qBittorrent ------------------------------------------
     await progress("qbittorrent")
     try:
-        async with QbittorrentClient(
-            settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-        ) as qbit:
+        async with torrent_client(settings) as qbit:
             torrents = await qbit.get_torrents()
             trackers_by_hash: dict[str, list[dict[str, Any]]] = {}
             files_by_hash: dict[str, list[dict[str, Any]]] = {}
@@ -679,8 +733,8 @@ async def _collect(
                     files_by_hash[t["hash"]] = await qbit.get_files(t["hash"])
                 except Exception:  # noqa: BLE001
                     files_by_hash[t["hash"]] = []
-    except QbittorrentAuthError as exc:
-        raise RuntimeError(f"Authentification qBittorrent refusée pendant le scan : {exc}") from exc
+    except TorrentAuthError as exc:
+        raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée pendant le scan : {exc}") from exc
 
     torrent_rows: list[Torrent] = []
     torrent_content_paths: list[str | None] = []

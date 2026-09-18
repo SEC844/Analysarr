@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>The health dashboard for your media stack.</strong><br>
-  Emby or Jellyfin · Sonarr · Radarr · qBittorrent · Seer · cross-seed
+  Emby or Jellyfin · Sonarr · Radarr · qBittorrent, Deluge or Transmission · Seer · cross-seed
 </p>
 
 <p align="center">
@@ -60,11 +60,13 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 
 **Everyday comfort**
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
+- qBittorrent, Deluge or Transmission: the torrent client is a setting, everything else works the same way.
 - Several Sonarr and Radarr instances (e.g. a dedicated 4K Radarr): each media stays linked to the instance tracking it, and a version tracked by another instance is never treated as a duplicate.
 - Library files are matched to Sonarr/Radarr even when containers mount the library at different paths.
 - Connection status of every service in the settings, with an alert in the header as soon as one becomes unreachable.
 - Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
-- Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step) after a scan, a failed scan or an action.
+- Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, deletion, cleanup, hardlink repair, cross-seed search, automation.
+- Optional automations: on orphans, duplicates or non-hardlinked torrents, clean up, repair, search a cross-seed or just notify — with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.
 - Update notification when a new version is released.
@@ -77,7 +79,9 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 | Jellyfin | 10.9 or newer | One of Emby or Jellyfin |
 | Sonarr | v3, v4 | Yes |
 | Radarr | v3 or newer | Yes |
-| qBittorrent | 4.1 or newer (WebUI API v2) | Yes |
+| qBittorrent | 4.1 or newer (WebUI API v2) | One torrent client |
+| Deluge | 2.x (web interface) | One torrent client |
+| Transmission | 3.0 or newer (RPC) | One torrent client |
 | Seer (Overseerr, Jellyseerr, Seerr) | Current versions | Optional |
 | cross-seed | Daemon mode | Optional |
 
@@ -161,6 +165,7 @@ Pull the new image and recreate the container. Your settings and cache live in `
 
 - A single administrator account; passwords hashed with bcrypt; login locked for 15 minutes after 5 failed attempts.
 - Optional two-factor authentication (TOTP authenticator app) with single-use recovery codes.
+- Automations never run unless you create a rule: new rules start in simulation, every run is capped, and they reuse the manual actions — a protected or repairable torrent is never deleted.
 - The widget endpoint requires its own key (stored hashed, accepted in a header only), exposes counters only (no titles, paths or service addresses) and never triggers requests to your services.
 - Sessions stored server-side, sent as an `httpOnly` cookie.
 - API keys and passwords of your services stay on the server: they are never sent back to the browser.
