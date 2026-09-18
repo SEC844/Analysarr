@@ -18,7 +18,7 @@ from app.services.notifications import (
     action_notification,
     build_test_notification,
     notify,
-    orphan_notification,
+    detection_notification,
     scan_completed_notification,
     scan_failed_notification,
     send,
@@ -124,11 +124,16 @@ def test_action_notification_carries_media_space_and_steps():
     assert all(name != "Space freed" for name, _ in many.fields)
 
 
-def test_orphan_notification_lists_the_new_orphans():
-    n = orphan_notification("fr", [("Matrix", 5 * 1024**3), ("Dune", 1024**3)])
+def test_detection_notification_lists_the_new_findings():
+    n = detection_notification("fr", "orphan_detected", [("Matrix", 5 * 1024**3), ("Dune", 1024**3)])
     assert n.title == "Nouveaux torrents orphelins" and n.level == "warning"
     assert ("Médias concernés", "2") in n.fields and ("Espace récupérable", "6.0 Go") in n.fields
     assert n.details == ["• Matrix — 5.0 Go", "• Dune — 1.0 Go"]
+
+    doublons = detection_notification("fr", "duplicate_detected", [("Matrix", 1024)])
+    non_hardlink = detection_notification("en", "non_hardlink_detected", [("Matrix", 1024)])
+    assert doublons.title == "Nouveaux doublons"
+    assert non_hardlink.title == "New non-hardlinked torrents"
 
 
 def test_scan_summary_notification():

@@ -57,6 +57,8 @@ NOTIFICATION_EVENTS = (
     "scan_completed",
     "scan_failed",
     "orphan_detected",
+    "duplicate_detected",
+    "non_hardlink_detected",
     "delete_selection",
     "cascade_delete",
     "hardlink_repair",
@@ -68,6 +70,7 @@ NOTIFICATION_EVENTS = (
 DEFAULT_EVENTS = (
     "scan_failed",
     "orphan_detected",
+    "duplicate_detected",
     "delete_selection",
     "cascade_delete",
     "hardlink_repair",
@@ -113,7 +116,11 @@ _TEXT = {
         "matched": "Torrents rattachés",
         "duration": "Durée",
         "orphan_detected": "Nouveaux torrents orphelins",
-        "orphan_summary": "Des torrents ne protègent plus aucun fichier de la bibliothèque.",
+        "orphan_detected_summary": "Des torrents ne protègent plus aucun fichier de la bibliothèque.",
+        "duplicate_detected": "Nouveaux doublons",
+        "duplicate_detected_summary": "Plusieurs fichiers existent pour un même film ou épisode.",
+        "non_hardlink_detected": "Nouveaux torrents non hardlinkés",
+        "non_hardlink_detected_summary": "Le contenu est bien seedé, mais sans hardlink vers la bibliothèque.",
         "affected_media": "Médias concernés",
         "test": "Notification de test",
         "test_body": "Les notifications d'Analysarr fonctionnent : les événements choisis pour ce canal arriveront ici.",
@@ -146,7 +153,11 @@ _TEXT = {
         "matched": "Matched torrents",
         "duration": "Duration",
         "orphan_detected": "New orphan torrents",
-        "orphan_summary": "Some torrents no longer protect any library file.",
+        "orphan_detected_summary": "Some torrents no longer protect any library file.",
+        "duplicate_detected": "New duplicates",
+        "duplicate_detected_summary": "Several files exist for the same movie or episode.",
+        "non_hardlink_detected": "New non-hardlinked torrents",
+        "non_hardlink_detected_summary": "The content is seeded, but without a hardlink to the library.",
         "affected_media": "Media affected",
         "test": "Test notification",
         "test_body": "Analysarr notifications are working: the events selected for this channel will show up here.",
@@ -325,9 +336,10 @@ def scan_failed_notification(language: str, error: str) -> Notification:
     return Notification(title=text["scan_failed"], description=_shorten(error, 500), level="error", colon=text["colon"])
 
 
-def orphan_notification(language: str, medias: list[tuple[str, int]]) -> Notification:
-    """`medias` : (titre, espace récupérable) des médias devenus orphelins
-    depuis le scan précédent."""
+def detection_notification(language: str, event: str, medias: list[tuple[str, int]]) -> Notification:
+    """Nouveau constat d'un scan : orphelins, doublons ou torrents non
+    hardlinkés apparus depuis le scan précédent. `medias` : (titre, espace
+    récupérable)."""
     text = _TEXT[language]
     total = sum(size for _, size in medias)
     fields = [
@@ -338,8 +350,8 @@ def orphan_notification(language: str, medias: list[tuple[str, int]]) -> Notific
     if len(medias) > _MAX_DETAIL_LINES:
         details.append(text["more"].format(count=len(medias) - _MAX_DETAIL_LINES))
     return Notification(
-        title=text["orphan_detected"],
-        description=text["orphan_summary"],
+        title=text[event],
+        description=text[f"{event}_summary"],
         level="warning",
         fields=fields,
         details_label=text["details"],

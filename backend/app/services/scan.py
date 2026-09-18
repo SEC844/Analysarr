@@ -37,9 +37,9 @@ from app.services.hardlink import episode_label_from_filename, resolve_current_f
 from app.services.notifications import (
     ChannelTarget,
     channel_targets,
+    detection_notification,
     notification_language,
     notify,
-    orphan_notification,
     scan_completed_notification,
     scan_failed_notification,
 )
@@ -56,6 +56,13 @@ from app.services.watch_stats import (
 
 logger = logging.getLogger("analysarr.scan")
 _scan_lock = asyncio.Lock()
+
+# Statuts dont l'APPARITION est notifiable (événement -> statut calculé au scan).
+DETECTION_EVENTS = {
+    "orphan_detected": "orphelin_qbit",
+    "duplicate_detected": "doublon",
+    "non_hardlink_detected": "non_hardlink",
+}
 
 
 @dataclass
@@ -337,13 +344,13 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
 
     with Session(engine) as session:
-        # Avant de remplacer le cache : quels médias étaient DÉJÀ orphelins ?
-        # Seuls les nouveaux déclenchent une notification (et, plus tard, une
-        # automatisation). Clé stable d'un scan à l'autre : les ids changent.
-        previously_orphan = {
-            _media_key(media)
-            for media in session.exec(select(Media)).all()
-            if "orphelin_qbit" in media.statuses.split(",")
+        # Avant de remplacer le cache : quels médias portaient DÉJÀ chaque
+        # statut ? Seule une NOUVELLE apparition est notifiée. Clé stable d'un
+        # scan à l'autre : les ids sont régénérés.
+        previous_medias = list(session.exec(select(Media)).all())
+        previously_flagged = {
+            event: {_media_key(media) for media in previous_medias if status in media.statuses.split(",")}
+            for event, status in DETECTION_EVENTS.items()
         }
         session.exec(delete(MediaRequest))
         session.exec(delete(MediaWatch))
@@ -404,17 +411,17 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             duration_seconds=_duration_seconds(run.started_at, run.finished_at),
         )
 
-    new_orphans = [
-        (result.media.title, result.media.reclaimable_bytes)
-        for result in results
-        if "orphelin_qbit" in result.media.statuses.split(",") and _media_key(result.media) not in previously_orphan
-    ]
-
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
     notify(channels, "scan_completed", summary)
+    for event, status in DETECTION_EVENTS.items():
+        newly_flagged = [
+            (result.media.title, result.media.reclaimable_bytes)
+            for result in results
+            if status in result.media.statuses.split(",") and _media_key(result.media) not in previously_flagged[event]
+        ]
+        if newly_flagged:
+            notify(channels, event, detection_notification(notification_language(settings), event, newly_flagged))
     await _run_automations(channels)
-    if new_orphans:
-        notify(channels, "orphan_detected", orphan_notification(notification_language(settings), new_orphans))
 
 
 def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> int | None:

@@ -5,6 +5,8 @@ export const NOTIFICATION_EVENTS = [
   "scan_completed",
   "scan_failed",
   "orphan_detected",
+  "duplicate_detected",
+  "non_hardlink_detected",
   "delete_selection",
   "cascade_delete",
   "hardlink_repair",

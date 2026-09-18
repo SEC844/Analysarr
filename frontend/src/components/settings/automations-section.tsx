@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2, Play, Plus, Trash2, Wand2 } from "lucide-react"
+import { ChevronRight, Loader2, Play, Plus, Trash2, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -22,6 +22,7 @@ import {
 } from "@/hooks/use-automations"
 import { useI18n, type MessageKey } from "@/i18n"
 import { formatBytes, formatDateTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import {
   AUTOMATION_TRIGGERS,
   type Automation,
@@ -100,6 +101,8 @@ interface AutomationCardProps {
 
 function AutomationCard({ automation, onDone }: AutomationCardProps) {
   const { t } = useI18n()
+  // Règle existante repliée : la liste reste lisible même avec dix règles.
+  const [open, setOpen] = useState(!automation)
   const [rule, setRule] = useState<AutomationWrite>(automation ? toWrite(automation) : emptyRule())
   const [result, setResult] = useState<AutomationRunResult | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -164,20 +167,29 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <CardTitle className="truncate">{automation ? automation.name : t("automations.newRule")}</CardTitle>
-            <CardDescription>
-              {t(`automations.triggers.${rule.trigger}` as MessageKey)} → {t(`automations.actions.${rule.action}` as MessageKey)}
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
+      <CardHeader className={cn(!open && "pb-4")}>
+        <div className="flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          >
+            <ChevronRight className={cn("text-muted-foreground size-4 shrink-0 transition-transform", open && "rotate-90")} />
+            <span className="min-w-0">
+              <CardTitle className="truncate">{automation ? automation.name : t("automations.newRule")}</CardTitle>
+              <CardDescription className="truncate">
+                {t(`automations.triggers.${rule.trigger}` as MessageKey)} → {t(`automations.actions.${rule.action}` as MessageKey)}
+              </CardDescription>
+            </span>
+          </button>
+          <div className="flex shrink-0 items-center gap-2">
             {rule.dry_run && <Badge variant="outline">{t("automations.dryRun")}</Badge>}
             <Switch checked={rule.enabled} onCheckedChange={(v) => set("enabled", v)} aria-label={t("automations.enabled")} />
           </div>
         </div>
       </CardHeader>
+      {open && (
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -374,6 +386,7 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
         )}
         {result && <RunSummary result={result} />}
       </CardContent>
+      )}
     </Card>
   )
 }
