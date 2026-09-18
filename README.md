@@ -108,10 +108,12 @@ services:
 
 ### Unraid
 
-Docker → **Add Container** → paste this template URL:
+Search for **Analysarr** in the **Apps** tab (Community Applications).
+
+Without Community Applications: Docker → **Add Container** → paste this template URL:
 
 ```
-https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.xml
+https://raw.githubusercontent.com/SEC844/unraid-templates/main/templates/analysarr.xml
 ```
 
 ### First launch
