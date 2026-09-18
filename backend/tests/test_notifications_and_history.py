@@ -4,7 +4,9 @@ import os
 
 import httpx
 
+from app.database import _migrate_legacy_notifications
 from app.models.activity import ActionLog
+from app.models.notification_channel import NotificationChannel
 from app.models.settings import Settings
 from app.schemas.media import DeleteFootprintItem, DeleteStepResult, DiskUnit, MediaDeleteFootprint
 from app.services import action_log, notifications
@@ -12,16 +14,18 @@ from app.services.action_log import MediaRef, record_action
 from app.services.hardlink_repair import _separate_copy_size
 from app.services.media_delete import reclaimed_bytes
 from app.services.notifications import (
-    Targets,
+    ChannelTarget,
     action_notification,
     build_test_notification,
     notify,
+    orphan_notification,
     scan_completed_notification,
     scan_failed_notification,
     send,
 )
 
 WEBHOOK = "https://discord.com/api/webhooks/123/secret-token"
+CHANNELS = "/api/notifications/channels"
 MATRIX = MediaRef(id=1, title="Matrix", media_type="movie", year=1999, emby_item_id="42", poster_image_tag="t1")
 STEPS = [
     DeleteStepResult(kind="torrent", label="Matrix.1999.1080p.mkv", success=True),
@@ -32,6 +36,10 @@ STEPS = [
 PNG = b"\x89PNG\r\n\x1a\nposter"
 
 
+def discord_target(events: tuple[str, ...] = ("delete_selection",), name: str = "Discord") -> ChannelTarget:
+    return ChannelTarget(id=1, kind="discord", name=name, url=WEBHOOK, token=None, events=events)
+
+
 def discord_payload(req: httpx.Request) -> dict:
     if req.headers["content-type"].startswith("application/json"):
         return json.loads(req.content)
@@ -40,28 +48,69 @@ def discord_payload(req: httpx.Request) -> dict:
     return json.loads(part.encode("latin-1").decode("utf-8"))
 
 
-def test_notification_secrets_are_write_only_and_kept_when_empty(admin_client, settings):
-    body = {"notify_discord_webhook": WEBHOOK, "notify_gotify_url": "http://gotify", "notify_gotify_token": "gotify-secret"}
-    res = admin_client.put("/api/settings", json=body)
-    assert res.status_code == 200
-    saved = res.json()["notifications"]
-    assert saved["discord_set"] and not saved["ntfy_set"] and saved["gotify_url"] == "http://gotify"
-    assert "secret-token" not in res.text and "gotify-secret" not in res.text
-
-    kept = admin_client.put("/api/settings", json={"notify_gotify_url": "http://gotify"}).json()["notifications"]
-    assert kept["discord_set"] and kept["gotify_token_set"]
-
-    cleared = admin_client.put("/api/settings", json={"notify_clear": ["discord"]}).json()["notifications"]
-    assert not cleared["discord_set"] and cleared["gotify_token_set"]
+def create_channel(client, **overrides):
+    body = {"kind": "discord", "name": "Admin", "url": WEBHOOK, "events": ["scan_failed"]} | overrides
+    return client.post(CHANNELS, json=body)
 
 
-def test_only_official_discord_webhooks_and_http_urls_are_accepted(admin_client, settings):
-    for body in (
-        {"notify_discord_webhook": "https://evil.example/api/webhooks/1/x"},
-        {"notify_ntfy_url": "file:///etc/passwd"},
-        {"notify_gotify_url": "gopher://gotify"},
-    ):
-        assert admin_client.put("/api/settings", json=body).status_code == 400
+def test_channels_keep_their_secrets_write_only(admin_client, session):
+    created = create_channel(admin_client)
+    assert created.status_code == 201
+    channel = created.json()
+    assert channel["url"] is None and channel["url_set"] and not channel["token_set"]
+    assert "secret-token" not in created.text and "secret-token" not in admin_client.get(CHANNELS).text
+
+    renamed = admin_client.put(
+        f"{CHANNELS}/{channel['id']}",
+        json={"kind": "discord", "name": "Scans", "url": "", "events": ["scan_completed", "scan_failed"]},
+    )
+    assert renamed.status_code == 200 and renamed.json()["name"] == "Scans"
+    assert renamed.json()["events"] == ["scan_completed", "scan_failed"]
+    session.expire_all()
+    assert session.get(NotificationChannel, channel["id"]).url == WEBHOOK  # URL conservée
+
+    assert admin_client.delete(f"{CHANNELS}/{channel['id']}").status_code == 204
+    assert admin_client.get(CHANNELS).json() == []
+
+
+def test_invalid_channels_are_rejected(admin_client):
+    assert create_channel(admin_client, url="https://evil.example/api/webhooks/1/x").status_code == 400
+    assert create_channel(admin_client, kind="ntfy", url="ftp://ntfy.sh/topic").status_code == 400
+    assert create_channel(admin_client, kind="gotify", url="http://gotify").status_code == 400
+    assert create_channel(admin_client, events=["tout"]).status_code == 400
+    assert create_channel(admin_client, name="   ").status_code == 400
+
+    channel = create_channel(admin_client).json()
+    kind_change = admin_client.put(
+        f"{CHANNELS}/{channel['id']}", json={"kind": "ntfy", "name": "Admin", "url": "https://ntfy.sh/topic", "events": []}
+    )
+    assert kind_change.status_code == 400
+    assert admin_client.get(CHANNELS).json()[0]["kind"] == "discord"
+
+
+def test_each_channel_only_receives_the_events_it_subscribed_to(fake_http):
+    discord, ntfy = [], []
+    fake_http["https://discord.com"] = lambda req: discord.append(req) or httpx.Response(204)
+    fake_http["https://ntfy.sh"] = lambda req: ntfy.append(req) or httpx.Response(200)
+    targets = [
+        discord_target(events=("scan_completed",), name="Scans"),
+        ChannelTarget(id=2, kind="ntfy", name="Actions", url="https://ntfy.sh/topic", token=None, events=("delete_selection",)),
+    ]
+
+    async def run():
+        summary = scan_completed_notification(
+            "fr", media=1, duplicates=0, orphans=0, reclaimable_bytes=0, matched=0, torrents=0, duration_seconds=1
+        )
+        notify(targets, "scan_completed", summary)
+        deletion = action_notification("fr", "delete_selection", MATRIX, success=1, failures=0, freed_bytes=None, steps=STEPS[:1])
+        notify(targets, "delete_selection", deletion)
+        notify(targets, "hardlink_repair", deletion)  # aucun canal abonné
+        await asyncio.gather(*notifications._pending)
+
+    asyncio.run(run())
+
+    assert [discord_payload(req)["embeds"][0]["title"] for req in discord] == ["Scan terminé"]
+    assert len(ntfy) == 1 and ntfy[0].url.params["title"] == "Suppression effectuée"
 
 
 def test_action_notification_carries_media_space_and_steps():
@@ -73,6 +122,13 @@ def test_action_notification_carries_media_space_and_steps():
     many = action_notification("en", "hardlink_repair", MATRIX, success=12, failures=0, freed_bytes=None, steps=[STEPS[0]] * 12)
     assert many.level == "success" and len(many.details) == 11 and many.details[-1] == "… and 2 more"
     assert all(name != "Space freed" for name, _ in many.fields)
+
+
+def test_orphan_notification_lists_the_new_orphans():
+    n = orphan_notification("fr", [("Matrix", 5 * 1024**3), ("Dune", 1024**3)])
+    assert n.title == "Nouveaux torrents orphelins" and n.level == "warning"
+    assert ("Médias concernés", "2") in n.fields and ("Espace récupérable", "6.0 Go") in n.fields
+    assert n.details == ["• Matrix — 5.0 Go", "• Dune — 1.0 Go"]
 
 
 def test_scan_summary_notification():
@@ -90,7 +146,7 @@ def test_discord_embed_attaches_the_poster(fake_http):
     n = action_notification("en", "cascade_delete", MATRIX, success=1, failures=0, freed_bytes=1024, steps=STEPS[:1])
     n.image = (PNG, "image/png")
 
-    assert asyncio.run(send(Targets(WEBHOOK, None, None, None, None), n)) == {"discord": None}
+    assert asyncio.run(send([discord_target()], n)) == {"Discord": None}
 
     [req] = received
     assert req.headers["content-type"].startswith("multipart/form-data") and PNG in req.content
@@ -107,10 +163,11 @@ def test_ntfy_attaches_the_poster_and_falls_back_without_attachment_support(fake
         return httpx.Response(400 if req.method == "PUT" else 200)
 
     fake_http["https://ntfy.sh"] = ntfy
+    target = ChannelTarget(id=1, kind="ntfy", name="ntfy", url="https://ntfy.sh/topic", token="ntfy-secret", events=())
     n = action_notification("en", "cascade_delete", MATRIX, success=1, failures=0, freed_bytes=1024, steps=STEPS[:1])
     n.image = (PNG, "image/png")
 
-    assert asyncio.run(send(Targets(None, "https://ntfy.sh/topic", "ntfy-secret", None, None), n)) == {"ntfy": None}
+    assert asyncio.run(send([target], n)) == {"ntfy": None}
 
     put, post = calls
     assert put.content == PNG and put.url.params["filename"] == "poster.png"
@@ -122,9 +179,10 @@ def test_ntfy_attaches_the_poster_and_falls_back_without_attachment_support(fake
 def test_gotify_receives_markdown(fake_http):
     received = []
     fake_http["http://gotify"] = lambda req: received.append(req) or httpx.Response(200)
+    target = ChannelTarget(id=1, kind="gotify", name="Gotify", url="http://gotify/", token="gotify-secret", events=())
     n = action_notification("fr", "delete_selection", MATRIX, success=1, failures=1, freed_bytes=None, steps=STEPS)
 
-    asyncio.run(send(Targets(None, None, None, "http://gotify/", "gotify-secret"), n))
+    asyncio.run(send([target], n))
 
     [req] = received
     body = json.loads(req.content)
@@ -135,45 +193,65 @@ def test_gotify_receives_markdown(fake_http):
 
 def test_send_errors_never_expose_urls_or_tokens(fake_http):
     fake_http["http://gotify"] = lambda req: httpx.Response(401)
-    targets = Targets(None, "https://unreachable/secret-topic", None, "http://gotify", "gotify-secret")
+    targets = [
+        ChannelTarget(id=1, kind="ntfy", name="ntfy", url="https://unreachable/secret-topic", token=None, events=()),
+        ChannelTarget(id=2, kind="gotify", name="Gotify", url="http://gotify", token="gotify-secret", events=()),
+    ]
 
     results = asyncio.run(send(targets, build_test_notification("fr")))
 
-    assert results == {"ntfy": "ConnectError", "gotify": "HTTP 401"}
+    assert results == {"ntfy": "ConnectError", "Gotify": "HTTP 401"}
 
 
-def test_notify_respects_preferences_and_attaches_the_cached_poster(fake_http, monkeypatch):
+def test_notify_attaches_the_cached_poster(fake_http, monkeypatch):
     sent = []
     fake_http["https://discord.com"] = lambda req: sent.append(req) or httpx.Response(204)
     monkeypatch.setattr(
         notifications, "read_cached_poster", lambda item_id, tag: (PNG, "image/png") if (item_id, tag) == ("42", "t1") else None
     )
-    settings = Settings(id=1, language="en", notify_discord_webhook=WEBHOOK, notify_on_scan=False)
 
     async def run():
-        summary = scan_completed_notification(
-            "en", media=1, duplicates=0, orphans=0, reclaimable_bytes=0, matched=0, torrents=0, duration_seconds=3
-        )
-        notify(settings, "scan_completed", summary)
-        notify(settings, "scan_failed", scan_failed_notification("en", "boom"))
         deletion = action_notification("en", "delete_selection", MATRIX, success=1, failures=0, freed_bytes=None, steps=STEPS[:1])
-        notify(settings, "delete_selection", deletion, poster=MATRIX)
+        notify([discord_target()], "delete_selection", deletion, poster=MATRIX)
+        notify([discord_target()], "scan_failed", scan_failed_notification("en", "boom"))  # canal non abonné
         await asyncio.gather(*notifications._pending)
 
     asyncio.run(run())
 
-    by_title = {discord_payload(req)["embeds"][0]["title"]: req for req in sent}
-    assert set(by_title) == {"Scan failed", "Deletion completed"}
-    assert PNG in by_title["Deletion completed"].content and PNG not in by_title["Scan failed"].content
+    assert len(sent) == 1 and PNG in sent[0].content
 
 
-def test_test_endpoint_only_targets_saved_channels(admin_client, settings, fake_http):
-    assert admin_client.post("/api/settings/notifications/test").status_code == 400
-
+def test_channel_test_endpoint_uses_the_saved_channel(admin_client, fake_http):
     fake_http["https://discord.com"] = lambda req: httpx.Response(204)
-    admin_client.put("/api/settings", json={"notify_discord_webhook": WEBHOOK})
-    res = admin_client.post("/api/settings/notifications/test")
-    assert res.status_code == 200 and res.json() == {"results": {"discord": None}}
+    channel = create_channel(admin_client).json()
+
+    assert admin_client.post(f"{CHANNELS}/{channel['id']}/test").json() == {"ok": True, "error": None}
+    assert admin_client.post(f"{CHANNELS}/999/test").status_code == 404
+
+
+def test_legacy_notification_settings_become_channels(session):
+    row = Settings(
+        id=1,
+        notify_discord_webhook=WEBHOOK,
+        notify_gotify_url="http://gotify",
+        notify_gotify_token="gotify-secret",
+        notify_on_scan=True,
+        notify_on_actions=True,
+    )
+    session.add(row)
+    session.commit()
+
+    _migrate_legacy_notifications()
+    session.expire_all()
+
+    channels = {c.kind: c for c in session.exec(NotificationChannel.__table__.select()).all()}
+    assert set(channels) == {"discord", "gotify"}
+    assert channels["discord"].url == WEBHOOK and channels["gotify"].token == "gotify-secret"
+    assert "scan_completed" in json.loads(channels["discord"].events)
+    assert "cascade_delete" in json.loads(channels["discord"].events)
+    # Les anciens champs sont vidés : un secret ne vit qu'à un seul endroit.
+    migrated = session.get(Settings, 1)
+    assert migrated.notify_discord_webhook is None and migrated.notify_gotify_token is None
 
 
 def test_reclaimed_bytes_needs_every_link_of_a_unit():

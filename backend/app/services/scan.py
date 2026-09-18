@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from sqlmodel import Session, delete
+from sqlmodel import Session, delete, select
 
 from app.clients.emby import EmbyClient, media_server_name
 from app.clients.torrent import (
@@ -34,8 +35,11 @@ from app.services.arr_instances import ArrTarget, arr_targets
 from app.services.events import scan_events
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.notifications import (
+    ChannelTarget,
+    channel_targets,
     notification_language,
     notify,
+    orphan_notification,
     scan_completed_notification,
     scan_failed_notification,
 )
@@ -50,6 +54,7 @@ from app.services.watch_stats import (
     users_from_api,
 )
 
+logger = logging.getLogger("analysarr.scan")
 _scan_lock = asyncio.Lock()
 
 
@@ -293,6 +298,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             session.expunge(settings)
         radarr_targets = arr_targets(session, settings, "radarr")
         sonarr_targets = arr_targets(session, settings, "sonarr")
+        channels = channel_targets(session)
         run = ScanRun(status=ScanStatus.running, trigger=trigger)
         session.add(run)
         session.commit()
@@ -302,7 +308,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
     await scan_events.publish({"type": "started", "run_id": run_id})
 
     if settings is None:
-        await _fail_scan(run_id, "Aucune configuration enregistrée.", settings)
+        await _fail_scan(run_id, "Aucune configuration enregistrée.", channels, settings)
         return
 
     missing = [
@@ -319,18 +325,26 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         if not ok
     ]
     if missing:
-        await _fail_scan(run_id, f"Services non configurés : {', '.join(missing)}.", settings)
+        await _fail_scan(run_id, f"Services non configurés : {', '.join(missing)}.", channels, settings)
         return
 
     try:
         results, qbit_torrent_count, emby_users = await _collect(settings, run_id, radarr_targets, sonarr_targets)
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
-        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", settings)
+        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", channels, settings)
         return
 
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
 
     with Session(engine) as session:
+        # Avant de remplacer le cache : quels médias étaient DÉJÀ orphelins ?
+        # Seuls les nouveaux déclenchent une notification (et, plus tard, une
+        # automatisation). Clé stable d'un scan à l'autre : les ids changent.
+        previously_orphan = {
+            _media_key(media)
+            for media in session.exec(select(Media)).all()
+            if "orphelin_qbit" in media.statuses.split(",")
+        }
         session.exec(delete(MediaRequest))
         session.exec(delete(MediaWatch))
         session.exec(delete(EmbyUser))
@@ -390,8 +404,17 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             duration_seconds=_duration_seconds(run.started_at, run.finished_at),
         )
 
+    new_orphans = [
+        (result.media.title, result.media.reclaimable_bytes)
+        for result in results
+        if "orphelin_qbit" in result.media.statuses.split(",") and _media_key(result.media) not in previously_orphan
+    ]
+
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
-    notify(settings, "scan_completed", summary)
+    notify(channels, "scan_completed", summary)
+    await _run_automations(channels)
+    if new_orphans:
+        notify(channels, "orphan_detected", orphan_notification(notification_language(settings), new_orphans))
 
 
 def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> int | None:
@@ -401,8 +424,29 @@ def _duration_seconds(started_at: datetime | None, finished_at: datetime | None)
     return max(0, int((finished_at.replace(tzinfo=None) - started_at.replace(tzinfo=None)).total_seconds()))
 
 
-async def _fail_scan(run_id: int, message: str, settings: Settings | None = None) -> None:
-    notify(settings, "scan_failed", scan_failed_notification(notification_language(settings), message))
+async def _run_automations(channels: list[ChannelTarget]) -> None:
+    """Règles d'automatisation activées, sur les statuts que ce scan vient de
+    calculer. Import différé : automations.py dépend des services d'action,
+    qui dépendent eux-mêmes de ce module."""
+    from app.services.automations import run_automations
+
+    with Session(engine) as session:
+        try:
+            await run_automations(session, session.get(Settings, 1), channels)
+        except Exception:  # noqa: BLE001 - une règle défaillante ne doit jamais faire échouer le scan
+            logger.exception("Échec d'une automatisation après le scan")
+
+
+def _media_key(media: Media) -> tuple[str, str, int | None]:
+    """Identité d'un média d'un scan à l'autre : les ids de la table sont
+    régénérés à chaque scan."""
+    return media.media_type.value, media.title, media.year
+
+
+async def _fail_scan(
+    run_id: int, message: str, channels: list[ChannelTarget], settings: Settings | None = None
+) -> None:
+    notify(channels, "scan_failed", scan_failed_notification(notification_language(settings), message))
     with Session(engine) as session:
         run = session.get(ScanRun, run_id)
         if run:

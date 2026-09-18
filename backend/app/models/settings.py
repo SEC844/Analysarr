@@ -76,8 +76,9 @@ class Settings(SQLModel, table=True):
     # lecture, une clé absente n'est donc jamais un problème).
     ui_preferences: str = "{}"
 
-    # Notifications (toutes optionnelles). Les URL de webhook et jetons sont
-    # des secrets : jamais renvoyés au navigateur (voir routers/settings.py).
+    # Anciens réglages de notification (un seul canal par type), repris
+    # automatiquement dans la table NotificationChannel au démarrage puis
+    # effacés — conservés ici uniquement pour cette reprise (voir database.py).
     notify_discord_webhook: Optional[str] = None
     notify_ntfy_url: Optional[str] = None
     notify_ntfy_token: Optional[str] = None

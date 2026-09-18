@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Iterator
 
@@ -114,9 +115,49 @@ def _ensure_columns(table: str, columns: list[tuple[str, str]]) -> None:
                 conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {sql_type}'))
 
 
+def _migrate_legacy_notifications() -> None:
+    """Réglages de notification d'avant les canaux multiples
+    (`Settings.notify_*`) : convertis en canaux, puis effacés — un secret ne
+    doit vivre qu'à un seul endroit."""
+    from app.models.notification_channel import NotificationChannel
+    from app.models.settings import Settings
+
+    with Session(engine) as session:
+        row = session.get(Settings, 1)
+        if row is None:
+            return
+        legacy = [
+            ("discord", "Discord", row.notify_discord_webhook, None),
+            ("ntfy", "ntfy", row.notify_ntfy_url, row.notify_ntfy_token),
+            ("gotify", "Gotify", row.notify_gotify_url, row.notify_gotify_token),
+        ]
+        if not any(url for _, _, url, _ in legacy):
+            return
+
+        events = []
+        if row.notify_on_scan:
+            events.append("scan_completed")
+        if row.notify_on_scan_failure:
+            events.append("scan_failed")
+        if row.notify_on_actions:
+            events += ["delete_selection", "cascade_delete", "hardlink_repair", "cross_seed_search"]
+        for kind, name, url, token in legacy:
+            if url:
+                session.add(
+                    NotificationChannel(kind=kind, name=name, url=url, token=token, events=json.dumps(sorted(events)))
+                )
+        row.notify_discord_webhook = None
+        row.notify_ntfy_url = row.notify_ntfy_token = None
+        row.notify_gotify_url = row.notify_gotify_token = None
+        session.add(row)
+        session.commit()
+
+
 def init_db() -> None:
     from app.models.activity import ActionLog  # noqa: F401
     from app.models.arr_instance import ArrInstance  # noqa: F401
+    from app.models.automation import Automation  # noqa: F401
+    from app.models.notification_channel import NotificationChannel  # noqa: F401
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
     from app.models.media import EmbyUser, Media, MediaFile, MediaRequest, MediaWatch, ScanRun, Torrent  # noqa: F401
@@ -126,6 +167,7 @@ def init_db() -> None:
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
     _ensure_columns("user", _USER_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
+    _migrate_legacy_notifications()
 
 
 def get_session() -> Iterator[Session]:

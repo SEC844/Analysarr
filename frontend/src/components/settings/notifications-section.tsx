@@ -1,224 +1,335 @@
-import type { ReactNode } from "react"
-import { Loader2, Send } from "lucide-react"
+import { useState } from "react"
+import { ArrowLeft, Bell, Loader2, MessageSquare, Plus, Send, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
-import { SettingRow } from "@/components/settings/preferences-section"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { useTestNotificationsMutation } from "@/hooks/use-history"
-import { useI18n } from "@/i18n"
-import type { NotificationChannel, NotificationsRead, SettingsWrite } from "@/types/settings"
+import {
+  useCreateChannelMutation,
+  useDeleteChannelMutation,
+  useNotificationChannelsQuery,
+  useTestChannelMutation,
+  useUpdateChannelMutation,
+} from "@/hooks/use-notifications"
+import { useI18n, type MessageKey } from "@/i18n"
+import { cn } from "@/lib/utils"
+import { NOTIFICATION_EVENTS, type ChannelKind, type NotificationChannel, type NotificationEvent } from "@/types/notifications"
 
-// Noms de services : jamais traduits.
-const CHANNEL_NAMES: Record<NotificationChannel, string> = { discord: "Discord", ntfy: "ntfy", gotify: "Gotify" }
-
-interface NotificationsSectionProps {
-  form: SettingsWrite
-  onChange: <K extends keyof SettingsWrite>(key: K, value: SettingsWrite[K]) => void
-  status: NotificationsRead
+// Noms de services : jamais traduits. `tokenMode` : ce que le service exige
+// réellement (voir routers/notifications.py).
+const KINDS: Record<
+  ChannelKind,
+  {
+    name: string
+    icon: typeof Bell
+    tone: string
+    urlSecret: boolean
+    urlPlaceholder: string
+    tokenMode: "none" | "optional" | "required"
+  }
+> = {
+  discord: {
+    name: "Discord",
+    icon: MessageSquare,
+    tone: "bg-indigo-500/10 text-indigo-500",
+    urlSecret: true,
+    urlPlaceholder: "https://discord.com/api/webhooks/…",
+    tokenMode: "none",
+  },
+  ntfy: {
+    name: "ntfy",
+    icon: Bell,
+    tone: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    urlSecret: true,
+    urlPlaceholder: "https://ntfy.sh/mon-sujet",
+    tokenMode: "optional",
+  },
+  gotify: {
+    name: "Gotify",
+    icon: Send,
+    tone: "bg-sky-500/10 text-sky-500",
+    urlSecret: false,
+    urlPlaceholder: "http://gotify:80",
+    tokenMode: "required",
+  },
 }
 
-function TextField({
-  id,
-  label,
-  help,
-  value,
-  onChange,
-  placeholder,
-  secret = false,
-}: {
-  id: string
-  label: string
-  help?: string
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-  secret?: boolean
-}) {
+// Sélection par défaut d'un nouveau canal, identique au backend.
+const DEFAULT_EVENTS: NotificationEvent[] = [
+  "scan_failed",
+  "orphan_detected",
+  "delete_selection",
+  "cascade_delete",
+  "hardlink_repair",
+]
+
+function ChannelIcon({ kind, className }: { kind: ChannelKind; className?: string }) {
+  const { icon: Icon, tone } = KINDS[kind]
+  return (
+    <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", tone, className)}>
+      <Icon className="size-5" />
+    </span>
+  )
+}
+
+function EventPicker({ events, onChange }: { events: NotificationEvent[]; onChange: (value: NotificationEvent[]) => void }) {
+  const { t } = useI18n()
+  const toggle = (event: NotificationEvent, checked: boolean) =>
+    onChange(checked ? [...events, event] : events.filter((e) => e !== event))
+
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        type={secret ? "password" : "text"}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete="off"
-      />
-      {help && <p className="text-muted-foreground text-sm">{help}</p>}
+      <Label>{t("notifications.events")}</Label>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {NOTIFICATION_EVENTS.map((event) => (
+          <label key={event} className="flex items-start gap-2 text-sm">
+            <Checkbox checked={events.includes(event)} onCheckedChange={(checked) => toggle(event, checked === true)} />
+            <span>
+              <span className="block">{t(`notifications.eventNames.${event}` as MessageKey)}</span>
+              <span className="text-muted-foreground block text-xs">
+                {t(`notifications.eventHelp.${event}` as MessageKey)}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
     </div>
   )
 }
 
-export function NotificationsSection({ form, onChange, status }: NotificationsSectionProps) {
+interface ChannelCardProps {
+  kind: ChannelKind
+  channel?: NotificationChannel
+  onDone?: () => void
+}
+
+function ChannelCard({ kind, channel, onDone }: ChannelCardProps) {
   const { t } = useI18n()
-  const test = useTestNotificationsMutation()
+  const spec = KINDS[kind]
+  const [name, setName] = useState(channel?.name ?? spec.name)
+  const [url, setUrl] = useState(channel?.url ?? "")
+  const [token, setToken] = useState("")
+  const [enabled, setEnabled] = useState(channel?.enabled ?? true)
+  const [events, setEvents] = useState<NotificationEvent[]>(channel?.events ?? DEFAULT_EVENTS)
 
-  const configured: Record<NotificationChannel, boolean> = {
-    discord: status.discord_set,
-    ntfy: status.ntfy_set,
-    gotify: Boolean(status.gotify_url && status.gotify_token_set),
-  }
-  const hasSavedChannel = Object.values(configured).some(Boolean)
-  const secretPlaceholder = (set: boolean, fallback: string) => (set ? t("common.keepSecretPlaceholder") : fallback)
+  const create = useCreateChannelMutation()
+  const update = useUpdateChannelMutation()
+  const remove = useDeleteChannelMutation()
+  const test = useTestChannelMutation()
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const toggleRemoval = (channel: NotificationChannel) =>
-    onChange(
-      "notify_clear",
-      form.notify_clear.includes(channel)
-        ? form.notify_clear.filter((c) => c !== channel)
-        : [...form.notify_clear, channel],
-    )
+  const onError = (err: unknown) => toast.error(err instanceof Error ? err.message : t("common.saveFailed"))
+  const saving = create.isPending || update.isPending
+  const canSave = !!name.trim() && (!!url.trim() || !!channel?.url_set)
 
-  const channel = (id: NotificationChannel, fields: ReactNode) => {
-    const pendingRemoval = form.notify_clear.includes(id)
-    return (
-      <div className="space-y-3 py-4 first:pt-0 last:pb-0">
-        <div className="flex items-center justify-between gap-4">
-          <p className="flex items-center gap-2 text-sm font-medium">
-            {CHANNEL_NAMES[id]}
-            {configured[id] && !pendingRemoval && <Badge variant="secondary">{t("notifications.configured")}</Badge>}
-          </p>
-          {configured[id] && (
-            <Button type="button" variant="ghost" size="sm" onClick={() => toggleRemoval(id)}>
-              {pendingRemoval ? t("common.cancel") : t("notifications.remove")}
-            </Button>
-          )}
-        </div>
-        {pendingRemoval ? <p className="text-muted-foreground text-sm">{t("notifications.willBeRemoved")}</p> : fields}
-      </div>
-    )
+  function handleSave() {
+    const payload = { kind, name: name.trim(), enabled, events, url: url.trim(), token }
+    if (channel) {
+      update.mutate(
+        { id: channel.id, payload },
+        {
+          onSuccess: () => {
+            setToken("")
+            toast.success(t("notifications.saved"))
+          },
+          onError,
+        },
+      )
+      return
+    }
+    create.mutate(payload, {
+      onSuccess: () => {
+        toast.success(t("notifications.saved"))
+        onDone?.()
+      },
+      onError,
+    })
   }
 
   function handleTest() {
-    test.mutate(undefined, {
-      onSuccess: ({ results }) => {
-        const entries = Object.entries(results) as [NotificationChannel, string | null][]
-        const failures = entries.filter(([, error]) => error)
-        if (failures.length === 0) {
-          toast.success(t("notifications.testSuccess", { channels: entries.map(([c]) => CHANNEL_NAMES[c]).join(", ") }))
-        } else {
-          toast.error(
-            t("notifications.testFailed", {
-              details: failures.map(([c, error]) => `${CHANNEL_NAMES[c]} (${error})`).join(", "),
-            }),
-          )
-        }
-      },
-      onError: (err) => toast.error(err instanceof Error ? err.message : t("notifications.testError")),
+    if (!channel) return
+    test.mutate(channel.id, {
+      onSuccess: (result) =>
+        result.ok
+          ? toast.success(t("notifications.testSuccess", { name: channel.name }))
+          : toast.error(t("notifications.testFailed", { details: result.error ?? "" })),
+      onError,
+    })
+  }
+
+  function handleDelete() {
+    if (!channel) return
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    remove.mutate(channel.id, {
+      onSuccess: () => toast.success(t("notifications.deleted")),
+      onError,
+      onSettled: () => setConfirmDelete(false),
     })
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            {t("notifications.title")}
-            <Badge variant="outline">{t("common.optional")}</Badge>
-          </CardTitle>
-          <CardDescription>{t("notifications.description")}</CardDescription>
-        </CardHeader>
-        <CardContent className="divide-border divide-y">
-          {channel(
-            "discord",
-            <TextField
-              id="notify-discord"
-              label={t("notifications.discordWebhook")}
-              help={t("notifications.discordHelp")}
-              value={form.notify_discord_webhook}
-              onChange={(v) => onChange("notify_discord_webhook", v)}
-              placeholder={secretPlaceholder(status.discord_set, "https://discord.com/api/webhooks/…")}
-              secret
-            />,
-          )}
-          {channel(
-            "ntfy",
-            <>
-              <TextField
-                id="notify-ntfy-url"
-                label={t("notifications.ntfyUrl")}
-                help={t("notifications.ntfyHelp")}
-                value={form.notify_ntfy_url}
-                onChange={(v) => onChange("notify_ntfy_url", v)}
-                placeholder={secretPlaceholder(status.ntfy_set, "https://ntfy.sh/…")}
-                secret
-              />
-              <TextField
-                id="notify-ntfy-token"
-                label={t("notifications.ntfyToken")}
-                value={form.notify_ntfy_token}
-                onChange={(v) => onChange("notify_ntfy_token", v)}
-                placeholder={secretPlaceholder(status.ntfy_token_set, "tk_…")}
-                secret
-              />
-            </>,
-          )}
-          {channel(
-            "gotify",
-            <>
-              <TextField
-                id="notify-gotify-url"
-                label={t("notifications.gotifyUrl")}
-                value={form.notify_gotify_url}
-                onChange={(v) => onChange("notify_gotify_url", v)}
-                placeholder="http://gotify:80"
-              />
-              <TextField
-                id="notify-gotify-token"
-                label={t("notifications.gotifyToken")}
-                help={t("notifications.gotifyHelp")}
-                value={form.notify_gotify_token}
-                onChange={(v) => onChange("notify_gotify_token", v)}
-                placeholder={secretPlaceholder(status.gotify_token_set, t("notifications.gotifyToken"))}
-                secret
-              />
-            </>,
-          )}
-        </CardContent>
-      </Card>
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <ChannelIcon kind={kind} />
+            <div className="min-w-0">
+              <CardTitle className="truncate">{channel ? channel.name : t("notifications.newChannel")}</CardTitle>
+              <CardDescription>{spec.name}</CardDescription>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {channel && !enabled && <Badge variant="outline">{t("notifications.disabled")}</Badge>}
+            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label={t("notifications.enabled")} />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor={`channel-name-${channel?.id ?? "new"}`}>{t("notifications.name")}</Label>
+          <Input
+            id={`channel-name-${channel?.id ?? "new"}`}
+            value={name}
+            maxLength={40}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="off"
+          />
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("notifications.eventsTitle")}</CardTitle>
-          <CardDescription>{t("notifications.eventsDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="divide-border divide-y">
-          <SettingRow id="notify-on-scan" label={t("notifications.onScan")} help={t("notifications.onScanHelp")}>
-            <Switch id="notify-on-scan" checked={form.notify_on_scan} onCheckedChange={(v) => onChange("notify_on_scan", v)} />
-          </SettingRow>
-          <SettingRow
-            id="notify-on-scan-failure"
-            label={t("notifications.onScanFailure")}
-            help={t("notifications.onScanFailureHelp")}
-          >
-            <Switch
-              id="notify-on-scan-failure"
-              checked={form.notify_on_scan_failure}
-              onCheckedChange={(v) => onChange("notify_on_scan_failure", v)}
+        <div className="space-y-1.5">
+          <Label htmlFor={`channel-url-${channel?.id ?? "new"}`}>{t(`notifications.urlLabel.${kind}` as MessageKey)}</Label>
+          <Input
+            id={`channel-url-${channel?.id ?? "new"}`}
+            type={spec.urlSecret ? "password" : "text"}
+            placeholder={channel?.url_set && spec.urlSecret ? t("common.keepSecretPlaceholder") : spec.urlPlaceholder}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            autoComplete="off"
+          />
+          <p className="text-muted-foreground text-sm">{t(`notifications.urlHelp.${kind}` as MessageKey)}</p>
+        </div>
+
+        {spec.tokenMode !== "none" && (
+          <div className="space-y-1.5">
+            <Label htmlFor={`channel-token-${channel?.id ?? "new"}`}>
+              {spec.tokenMode === "required" ? t("notifications.token") : t("notifications.tokenOptional")}
+            </Label>
+            <Input
+              id={`channel-token-${channel?.id ?? "new"}`}
+              type="password"
+              placeholder={channel?.token_set ? t("common.keepSecretPlaceholder") : ""}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              autoComplete="off"
             />
-          </SettingRow>
-          <SettingRow id="notify-on-actions" label={t("notifications.onActions")} help={t("notifications.onActionsHelp")}>
-            <Switch
-              id="notify-on-actions"
-              checked={form.notify_on_actions}
-              onCheckedChange={(v) => onChange("notify_on_actions", v)}
-            />
-          </SettingRow>
-          <div className="flex flex-wrap items-center gap-3 pt-4">
-            <Button type="button" variant="secondary" disabled={test.isPending || !hasSavedChannel} onClick={handleTest}>
-              {test.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+          </div>
+        )}
+
+        <EventPicker events={events} onChange={setEvents} />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" disabled={!canSave || saving} onClick={handleSave}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {t("common.save")}
+          </Button>
+          {channel && (
+            <Button type="button" variant="secondary" disabled={test.isPending} onClick={handleTest}>
+              {test.isPending && <Loader2 className="size-4 animate-spin" />}
               {t("notifications.test")}
             </Button>
-            <p className="text-muted-foreground text-sm">{t("notifications.testHint")}</p>
-          </div>
+          )}
+          {channel ? (
+            <Button
+              type="button"
+              variant={confirmDelete ? "destructive" : "ghost"}
+              disabled={remove.isPending}
+              onClick={handleDelete}
+              onBlur={() => setConfirmDelete(false)}
+            >
+              <Trash2 className="size-4" />
+              {confirmDelete ? t("notifications.confirmDelete") : t("notifications.delete")}
+            </Button>
+          ) : (
+            <Button type="button" variant="ghost" onClick={onDone}>
+              {t("common.cancel")}
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+export function NotificationsSection() {
+  const { t } = useI18n()
+  const { data: channels, isLoading } = useNotificationChannelsQuery()
+  const [kind, setKind] = useState<ChannelKind | null>(null)
+  const [adding, setAdding] = useState(false)
+
+  if (isLoading) return <Skeleton className="h-64 w-full" />
+  if (!channels) return <p className="text-destructive">{t("common.apiUnreachable")}</p>
+
+  if (kind === null) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("notifications.title")}</CardTitle>
+          <CardDescription>{t("notifications.description")}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          {(Object.keys(KINDS) as ChannelKind[]).map((available) => {
+            const count = channels.filter((channel) => channel.kind === available).length
+            return (
+              <button
+                key={available}
+                type="button"
+                onClick={() => {
+                  setKind(available)
+                  setAdding(count === 0)
+                }}
+                className="border-border hover:border-foreground/20 hover:bg-muted/50 flex flex-col items-center gap-2 rounded-lg border p-4 text-center transition-colors"
+              >
+                <ChannelIcon kind={available} />
+                <span className="text-sm font-medium">{KINDS[available].name}</span>
+                <span className="text-muted-foreground text-xs">
+                  {count === 0 ? t("notifications.notConfigured") : t("notifications.channelCount", { count })}
+                </span>
+              </button>
+            )
+          })}
         </CardContent>
       </Card>
+    )
+  }
+
+  const own = channels.filter((channel) => channel.kind === kind)
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={() => setKind(null)}>
+          <ArrowLeft className="size-4" />
+          {t("notifications.allChannels")}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => setAdding(true)} disabled={adding}>
+          <Plus className="size-4" />
+          {t("notifications.add", { service: KINDS[kind].name })}
+        </Button>
+      </div>
+
+      {own.map((channel) => (
+        <ChannelCard key={channel.id} kind={kind} channel={channel} />
+      ))}
+      {adding && <ChannelCard kind={kind} onDone={() => setAdding(false)} />}
+      {!adding && own.length === 0 && <p className="text-muted-foreground text-sm">{t("notifications.empty")}</p>}
     </div>
   )
 }

@@ -37,7 +37,7 @@ from app.services.hardlink_repair import build_repair_preview, execute_repair
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.action_log import MediaRef, record_action
-from app.services.notifications import action_notification, notification_language, notify
+from app.services.notifications import action_notification, channel_targets, notification_language, notify
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
@@ -305,7 +305,7 @@ async def cross_seed_search(
     steps = [ActionStepRead(label=f"cross-seed ({scope})", success=True)] * result.triggered + [
         ActionStepRead(label=f"cross-seed ({scope})", success=False, error=error) for error in result.errors
     ]
-    record_action(session, "cross_seed_search", MediaRef.of(media), steps)
+    _log_and_notify(session, settings, "cross_seed_search", MediaRef.of(media), steps)
     return result
 
 
@@ -358,4 +358,4 @@ def _log_and_notify(session: Session, settings: Settings, action: str, ref: Medi
         freed_bytes=entry.freed_bytes,
         steps=steps,
     )
-    notify(settings, action, notification, poster=ref)
+    notify(channel_targets(session), action, notification, poster=ref, settings=settings)
