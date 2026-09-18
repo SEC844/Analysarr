@@ -12,12 +12,12 @@
 
 ## Montage des données : le point essentiel
 
-Analysarr détecte les hardlinks en comparant les fichiers vus par Emby/Jellyfin et par qBittorrent. Il doit donc voir **exactement les mêmes chemins** que ces conteneurs :
+Analysarr détecte les hardlinks en comparant les fichiers vus par Emby/Jellyfin et par votre client torrent (qBittorrent, Deluge ou Transmission). Il doit donc voir **exactement les mêmes chemins** que ces conteneurs :
 
 | Conteneur | Chemin hôte | Chemin conteneur |
 |---|---|---|
 | Emby / Jellyfin | `/mnt/user/data` | `/data` |
-| qBittorrent | `/mnt/user/data` | `/data` |
+| qBittorrent / Deluge / Transmission | `/mnt/user/data` | `/data` |
 | Sonarr / Radarr | `/mnt/user/data` | `/data` |
 | **Analysarr** | `/mnt/user/data` | `/data` |
 
