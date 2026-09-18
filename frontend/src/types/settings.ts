@@ -7,6 +7,23 @@ export interface ServiceApiKeyRead {
 
 export type TorrentClientKind = "qbittorrent" | "deluge" | "transmission"
 
+// Noms de clients : jamais traduits.
+export const TORRENT_CLIENT_NAMES: Record<TorrentClientKind, string> = {
+  qbittorrent: "qBittorrent",
+  deluge: "Deluge",
+  transmission: "Transmission",
+}
+
+/** Identifiants réellement exigés par chaque client — même règle que
+ * `clients/torrent.py::credentials_required` côté backend : Deluge n'a qu'un
+ * mot de passe d'interface web, Transmission peut n'avoir aucune
+ * authentification. */
+export function torrentCredentialsRequired(kind: TorrentClientKind): { username: boolean; password: boolean } {
+  if (kind === "deluge") return { username: false, password: true }
+  if (kind === "transmission") return { username: false, password: false }
+  return { username: true, password: true }
+}
+
 export interface QbittorrentRead {
   client: TorrentClientKind
   url: string | null
@@ -193,24 +210,30 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
   }
 }
 
-export function isCoreConfigComplete(f: SettingsWrite, existing: SettingsRead | undefined): boolean {
-  const hasEmbyKey = !!f.emby_api_key || !!existing?.emby.api_key_set
-  const hasSonarrKey = !!f.sonarr_api_key || !!existing?.sonarr.api_key_set
-  const hasRadarrKey = !!f.radarr_api_key || !!existing?.radarr.api_key_set
-  const hasQbitPassword = !!f.qbittorrent_password || !!existing?.qbittorrent.password_set
+// Étapes obligatoires de l'assistant, dans l'ordre où il les présente.
+export type CoreStep = "mediaServer" | "sonarr" | "radarr" | "torrentClient" | "paths"
 
-  return (
-    !!f.emby_url &&
-    hasEmbyKey &&
-    !!f.sonarr_url &&
-    hasSonarrKey &&
-    !!f.radarr_url &&
-    hasRadarrKey &&
-    !!f.qbittorrent_url &&
-    // Deluge n'a pas d'identifiant, Transmission peut n'avoir aucune authentification.
-    (f.torrent_client !== "qbittorrent" || !!f.qbittorrent_username) &&
-    hasQbitPassword &&
-    !!f.emby_library_path &&
-    !!f.qbittorrent_download_path
-  )
+/** Étapes obligatoires encore incomplètes — sert au récapitulatif de
+ * l'assistant autant qu'au verrou du bouton « Terminer ». */
+export function missingCoreConfig(f: SettingsWrite, existing: SettingsRead | undefined): CoreStep[] {
+  const credentials = torrentCredentialsRequired(f.torrent_client)
+  const missing: CoreStep[] = []
+
+  if (!f.emby_url || !(f.emby_api_key || existing?.emby.api_key_set)) missing.push("mediaServer")
+  if (!f.sonarr_url || !(f.sonarr_api_key || existing?.sonarr.api_key_set)) missing.push("sonarr")
+  if (!f.radarr_url || !(f.radarr_api_key || existing?.radarr.api_key_set)) missing.push("radarr")
+  if (
+    !f.qbittorrent_url ||
+    (credentials.username && !f.qbittorrent_username) ||
+    (credentials.password && !(f.qbittorrent_password || existing?.qbittorrent.password_set))
+  ) {
+    missing.push("torrentClient")
+  }
+  if (!f.emby_library_path || !f.qbittorrent_download_path) missing.push("paths")
+
+  return missing
+}
+
+export function isCoreConfigComplete(f: SettingsWrite, existing: SettingsRead | undefined): boolean {
+  return missingCoreConfig(f, existing).length === 0
 }
