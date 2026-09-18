@@ -3,6 +3,7 @@ from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, Field, StringConstraints
 
 ServiceName = Literal["emby", "sonarr", "radarr", "qbittorrent", "cross_seed", "seer"]
+TorrentClientKind = Literal["qbittorrent", "deluge", "transmission"]
 MediaServer = Literal["emby", "jellyfin"]
 
 
@@ -12,6 +13,7 @@ class ServiceApiKeyRead(BaseModel):
 
 
 class QbittorrentRead(BaseModel):
+    client: TorrentClientKind = "qbittorrent"
     url: Optional[str] = None
     username: Optional[str] = None
     password_set: bool = False
@@ -110,6 +112,7 @@ class SettingsWrite(BaseModel):
     radarr_url: Optional[str] = None
     radarr_api_key: Optional[str] = None
 
+    torrent_client: TorrentClientKind = "qbittorrent"
     qbittorrent_url: Optional[str] = None
     qbittorrent_username: Optional[str] = None
     qbittorrent_password: Optional[str] = None
@@ -154,6 +157,8 @@ class ConnectionTestRequest(BaseModel):
     api_key: Optional[str] = None
     # Serveur multimédia uniquement : Emby ou Jellyfin.
     media_server: Optional[MediaServer] = None
+    # Client torrent uniquement.
+    torrent_client: Optional[TorrentClientKind] = None
     username: Optional[str] = None
     password: Optional[str] = None
 

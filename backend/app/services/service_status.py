@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session
 
 from app.clients.emby import media_server_name
+from app.clients.torrent import torrent_client_configured, torrent_client_kind, torrent_client_name
 from app.models.settings import Settings
 from app.schemas.services import ServicesStatus, ServiceStatusRead
 from app.schemas.settings import ConnectionTestRequest, ConnectionTestResult
@@ -63,11 +64,14 @@ def _checks(session: Session, settings: Settings | None) -> list[_Check]:
     for kind in ("sonarr", "radarr"):
         for target in arr_targets(session, settings, kind):
             checks.append(_Check(kind, target.name, ConnectionTestRequest(url=target.url, api_key=target.api_key)))
-    if settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password:
+    if torrent_client_configured(settings):
         request = ConnectionTestRequest(
-            url=settings.qbittorrent_url, username=settings.qbittorrent_username, password=settings.qbittorrent_password
+            url=settings.qbittorrent_url,
+            username=settings.qbittorrent_username,
+            password=settings.qbittorrent_password,
+            torrent_client=torrent_client_kind(settings),
         )
-        checks.append(_Check("qbittorrent", "qBittorrent", request))
+        checks.append(_Check("qbittorrent", torrent_client_name(settings), request))
     if settings.cross_seed_enabled and settings.cross_seed_url:
         checks.append(_Check("cross_seed", "cross-seed", ConnectionTestRequest(url=settings.cross_seed_url)))
     if seer_configured(settings):

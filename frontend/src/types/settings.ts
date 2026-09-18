@@ -5,7 +5,10 @@ export interface ServiceApiKeyRead {
   api_key_set: boolean
 }
 
+export type TorrentClientKind = "qbittorrent" | "deluge" | "transmission"
+
 export interface QbittorrentRead {
+  client: TorrentClientKind
   url: string | null
   username: string | null
   password_set: boolean
@@ -99,6 +102,7 @@ export interface SettingsWrite {
   sonarr_api_key: string
   radarr_url: string
   radarr_api_key: string
+  torrent_client: TorrentClientKind
   qbittorrent_url: string
   qbittorrent_username: string
   qbittorrent_password: string
@@ -141,6 +145,7 @@ export interface BrowseResult {
 
 export interface ConnectionTestRequest {
   url?: string
+  torrent_client?: TorrentClientKind
   api_key?: string
   media_server?: MediaServer
   username?: string
@@ -161,6 +166,7 @@ export function emptySettingsWrite(): SettingsWrite {
     sonarr_api_key: "",
     radarr_url: "",
     radarr_api_key: "",
+    torrent_client: "qbittorrent",
     qbittorrent_url: "",
     qbittorrent_username: "",
     qbittorrent_password: "",
@@ -198,6 +204,7 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     sonarr_api_key: "",
     radarr_url: s.radarr.url ?? "",
     radarr_api_key: "",
+    torrent_client: s.qbittorrent.client,
     qbittorrent_url: s.qbittorrent.url ?? "",
     qbittorrent_username: s.qbittorrent.username ?? "",
     qbittorrent_password: "",
@@ -247,7 +254,8 @@ export function isCoreConfigComplete(f: SettingsWrite, existing: SettingsRead | 
     !!f.radarr_url &&
     hasRadarrKey &&
     !!f.qbittorrent_url &&
-    !!f.qbittorrent_username &&
+    // Deluge n'a pas d'identifiant, Transmission peut n'avoir aucune authentification.
+    (f.torrent_client !== "qbittorrent" || !!f.qbittorrent_username) &&
     hasQbitPassword &&
     !!f.emby_library_path &&
     !!f.qbittorrent_download_path

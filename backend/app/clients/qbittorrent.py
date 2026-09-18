@@ -2,12 +2,10 @@ from typing import Any
 
 import httpx
 
-
-class QbittorrentAuthError(Exception):
-    pass
+from app.clients.torrent_base import TorrentAuthError, TorrentClient
 
 
-class QbittorrentClient:
+class QbittorrentClient(TorrentClient):
     """Client qBittorrent Web API v2, authentifié par cookie de session.
 
     Le succès de la connexion se juge sur la présence d'un cookie *SID* plutôt
@@ -15,7 +13,12 @@ class QbittorrentClient:
     renvoient 204 No Content au lieu de l'historique 200 "Ok." (voir
     app/services/connection_test.py pour le même constat sur le testeur de
     connexion des Réglages).
+
+    C'est le client de référence : sa forme de données est celle que Deluge et
+    Transmission reproduisent (voir clients/torrent_base.py).
     """
+
+    name = "qBittorrent"
 
     def __init__(self, base_url: str, username: str, password: str):
         self.base_url = base_url.rstrip("/")
@@ -34,7 +37,7 @@ class QbittorrentClient:
         if not (has_session_cookie or (resp.status_code == 200 and resp.text.strip() == "Ok.")):
             await self._client.aclose()
             self._client = None
-            raise QbittorrentAuthError("Authentification qBittorrent refusée.")
+            raise TorrentAuthError("Authentification qBittorrent refusée.")
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:

@@ -10,7 +10,12 @@ import httpx
 from sqlmodel import Session, delete
 
 from app.clients.emby import EmbyClient, media_server_name
-from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
+from app.clients.torrent import (
+    TorrentAuthError,
+    torrent_client,
+    torrent_client_configured,
+    torrent_client_name,
+)
 from app.database import engine
 from app.clients.seer import SeerClient
 from app.models.media import (
@@ -307,8 +312,8 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             ("Sonarr", bool(settings.sonarr_url and settings.sonarr_api_key)),
             ("Radarr", bool(settings.radarr_url and settings.radarr_api_key)),
             (
-                "qBittorrent",
-                bool(settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password),
+                torrent_client_name(settings),
+                torrent_client_configured(settings),
             ),
         ]
         if not ok
@@ -417,7 +422,7 @@ async def _collect(
     par une instance donne un média distinct."""
     assert settings.emby_url and settings.emby_api_key
     assert radarr_targets and sonarr_targets
-    assert settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password
+    assert torrent_client_configured(settings)
 
     emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
 
@@ -664,9 +669,7 @@ async def _collect(
     # --- Torrents qBittorrent ------------------------------------------
     await progress("qbittorrent")
     try:
-        async with QbittorrentClient(
-            settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-        ) as qbit:
+        async with torrent_client(settings) as qbit:
             torrents = await qbit.get_torrents()
             trackers_by_hash: dict[str, list[dict[str, Any]]] = {}
             files_by_hash: dict[str, list[dict[str, Any]]] = {}
@@ -679,8 +682,8 @@ async def _collect(
                     files_by_hash[t["hash"]] = await qbit.get_files(t["hash"])
                 except Exception:  # noqa: BLE001
                     files_by_hash[t["hash"]] = []
-    except QbittorrentAuthError as exc:
-        raise RuntimeError(f"Authentification qBittorrent refusée pendant le scan : {exc}") from exc
+    except TorrentAuthError as exc:
+        raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée pendant le scan : {exc}") from exc
 
     torrent_rows: list[Torrent] = []
     torrent_content_paths: list[str | None] = []

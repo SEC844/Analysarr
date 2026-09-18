@@ -14,7 +14,7 @@ import { NotificationsSection } from "@/components/settings/notifications-sectio
 import { PathDiagnosticsPanel } from "@/components/settings/path-diagnostics-panel"
 import { PathsCard } from "@/components/settings/paths-card"
 import { PreferencesSection } from "@/components/settings/preferences-section"
-import { QbittorrentCard } from "@/components/settings/qbittorrent-card"
+import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
@@ -40,7 +40,7 @@ const SECTION_GROUPS = [
       { id: "emby", label: "settings.sections.mediaServer" },
       { id: "sonarr", label: "Sonarr" },
       { id: "radarr", label: "Radarr" },
-      { id: "qbittorrent", label: "qBittorrent" },
+      { id: "qbittorrent", label: "settings.sections.torrentClient" },
       { id: "cross-seed", label: "cross-seed" },
       { id: "seer", label: "Seer" },
     ],
@@ -249,7 +249,9 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           )}
 
           {section === "qbittorrent" && (
-            <QbittorrentCard
+            <TorrentClientCard
+              client={form.torrent_client}
+              onClientChange={(v) => set("torrent_client", v)}
               url={form.qbittorrent_url}
               onUrlChange={(v) => set("qbittorrent_url", v)}
               username={form.qbittorrent_username}

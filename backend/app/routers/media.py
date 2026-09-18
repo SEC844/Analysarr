@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from app.clients.emby import media_server_client
-from app.clients.qbittorrent import QbittorrentAuthError
+from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.database import get_session
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
@@ -315,11 +315,11 @@ async def hardlink_repair_preview(media_id: int, session: Session = Depends(get_
     if media is None:
         raise HTTPException(404, "Média introuvable.")
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await build_repair_preview(session, media, settings)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"qBittorrent injoignable : {exc}") from exc
@@ -331,12 +331,12 @@ async def hardlink_repair_execute(media_id: int, session: Session = Depends(get_
     if media is None:
         raise HTTPException(404, "Média introuvable.")
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     ref = MediaRef.of(media)
     try:
         result = await execute_repair(session, media, settings)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
     _log_and_notify(session, settings, "hardlink_repair", ref, result.steps, result.freed_bytes)
     return result

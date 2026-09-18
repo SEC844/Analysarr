@@ -26,6 +26,12 @@ class Settings(SQLModel, table=True):
     radarr_url: Optional[str] = None
     radarr_api_key: Optional[str] = None
 
+    # Client torrent : "qbittorrent" (défaut), "deluge" ou "transmission".
+    # Les champs qbittorrent_* ci-dessous servent aux trois (renommer les
+    # colonnes casserait les configurations existantes) : Deluge n'utilise que
+    # le mot de passe de son interface web, Transmission peut n'avoir aucun
+    # identifiant.
+    torrent_client: str = "qbittorrent"
     qbittorrent_url: Optional[str] = None
     qbittorrent_username: Optional[str] = None
     qbittorrent_password: Optional[str] = None

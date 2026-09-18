@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.database import get_session
+from app.clients.torrent import torrent_client_configured
 from app.models.arr_instance import ArrInstance
 from app.models.settings import Settings
 from app.schemas.settings import (
@@ -57,9 +58,7 @@ def _is_configured(s: Settings) -> bool:
             s.sonarr_api_key,
             s.radarr_url,
             s.radarr_api_key,
-            s.qbittorrent_url,
-            s.qbittorrent_username,
-            s.qbittorrent_password,
+            torrent_client_configured(s),
             s.emby_library_path,
             s.qbittorrent_download_path,
         ]
@@ -99,6 +98,7 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
         sonarr=ServiceApiKeyRead(url=s.sonarr_url, api_key_set=bool(s.sonarr_api_key)),
         radarr=ServiceApiKeyRead(url=s.radarr_url, api_key_set=bool(s.radarr_api_key)),
         qbittorrent=QbittorrentRead(
+            client=s.torrent_client if s.torrent_client in ("qbittorrent", "deluge", "transmission") else "qbittorrent",
             url=s.qbittorrent_url,
             username=s.qbittorrent_username,
             password_set=bool(s.qbittorrent_password),
@@ -138,6 +138,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
 
     # Champs non sensibles : toujours remplacés par la valeur envoyée.
     row.media_server = payload.media_server
+    row.torrent_client = payload.torrent_client
     row.emby_url = payload.emby_url
     row.sonarr_url = payload.sonarr_url
     row.radarr_url = payload.radarr_url

@@ -130,12 +130,18 @@ export const en: Dictionary = {
       apiKeyHelp: "Radarr → Settings → General → Security → API Key.",
     },
   },
-  qbittorrent: {
-    description: "Download client managing the torrents.",
+  torrentClient: {
+    title: "Torrent client",
+    description: "The client that downloads and seeds your torrents. Everything works the same with all three: scan, statuses, deletion and hardlink repair.",
+    kind: "Client",
     webUrl: "Web UI URL",
-    webUrlHelp: "The address of the qBittorrent web interface (WebUI), reachable from the Analysarr container.",
+    webUrlHelp: "The address of the client web interface, reachable from the Analysarr container.",
     username: "Username",
-    credentialsHelp: "Credentials defined in qBittorrent → Tools → Options → WebUI.",
+    help: {
+      qbittorrent: "Credentials defined in qBittorrent → Tools → Options → WebUI.",
+      deluge: "Password of the Deluge web interface — it has no username.",
+      transmission: "Credentials only if authentication is enabled in Transmission.",
+    },
     passwordSetHint: " A password is already saved; type it again here to test or change it.",
   },
   crossSeed: {
@@ -307,6 +313,7 @@ export const en: Dictionary = {
     sections: {
       mediaServer: "Media manager",
       paths: "Paths",
+      torrentClient: "Torrent client",
       schedule: "Scheduling",
       notifications: "Notifications",
       widget: "Widget",

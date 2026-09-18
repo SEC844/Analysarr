@@ -131,12 +131,18 @@ export const fr = {
       apiKeyHelp: "Radarr → Réglages → Général → Sécurité → Clé API.",
     },
   },
-  qbittorrent: {
-    description: "Client de téléchargement qui gère les torrents.",
+  torrentClient: {
+    title: "Client torrent",
+    description: "Le client qui télécharge et seede vos torrents. Tout fonctionne à l'identique avec les trois : scan, statuts, suppression et réparation des hardlinks.",
+    kind: "Client",
     webUrl: "URL de l'interface web",
-    webUrlHelp: "L'adresse de l'interface web qBittorrent (WebUI), accessible depuis le conteneur Analysarr.",
+    webUrlHelp: "L'adresse de l'interface web du client, accessible depuis le conteneur Analysarr.",
     username: "Identifiant",
-    credentialsHelp: "Identifiants définis dans qBittorrent → Outils → Options → WebUI.",
+    help: {
+      qbittorrent: "Identifiants définis dans qBittorrent → Outils → Options → WebUI.",
+      deluge: "Mot de passe de l'interface web Deluge — elle n'a pas d'identifiant.",
+      transmission: "Identifiants uniquement si l'authentification est activée dans Transmission.",
+    },
     passwordSetHint: " Un mot de passe est déjà enregistré ; ressaisissez-le ici pour le tester ou le changer.",
   },
   crossSeed: {
@@ -309,6 +315,7 @@ export const fr = {
     sections: {
       mediaServer: "Gestionnaire de média",
       paths: "Chemins",
+      torrentClient: "Client torrent",
       schedule: "Planification",
       notifications: "Notifications",
       widget: "Widget",

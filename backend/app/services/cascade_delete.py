@@ -3,7 +3,7 @@ import os
 import httpx
 from sqlmodel import Session, select
 
-from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
+from app.clients.torrent import TorrentAuthError, torrent_client
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
@@ -87,14 +87,12 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
 
     if orphan_torrents:
         try:
-            async with QbittorrentClient(
-                settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-            ) as qbit:
+            async with torrent_client(settings) as qbit:
                 await qbit.delete_torrents([t.hash for t in orphan_torrents], delete_files=True)
             for t in orphan_torrents:
                 session.delete(t)
                 steps.append(DeleteStepResult(kind="orphan_torrent", label=t.name, success=True))
-        except (QbittorrentAuthError, httpx.HTTPError) as exc:
+        except (TorrentAuthError, httpx.HTTPError) as exc:
             for t in orphan_torrents:
                 steps.append(DeleteStepResult(kind="orphan_torrent", label=t.name, success=False, error=str(exc)))
 

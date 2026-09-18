@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from app.database import engine, get_session
 from app.models.media import ScanRun
 from app.models.settings import Settings
-from app.clients.qbittorrent import QbittorrentAuthError
+from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.schemas.diagnostics import DiagnosticsResult, EmbyFileDebug, TorrentDebug, UnmatchedTorrent
 from app.schemas.media import ScanRunRead
 from app.services.diagnostics import (
@@ -111,8 +111,8 @@ async def scan_diagnostics(session: Session = Depends(get_session)) -> Diagnosti
     settings = session.get(Settings, 1)
     if settings is None or not (settings.emby_url and settings.emby_api_key):
         raise HTTPException(400, "Serveur multimédia non configuré.")
-    if not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await run_diagnostics(settings)
     except RuntimeError as exc:
@@ -128,11 +128,11 @@ async def scan_debug_torrents(
     contient `name_contains`. Utile pour comprendre pourquoi un torrent connu
     de qBittorrent n'apparaît sur aucune fiche média."""
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await debug_torrents(settings, name_contains)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc
 
 
@@ -172,9 +172,9 @@ async def scan_debug_unmatched_torrents(session: Session = Depends(get_session))
     concrètement lesquels échappent au rattachement plutôt que de se fier
     seulement au chiffre agrégé."""
     settings = session.get(Settings, 1)
-    if settings is None or not (settings.qbittorrent_url and settings.qbittorrent_username and settings.qbittorrent_password):
-        raise HTTPException(400, "qBittorrent non configuré.")
+    if not torrent_client_configured(settings):
+        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
     try:
         return await list_unmatched_torrents(session, settings)
-    except QbittorrentAuthError as exc:
+    except TorrentAuthError as exc:
         raise HTTPException(502, str(exc)) from exc

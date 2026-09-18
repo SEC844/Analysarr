@@ -1,6 +1,8 @@
 import httpx
 
 from app.clients.emby import EmbyClient
+from app.clients.torrent import build_torrent_client
+from app.clients.torrent_base import TorrentAuthError
 from app.schemas.settings import ConnectionTestRequest, ConnectionTestResult
 
 TIMEOUT = 8.0
@@ -86,8 +88,33 @@ def _diag(resp: httpx.Response) -> str:
     return f"[HTTP {resp.status_code}] headers={headers or '—'} corps={body!r}"
 
 
-async def test_qbittorrent(req: ConnectionTestRequest) -> ConnectionTestResult:
-    if not req.url or not req.username or req.password is None:
+async def test_torrent_client(req: ConnectionTestRequest) -> ConnectionTestResult:
+    """Client torrent configuré : qBittorrent (diagnostic détaillé, voir plus
+    bas), Deluge ou Transmission (une connexion réelle + un listing suffisent)."""
+    if not req.url:
+        return ConnectionTestResult(success=False, message="URL requise.")
+    kind = req.torrent_client or "qbittorrent"
+    if kind != "qbittorrent":
+        return await _test_torrent_rpc(kind, req)
+    return await _test_qbittorrent(req)
+
+
+async def _test_torrent_rpc(kind: str, req: ConnectionTestRequest) -> ConnectionTestResult:
+    client = build_torrent_client(kind, _clean_url(req.url or ""), req.username, req.password)
+    try:
+        async with client:
+            torrents = await client.get_torrents()
+    except TorrentAuthError as exc:
+        return ConnectionTestResult(success=False, message=str(exc))
+    except httpx.HTTPStatusError as exc:
+        return ConnectionTestResult(success=False, message=f"Erreur HTTP {exc.response.status_code} : {exc.response.text[:200]}")
+    except (httpx.RequestError, RuntimeError, ValueError) as exc:
+        return ConnectionTestResult(success=False, message=f"Connexion impossible : {exc}")
+    return ConnectionTestResult(success=True, message=f"Connecté à {client.name} ({len(torrents)} torrents).")
+
+
+async def _test_qbittorrent(req: ConnectionTestRequest) -> ConnectionTestResult:
+    if not req.username or req.password is None:
         return ConnectionTestResult(success=False, message="URL, identifiant et mot de passe requis.")
 
     base = _clean_url(req.url)
@@ -196,7 +223,7 @@ TESTERS = {
     "emby": test_emby,
     "sonarr": test_sonarr,
     "radarr": test_radarr,
-    "qbittorrent": test_qbittorrent,
+    "qbittorrent": test_torrent_client,
     "cross_seed": test_cross_seed,
     "seer": test_seer,
 }

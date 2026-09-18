@@ -4,7 +4,7 @@ import stat as stat_module
 from sqlmodel import Session, select
 
 from app.clients.emby import EmbyClient
-from app.clients.qbittorrent import QbittorrentAuthError, QbittorrentClient
+from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_name
 from app.models.media import Torrent
 from app.models.settings import Settings
 from app.schemas.diagnostics import (
@@ -86,9 +86,7 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
 
     qbit_checks: list[PathCheck] = []
     try:
-        async with QbittorrentClient(
-            settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-        ) as qbit:
+        async with torrent_client(settings) as qbit:
             torrents = await qbit.get_torrents()
             for t in torrents:
                 save_path = t.get("save_path")
@@ -116,8 +114,8 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
                         resolved=resolved,
                     )
                 )
-    except QbittorrentAuthError as exc:
-        raise RuntimeError(f"Authentification qBittorrent refusée : {exc}") from exc
+    except TorrentAuthError as exc:
+        raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée : {exc}") from exc
 
     emby_checks: list[PathCheck] = []
     emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
@@ -140,9 +138,7 @@ async def list_unmatched_torrents(session: Session, settings: Settings) -> list[
     contenter du chiffre agrégé."""
     matched_hashes = {h.lower() for h in session.exec(select(Torrent.hash)).all()}
 
-    async with QbittorrentClient(
-        settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-    ) as qbit:
+    async with torrent_client(settings) as qbit:
         torrents = await qbit.get_torrents()
 
     return [
@@ -160,9 +156,7 @@ async def debug_torrents(settings: Settings, name_contains: str) -> list[Torrent
     pourquoi un torrent connu de qBittorrent n'est rattaché à aucun média."""
     needle = name_contains.lower()
 
-    async with QbittorrentClient(
-        settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
-    ) as qbit:
+    async with torrent_client(settings) as qbit:
         torrents = await qbit.get_torrents()
         matches = [t for t in torrents if needle in t.get("name", "").lower()][:MAX_TORRENT_MATCHES]
 
