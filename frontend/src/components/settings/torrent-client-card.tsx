@@ -8,14 +8,14 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useConnectionTest } from "@/hooks/use-connection-test"
 import { useI18n } from "@/i18n"
-import type { TorrentClientKind } from "@/types/settings"
+import { TORRENT_CLIENT_NAMES, torrentCredentialsRequired, type TorrentClientKind } from "@/types/settings"
 
-// Noms de clients : jamais traduits. `username`/`password` : identifiants
-// réellement exigés par chaque client (voir clients/torrent.py côté backend).
-const CLIENTS: Record<TorrentClientKind, { name: string; url: string; username: boolean; password: boolean }> = {
-  qbittorrent: { name: "qBittorrent", url: "http://qbittorrent:8080", username: true, password: true },
-  deluge: { name: "Deluge", url: "http://deluge:8112", username: false, password: true },
-  transmission: { name: "Transmission", url: "http://transmission:9091", username: false, password: false },
+// Exemple d'URL par client ; les identifiants exigés viennent de
+// `torrentCredentialsRequired` (même règle que le backend).
+const PLACEHOLDER_URLS: Record<TorrentClientKind, string> = {
+  qbittorrent: "http://qbittorrent:8080",
+  deluge: "http://deluge:8112",
+  transmission: "http://transmission:9091",
 }
 
 interface TorrentClientCardProps {
@@ -43,10 +43,10 @@ export function TorrentClientCard({
 }: TorrentClientCardProps) {
   const { t } = useI18n()
   const test = useConnectionTest("qbittorrent")
-  const spec = CLIENTS[client]
+  const credentials = torrentCredentialsRequired(client)
   // Deluge n'a qu'un mot de passe d'interface web ; Transmission peut n'avoir
   // aucune authentification.
-  const canTest = !!url && (!spec.username || !!username) && (!spec.password || !!password)
+  const canTest = !!url && (!credentials.username || !!username) && (!credentials.password || !!password)
 
   return (
     <Card>
@@ -65,12 +65,12 @@ export function TorrentClientCard({
             }}
           >
             <SelectTrigger id="torrent-client" className="w-56">
-              <SelectValue>{(v: string) => CLIENTS[v as TorrentClientKind]?.name ?? v}</SelectValue>
+              <SelectValue>{(v: string) => TORRENT_CLIENT_NAMES[v as TorrentClientKind] ?? v}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {(Object.keys(CLIENTS) as TorrentClientKind[]).map((kind) => (
+              {(Object.keys(TORRENT_CLIENT_NAMES) as TorrentClientKind[]).map((kind) => (
                 <SelectItem key={kind} value={kind}>
-                  {CLIENTS[kind].name}
+                  {TORRENT_CLIENT_NAMES[kind]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -81,7 +81,7 @@ export function TorrentClientCard({
           <Label htmlFor="torrent-url">{t("torrentClient.webUrl")}</Label>
           <Input
             id="torrent-url"
-            placeholder={spec.url}
+            placeholder={PLACEHOLDER_URLS[client]}
             value={url}
             onChange={(e) => onUrlChange(e.target.value)}
             autoComplete="off"
@@ -103,7 +103,9 @@ export function TorrentClientCard({
         )}
 
         <div className="space-y-1.5">
-          <Label htmlFor="torrent-password">{t("common.password")}</Label>
+          <Label htmlFor="torrent-password">
+            {credentials.password ? t("common.password") : t("torrentClient.passwordOptional")}
+          </Label>
           <Input
             id="torrent-password"
             type="password"

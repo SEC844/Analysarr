@@ -3,6 +3,7 @@ import { LogOut } from "lucide-react"
 import { Link, NavLink } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
+import { Logo } from "@/components/ui/logo"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useLogoutMutation } from "@/hooks/use-auth"
@@ -41,7 +42,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="border-border border-b">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-baseline gap-2">
-            <Link to="/" className="text-lg font-semibold tracking-tight hover:opacity-80">
+            <Link to="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight hover:opacity-80">
+              <Logo className="size-6 self-center" />
               Analysarr
             </Link>
             {appInfo && (

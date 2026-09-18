@@ -3,6 +3,7 @@ import { Loader2, LogIn } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Logo } from "@/components/ui/logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useLoginMutation } from "@/hooks/use-auth"
@@ -41,6 +42,7 @@ export function LoginPage() {
   return (
     <div className="mx-auto flex min-h-svh max-w-sm flex-col justify-center px-4">
       <div className="mb-6 text-center">
+        <Logo className="mx-auto mb-3 size-10" />
         <h1 className="text-2xl font-semibold tracking-tight">Analysarr</h1>
         <p className="text-muted-foreground mt-1 text-sm">{t("auth.loginSubtitle")}</p>
       </div>

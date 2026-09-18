@@ -103,7 +103,16 @@ export const en: Dictionary = {
     subtitle: "Let's configure your services before getting started. You can change everything later from Settings.",
     step: "Step {current} / {total} — {name}",
     saved: "Configuration saved.",
-    incomplete: "Complete {server}, Sonarr, Radarr, qBittorrent and paths to finish (cross-seed can stay disabled).",
+    summary: {
+      step: "Summary",
+      title: "Everything ready?",
+      ready: "Required services are configured. You can change everything later from Settings.",
+      incomplete: "Some required services still need to be filled in before finishing.",
+      configured: "Configured",
+      disabled: "Disabled",
+      toComplete: "To complete",
+      afterFinish: "Once saved, run a first scan from the library to fill Analysarr.",
+    },
   },
   services: {
     serverUrl: "Server URL",
@@ -142,6 +151,7 @@ export const en: Dictionary = {
       deluge: "Password of the Deluge web interface — it has no username.",
       transmission: "Credentials only if authentication is enabled in Transmission.",
     },
+    passwordOptional: "Password (optional)",
     passwordSetHint: " A password is already saved; type it again here to test or change it.",
   },
   crossSeed: {
@@ -168,8 +178,8 @@ export const en: Dictionary = {
     fromContainer: "from the Analysarr container",
     embyLibrary: "{server} library folder",
     embyLibraryHelp: "Mount point of the library volume in the Analysarr container.",
-    qbitDownload: "qBittorrent download folder",
-    qbitDownloadHelp: "Mount point of the download volume in the Analysarr container.",
+    torrentDownload: "{client} download folder",
+    torrentDownloadHelp: "Mount point of the download volume in the Analysarr container.",
   },
   pathBrowser: {
     title: "Choose a folder",

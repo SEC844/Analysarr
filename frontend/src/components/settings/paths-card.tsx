@@ -5,6 +5,9 @@ import { Label } from "@/components/ui/label"
 import { useI18n } from "@/i18n"
 
 interface PathsCardProps {
+  // Nom du client torrent configuré : le dossier de téléchargement n'est pas
+  // toujours celui de qBittorrent.
+  torrentClientName: string
   embyLibraryPath: string
   onEmbyLibraryPathChange: (value: string) => void
   qbittorrentDownloadPath: string
@@ -12,6 +15,7 @@ interface PathsCardProps {
 }
 
 export function PathsCard({
+  torrentClientName,
   embyLibraryPath,
   onEmbyLibraryPathChange,
   qbittorrentDownloadPath,
@@ -44,7 +48,7 @@ export function PathsCard({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="qbit-download-path">{t("paths.qbitDownload")}</Label>
+          <Label htmlFor="qbit-download-path">{t("paths.torrentDownload", { client: torrentClientName })}</Label>
           <div className="flex gap-2">
             <Input
               id="qbit-download-path"
@@ -55,7 +59,7 @@ export function PathsCard({
             />
             <PathBrowserButton value={qbittorrentDownloadPath} onSelect={onQbittorrentDownloadPathChange} />
           </div>
-          <p className="text-muted-foreground text-sm">{t("paths.qbitDownloadHelp")}</p>
+          <p className="text-muted-foreground text-sm">{t("paths.torrentDownloadHelp", { client: torrentClientName })}</p>
         </div>
       </CardContent>
     </Card>
