@@ -1,8 +1,14 @@
 # Template Unraid
 
-`analysarr.xml` est le template Docker d'Analysarr pour Unraid.
+`analysarr.xml` est le template Docker d'Analysarr pour Unraid. Il est aussi publié dans
+[Community Applications](https://ca.unraid.net) : cherchez **Analysarr** dans l'onglet **Apps**.
+Le dépôt lu par Community Applications est
+[SEC844/unraid-templates](https://github.com/SEC844/unraid-templates) ; les deux copies du template
+doivent rester identiques.
 
-## Installation manuelle (dès maintenant)
+Support : [fil Unraid](https://forums.unraid.net/topic/200625-support-sec844-analysarr/).
+
+## Installation manuelle (sans Community Applications)
 
 1. Unraid → **Docker** → **Add Container**.
 2. Dans **Template**, collez l'URL :
