@@ -116,16 +116,18 @@ https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.xml
 
 ### Premier lancement
 
-Ouvrez `http://<hôte>:1818`, créez le compte administrateur, puis suivez l'assistant de configuration. Aucun fichier de configuration à éditer : tout se règle depuis l'interface, avec un bouton **Tester la connexion** pour chaque service.
+Ouvrez `http://<hôte>:1818`, créez le compte administrateur, puis suivez l'assistant de configuration : serveur multimédia, Sonarr, Radarr, client torrent, chemins des dossiers, puis cross-seed et Seer si vous les utilisez (les deux sont facultatifs). Un récapitulatif final indique ce qui est prêt et ce qui manque encore.
+
+Aucun fichier de configuration à éditer : tout se règle depuis l'interface, avec un bouton **Tester la connexion** pour chaque service et un bouton **Parcourir** pour chaque chemin. Une fois l'assistant terminé, lancez un premier scan depuis la bibliothèque.
 
 ## Chemins et hardlinks
 
-C'est le seul point à soigner. Analysarr compare les fichiers vus par votre serveur multimédia et par qBittorrent **depuis son propre conteneur**. Il doit donc voir **exactement les mêmes chemins** que ces conteneurs :
+C'est le seul point à soigner. Analysarr compare les fichiers vus par votre serveur multimédia et par votre client torrent **depuis son propre conteneur**. Il doit donc voir **exactement les mêmes chemins** que ces conteneurs :
 
 | Conteneur | Chemin hôte | Chemin conteneur |
 |---|---|---|
 | Emby / Jellyfin | `/mnt/data` | `/data` |
-| qBittorrent | `/mnt/data` | `/data` |
+| qBittorrent / Deluge / Transmission | `/mnt/data` | `/data` |
 | Sonarr / Radarr | `/mnt/data` | `/data` |
 | **Analysarr** | `/mnt/data` | `/data` |
 

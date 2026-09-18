@@ -31,7 +31,7 @@ import { useI18n, type MediaServer, type MessageKey } from "@/i18n"
 import { formatRelativeTime } from "@/lib/format"
 import { summarizeServices, type SectionServiceStatus } from "@/lib/services"
 import { cn } from "@/lib/utils"
-import { settingsReadToForm, type SettingsRead } from "@/types/settings"
+import { TORRENT_CLIENT_NAMES, settingsReadToForm, type SettingsRead } from "@/types/settings"
 
 // Noms de services : jamais traduits. Sections système : clés de traduction.
 const SECTION_GROUPS = [
@@ -293,6 +293,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           {section === "paths" && (
             <div className="space-y-6">
               <PathsCard
+                torrentClientName={TORRENT_CLIENT_NAMES[form.torrent_client]}
                 embyLibraryPath={form.emby_library_path}
                 onEmbyLibraryPathChange={(v) => set("emby_library_path", v)}
                 qbittorrentDownloadPath={form.qbittorrent_download_path}

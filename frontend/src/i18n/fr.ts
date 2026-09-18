@@ -103,8 +103,16 @@ export const fr = {
     subtitle: "Configurons vos services avant de commencer. Vous pourrez tout modifier plus tard depuis les Réglages.",
     step: "Étape {current} / {total} — {name}",
     saved: "Configuration enregistrée.",
-    incomplete:
-      "Complétez {server}, Sonarr, Radarr, qBittorrent et les chemins pour terminer (cross-seed peut rester désactivé).",
+    summary: {
+      step: "Récapitulatif",
+      title: "Tout est en place ?",
+      ready: "Les services obligatoires sont configurés. Vous pourrez tout modifier depuis les Réglages.",
+      incomplete: "Il reste des services obligatoires à renseigner avant de terminer.",
+      configured: "Configuré",
+      disabled: "Désactivé",
+      toComplete: "À compléter",
+      afterFinish: "Après l'enregistrement, lancez un premier scan depuis la bibliothèque pour remplir Analysarr.",
+    },
   },
   services: {
     serverUrl: "URL du serveur",
@@ -143,6 +151,7 @@ export const fr = {
       deluge: "Mot de passe de l'interface web Deluge — elle n'a pas d'identifiant.",
       transmission: "Identifiants uniquement si l'authentification est activée dans Transmission.",
     },
+    passwordOptional: "Mot de passe (facultatif)",
     passwordSetHint: " Un mot de passe est déjà enregistré ; ressaisissez-le ici pour le tester ou le changer.",
   },
   crossSeed: {
@@ -170,8 +179,8 @@ export const fr = {
     fromContainer: "depuis le conteneur Analysarr",
     embyLibrary: "Dossier de la bibliothèque {server}",
     embyLibraryHelp: "Le point de montage du volume de bibliothèque dans le conteneur Analysarr.",
-    qbitDownload: "Dossier de téléchargement qBittorrent",
-    qbitDownloadHelp: "Le point de montage du volume de téléchargement dans le conteneur Analysarr.",
+    torrentDownload: "Dossier de téléchargement {client}",
+    torrentDownloadHelp: "Le point de montage du volume de téléchargement dans le conteneur Analysarr.",
   },
   pathBrowser: {
     title: "Choisir un dossier",
