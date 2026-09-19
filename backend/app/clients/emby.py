@@ -56,7 +56,9 @@ class EmbyClient:
                     "ParentId": series_item_id,
                     "IncludeItemTypes": "Episode",
                     "Recursive": "true",
-                    "Fields": "Path,MediaSources,IndexNumber,ParentIndexNumber",
+                    # IndexNumberEnd : dernier épisode couvert par un fichier multi-épisodes
+                    # (S03E01-E02 fusionnés en un seul item).
+                    "Fields": "Path,MediaSources,IndexNumber,ParentIndexNumber,IndexNumberEnd",
                 },
             )
             resp.raise_for_status()

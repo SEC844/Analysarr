@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -114,6 +115,37 @@ def _episode_label(item: dict[str, Any]) -> str | None:
     if season is None or episode is None:
         return f"item:{item.get('Id')}"
     return f"S{int(season):02d}E{int(episode):02d}"
+
+
+def _episode_span_labels(item: dict[str, Any]) -> set[str]:
+    """Tous les épisodes couverts par un item Emby. Un fichier multi-épisodes
+    (S03E01-E02 fusionnés) ne produit qu'UN item, numéroté sur son premier
+    épisode et portant `IndexNumberEnd` — sans lui, les épisodes suivants
+    passaient pour absents du serveur multimédia (bug réel)."""
+    label = _episode_label(item)
+    season = item.get("ParentIndexNumber")
+    first = item.get("IndexNumber")
+    last = item.get("IndexNumberEnd")
+    if season is None or first is None or last is None:
+        return {label}
+    first, last = int(first), int(last)
+    # Garde-fou : une borne aberrante ne doit pas masquer des épisodes
+    # réellement absents.
+    if last <= first or last - first > 50:
+        return {label}
+    return {f"S{int(season):02d}E{n:02d}" for n in range(first, last + 1)}
+
+
+def _missing_emby_labels(
+    downloaded: set[str], file_labels: Iterable[str | None], spans: dict[str, set[str]]
+) -> list[str]:
+    """Épisodes téléchargés par Sonarr qu'aucun fichier du serveur multimédia
+    ne couvre. `spans` étend chaque fichier aux épisodes qu'il contient."""
+    covered: set[str] = set()
+    for label in file_labels:
+        if label:
+            covered |= spans.get(label, {label})
+    return sorted(downloaded - covered)
 
 
 def _media_sources(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -640,8 +672,13 @@ async def _collect(
             # Fichiers regroupés par épisode : un doublon peut être un item Emby
             # distinct du même épisode, pas seulement une seconde source.
             sources_by_label: dict[str, list[dict[str, Any]]] = {}
+            # Épisodes couverts par chaque fichier, pour ne pas croire absent
+            # le deuxième épisode d'un fichier multi-épisodes.
+            span_by_label: dict[str, set[str]] = {}
             for episode in episodes:
-                sources_by_label.setdefault(_episode_label(episode), []).extend(_media_sources(episode))
+                label = _episode_label(episode)
+                sources_by_label.setdefault(label, []).extend(_media_sources(episode))
+                span_by_label.setdefault(label, set()).update(_episode_span_labels(episode))
             for label, sources in sources_by_label.items():
                 sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
                 episode_file = episode_files_by_id.get(sonarr_episode_file_id) if sonarr_episode_file_id else None
@@ -674,8 +711,9 @@ async def _collect(
             # Sonarr peuvent manquer côté Emby (import manqué) sans que ça ne
             # se voie autrement : aucun MediaFile n'est créé pour eux plus
             # haut puisque la boucle ne parcourt que ce qu'Emby a renvoyé.
-            emby_labels = {f.episode_label for f in result.files if f.episode_label}
-            result.missing_emby_episodes = sorted(sonarr_downloaded_labels - emby_labels)
+            result.missing_emby_episodes = _missing_emby_labels(
+                sonarr_downloaded_labels, [f.episode_label for f in result.files], span_by_label
+            )
         results.append(result)
 
     # --- Correspondance torrent -> média via l'historique Sonarr/Radarr ---
