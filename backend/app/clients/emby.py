@@ -18,6 +18,12 @@ class EmbyClient:
     - Éléments vus par un utilisateur : `/Users/{id}/Items` n'existe plus côté
       Jellyfin, remplacé par `/Items?userId=`.
     - Avatar d'un utilisateur : `/UserImage?userId=` côté Jellyfin.
+    - Paramètre `Fields` : Jellyfin le valide contre l'énumération `ItemFields`
+      et renvoie 400 sur une valeur inconnue, alors qu'Emby ignore ce qu'il ne
+      connaît pas. `IndexNumber`, `ParentIndexNumber`, `IndexNumberEnd` et
+      `ImageTags` n'en font PAS partie : ce sont des propriétés renvoyées
+      d'office sur chaque élément. Elles ne sont donc demandées qu'à Emby
+      (`_fields`), jamais à Jellyfin.
 
     Tout le reste (champs `UserData`, `ProviderIds`, `MediaSources`, filtres
     `IsPlayed`/`IsResumable`, `Policy.IsDisabled`...) est identique."""
@@ -26,6 +32,16 @@ class EmbyClient:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.is_jellyfin = server_type == "jellyfin"
+
+    # Valeurs acceptées par les deux serveurs (sous-ensemble de l'énumération
+    # ItemFields de Jellyfin). Tout le reste n'est envoyé qu'à Emby.
+    _SHARED_FIELDS = frozenset({"ProviderIds", "Path", "MediaSources", "DateCreated"})
+
+    def _fields(self, *names: str) -> str:
+        """Filtre les champs qu'un serveur refuserait (voir docstring)."""
+        if self.is_jellyfin:
+            names = tuple(n for n in names if n in self._SHARED_FIELDS)
+        return ",".join(names)
 
     def auth_headers(self) -> dict[str, str]:
         if self.is_jellyfin:
@@ -42,7 +58,7 @@ class EmbyClient:
                 params={
                     "Recursive": "true",
                     "IncludeItemTypes": item_types,
-                    "Fields": "ProviderIds,Path,MediaSources,ImageTags,DateCreated",
+                    "Fields": self._fields("ProviderIds", "Path", "MediaSources", "ImageTags", "DateCreated"),
                 },
             )
             resp.raise_for_status()
@@ -56,9 +72,11 @@ class EmbyClient:
                     "ParentId": series_item_id,
                     "IncludeItemTypes": "Episode",
                     "Recursive": "true",
-                    # IndexNumberEnd : dernier épisode couvert par un fichier multi-épisodes
-                    # (S03E01-E02 fusionnés en un seul item).
-                    "Fields": "Path,MediaSources,IndexNumber,ParentIndexNumber,IndexNumberEnd",
+                    # IndexNumberEnd : dernier épisode couvert par un fichier
+                    # multi-épisodes (S03E01-E02 fusionnés en un seul item).
+                    "Fields": self._fields(
+                        "Path", "MediaSources", "IndexNumber", "ParentIndexNumber", "IndexNumberEnd"
+                    ),
                 },
             )
             resp.raise_for_status()
