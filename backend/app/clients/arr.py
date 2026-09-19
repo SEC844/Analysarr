@@ -29,10 +29,52 @@ class ArrClient:
             resp = await client.put(path, json=json)
             resp.raise_for_status()
 
+    async def _post(self, path: str, json: dict[str, Any]) -> Any:
+        async with self._client() as client:
+            resp = await client.post(path, json=json)
+            resp.raise_for_status()
+            return resp.json() if resp.content else None
+
+    async def _queue(self, extra_params: dict[str, Any]) -> list[dict[str, Any]]:
+        """File d'attente paginée. Sonarr et Radarr renvoient au maximum une
+        page à la fois ; le garde-fou à 25 pages évite une boucle infinie si un
+        serveur renvoie toujours la même page."""
+        records: list[dict[str, Any]] = []
+        for page in range(1, 26):
+            params = {"page": page, "pageSize": 200, **extra_params}
+            data = await self._get("/api/v3/queue", params=params)
+            batch = data.get("records") if isinstance(data, dict) else data
+            if not batch:
+                break
+            records.extend(batch)
+            total = data.get("totalRecords") if isinstance(data, dict) else None
+            if total is not None and len(records) >= total:
+                break
+        return records
+
+    async def manual_import_candidates(self, download_id: str) -> list[dict[str, Any]]:
+        """Fichiers qu'un téléchargement terminé propose à l'import, avec les
+        motifs de refus éventuels (`rejections`)."""
+        return await self._get(
+            "/api/v3/manualimport", params={"downloadId": download_id, "filterExistingFiles": "true"}
+        )
+
+    async def manual_import(self, files: list[dict[str, Any]]) -> None:
+        """Relance l'import des fichiers choisis (équivalent du bouton
+        « Manual Import » de Sonarr/Radarr). `importMode: auto` laisse le
+        serveur décider entre déplacement et copie selon sa configuration —
+        indispensable pour ne pas casser les hardlinks d'un torrent en seed."""
+        if not files:
+            return
+        await self._post("/api/v3/command", json={"name": "ManualImport", "importMode": "auto", "files": files})
+
 
 class RadarrClient(ArrClient):
     async def get_movies(self) -> list[dict[str, Any]]:
         return await self._get("/api/v3/movie")
+
+    async def get_queue(self) -> list[dict[str, Any]]:
+        return await self._queue({"includeUnknownMovieItems": "false", "includeMovie": "false"})
 
     async def get_history_for_movie(self, movie_id: int) -> list[dict[str, Any]]:
         return await self._get("/api/v3/history/movie", params={"movieId": movie_id})
@@ -51,6 +93,9 @@ class RadarrClient(ArrClient):
 class SonarrClient(ArrClient):
     async def get_series(self) -> list[dict[str, Any]]:
         return await self._get("/api/v3/series")
+
+    async def get_queue(self) -> list[dict[str, Any]]:
+        return await self._queue({"includeUnknownSeriesItems": "false", "includeSeries": "false"})
 
     async def get_episode_files(self, series_id: int) -> list[dict[str, Any]]:
         return await self._get("/api/v3/episodefile", params={"seriesId": series_id})

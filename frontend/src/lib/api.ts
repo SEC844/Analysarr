@@ -22,6 +22,7 @@ import type {
   EmbyUserRead,
   HardlinkRepairPreview,
   HardlinkRepairResult,
+  ImportRetryResult,
   MediaDeleteFootprint,
   MediaDeleteSelection,
   MediaDeleteSelectionResult,
@@ -303,6 +304,10 @@ export type CrossSeedSearchScope = "episode" | "season" | "series"
 
 export function crossSeedSearch(id: number, scope: CrossSeedSearchScope = "episode"): Promise<CrossSeedSearchResult> {
   return request<CrossSeedSearchResult>(`/api/media/${id}/cross-seed-search?scope=${scope}`, { method: "POST" })
+}
+
+export function retryImport(id: number): Promise<ImportRetryResult> {
+  return request<ImportRetryResult>(`/api/media/${id}/retry-import`, { method: "POST" })
 }
 
 export function hardlinkRepairPreview(id: number): Promise<HardlinkRepairPreview> {

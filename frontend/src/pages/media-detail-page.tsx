@@ -17,6 +17,7 @@ import { toast } from "sonner"
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
 import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
+import { ImportIssues } from "@/components/media/import-issues"
 import { MediaRequests } from "@/components/media/media-requests"
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { WatchSummary } from "@/components/media/watch-stats"
@@ -201,6 +202,7 @@ export function MediaDetailPage() {
           <StatusBadgeList statuses={media.statuses} />
           <WatchSummary mediaId={media.id} />
           <MediaRequests requests={media.requests} />
+          <ImportIssues mediaId={media.id} issues={media.import_issues} />
           {media.missing_emby_episodes.length > 0 && (
             <p className="text-muted-foreground text-sm">
               {t("media.missingEmby", { list: media.missing_emby_episodes.join(", ") })}

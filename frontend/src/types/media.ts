@@ -1,4 +1,11 @@
-export type MediaStatus = "doublon" | "orphelin_qbit" | "non_hardlink" | "tracker_unique" | "manquant_emby" | "manquant_qbit"
+export type MediaStatus =
+  | "doublon"
+  | "orphelin_qbit"
+  | "non_hardlink"
+  | "tracker_unique"
+  | "manquant_emby"
+  | "manquant_qbit"
+  | "import_rate"
 export type MediaTypeFilter = "movie" | "series"
 
 export interface MediaListItem {
@@ -110,6 +117,22 @@ export interface TorrentRead {
   trackers: TrackerRead[]
 }
 
+export interface ImportIssueRead {
+  id: number
+  title: string
+  // trackedDownloadState de Sonarr/Radarr : importBlocked, importFailed…
+  state: string
+  reason: string
+  size: number | null
+  episode_label: string
+  can_retry: boolean
+}
+
+export interface ImportRetryResult {
+  steps: DeleteStepResult[]
+  imported_files: number
+}
+
 export interface MediaDetail extends MediaListItem {
   radarr_id: number | null
   sonarr_id: number | null
@@ -118,6 +141,7 @@ export interface MediaDetail extends MediaListItem {
   torrents: TorrentRead[]
   missing_emby_episodes: string[]
   requests: MediaRequestRead[]
+  import_issues: ImportIssueRead[]
 }
 
 export interface DeletePreviewItem {

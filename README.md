@@ -43,6 +43,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 
 **Detection**
 - Duplicates, orphan torrents, missing hardlinks, content seeded on a single tracker, media missing from the media server or not seeded at all.
+- **Blocked imports**: downloads Sonarr/Radarr finished but could not move into the library get their own status, with the reason given by Sonarr/Radarr and a one-click retry â€” a media stuck there is no longer reported as missing from the media server, and its download is never offered for cleanup.
 - Torrent â†” media matching by inode first (works for cross-seed copies living outside Sonarr/Radarr folders), then Sonarr/Radarr history, then title similarity.
 - Trackers per torrent, with passkeys hidden.
 
@@ -51,6 +52,8 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 - Selective deletion (torrents, episodes, seasons, whole series or movie) with the **real** disk space freed, hardlinks accounted for.
 - Optional removal from Sonarr/Radarr and Seer (never added to exclusion lists).
 - One-click hardlink repair, with a symbolic link fallback across filesystems.
+- Retry a blocked import (nothing is deleted: the file already on disk is simply handed back to Sonarr/Radarr).
+- Remove a media that has nothing left on disk from Sonarr/Radarr and Seer.
 - Targeted cross-seed search per episode, season or whole series.
 
 **Decision support**
@@ -66,7 +69,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 - Connection status of every service in the settings, with an alert in the header as soon as one becomes unreachable.
 - Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
 - Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, deletion, cleanup, hardlink repair, cross-seed search, automation.
-- Optional automations: on orphans, duplicates or non-hardlinked torrents, clean up, repair, search a cross-seed or just notify â€” with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
+- Optional automations: on orphans, duplicates, non-hardlinked torrents or blocked imports, clean up, repair, retry the import, search a cross-seed or just notify â€” with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.
 - Update notification when a new version is released.

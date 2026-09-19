@@ -114,6 +114,22 @@ class EmbyUserRead(BaseModel):
     is_disabled: bool
 
 
+class ImportIssueRead(BaseModel):
+    """Téléchargement que Sonarr/Radarr n'a pas réussi à importer. Aucun chemin
+    n'est exposé : seuls le nom de la release et le motif renvoyé par
+    Sonarr/Radarr sont affichés."""
+
+    id: int
+    title: str
+    state: str
+    reason: str
+    size: Optional[int]
+    episode_label: str
+    # Une relance n'est possible que si le téléchargement est encore identifié
+    # côté client torrent.
+    can_retry: bool
+
+
 class MediaDetail(MediaListItem):
     radarr_id: Optional[int]
     sonarr_id: Optional[int]
@@ -123,6 +139,7 @@ class MediaDetail(MediaListItem):
     missing_emby_episodes: list[str]
     # Vide si Seer n'est pas activé.
     requests: list["MediaRequestRead"]
+    import_issues: list["ImportIssueRead"]
 
 
 class MediaListResponse(BaseModel):
@@ -223,6 +240,14 @@ class MediaDeleteSelectionResult(BaseModel):
 
 class DeleteExecuteResult(BaseModel):
     steps: list[DeleteStepResult]
+
+
+class ImportRetryResult(BaseModel):
+    """Résultat d'une relance d'import, étape par étape (une par
+    téléchargement bloqué)."""
+
+    steps: list[DeleteStepResult]
+    imported_files: int
 
 
 class CrossSeedSearchResult(BaseModel):

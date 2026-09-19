@@ -259,7 +259,9 @@ export const fr = {
       orphan_detected: "Orphelins détectés",
       duplicate_detected: "Doublons détectés",
       non_hardlink_detected: "Torrents non hardlinkés détectés",
+      import_failed_detected: "Imports bloqués détectés",
       delete_selection: "Suppression",
+      import_retry: "Import relancé",
       cascade_delete: "Nettoyage",
       hardlink_repair: "Réparation des hardlinks",
       cross_seed_search: "Recherche cross-seed",
@@ -271,7 +273,9 @@ export const fr = {
       orphan_detected: "Un scan trouve des torrents qui ne protègent plus rien.",
       duplicate_detected: "Un scan trouve plusieurs fichiers pour un même film ou épisode.",
       non_hardlink_detected: "Un scan trouve du contenu seedé sans hardlink vers la bibliothèque.",
+      import_failed_detected: "Un scan trouve des téléchargements que Sonarr/Radarr n'a pas pu ranger.",
       delete_selection: "Suppression manuelle depuis une fiche média.",
+      import_retry: "Un import bloqué a été relancé depuis une fiche média.",
       cascade_delete: "Nettoyage des doublons et orphelins d'un média.",
       hardlink_repair: "Hardlinks recréés pour un média.",
       cross_seed_search: "Recherche lancée auprès du daemon cross-seed.",
@@ -316,18 +320,21 @@ export const fr = {
       orphan_detected: "Torrent orphelin détecté",
       duplicate_detected: "Doublon détecté",
       non_hardlink_detected: "Torrent non hardlinké détecté",
+      import_failed_detected: "Import bloqué détecté",
     },
     action: "Action",
     actions: {
       cleanup: "Nettoyer (doublons et orphelins)",
       repair_hardlinks: "Réparer les hardlinks",
       cross_seed_search: "Chercher un cross-seed",
+      retry_import: "Relancer l'import",
       notify_only: "Notifier seulement",
     },
     actionHelp: {
       cleanup: "Même action que le bouton « Nettoyer » : ni torrent protégé, ni torrent réparable supprimé.",
       repair_hardlinks: "Même action que le bouton « Réparer les hardlinks ».",
       cross_seed_search: "Lance une recherche cross-seed par épisode pour le média.",
+      retry_import: "Redemande à Sonarr/Radarr d'importer le téléchargement bloqué. Ne supprime rien.",
       notify_only: "N'agit pas : liste les médias concernés dans la notification et l'historique.",
     },
     conditions: "Conditions (toutes optionnelles)",
@@ -388,6 +395,7 @@ export const fr = {
       cascade_delete: "Nettoyage",
       hardlink_repair: "Réparation",
       cross_seed_search: "Cross-seed",
+      import_retry: "Import relancé",
     },
     succeeded: { one: "{count} réussite", other: "{count} réussites" },
     failures: { one: "{count} échec", other: "{count} échecs" },
@@ -563,6 +571,18 @@ export const fr = {
     sortSize: "Espace récupérable",
     reset: "Réinitialiser",
   },
+  importIssues: {
+    title: { one: "1 import bloqué", other: "{count} imports bloqués" },
+    description:
+      "Le téléchargement est terminé, mais Sonarr/Radarr n'a pas réussi à ranger le fichier dans la bibliothèque.",
+    retry: "Relancer l'import",
+    retried: {
+      one: "1 fichier envoyé à l'import.",
+      other: "{count} fichiers envoyés à l'import.",
+    },
+    nothingImported: "Aucun fichier n'a pu être importé : voir le détail ci-dessous.",
+    noDownload: "Téléchargement inconnu du client torrent : à relancer depuis Sonarr/Radarr.",
+  },
   status: {
     sain: "Sain",
     doublon: "Doublon",
@@ -571,6 +591,7 @@ export const fr = {
     tracker_unique: "Tracker unique",
     manquant_emby: "Absent {deServer}",
     manquant_qbit: "Non seedé",
+    import_rate: "Import raté",
   },
   grid: {
     label: "Taille des cartes : {size}",
@@ -657,6 +678,8 @@ export const fr = {
     total: "Total récupérable : {size}",
   },
   deleteSelection: {
+    emptyMedia:
+      "Ce média n'a plus aucun fichier ni torrent : il ne reste que son suivi dans Sonarr/Radarr et, éventuellement, sa demande Seer.",
     trigger: "Supprimer...",
     title: "Supprimer",
     description:

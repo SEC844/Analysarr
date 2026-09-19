@@ -39,6 +39,9 @@ const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, AutomationAction[]> = {
   orphan_detected: ["cleanup", "cross_seed_search", "notify_only"],
   duplicate_detected: ["cleanup", "notify_only"],
   non_hardlink_detected: ["repair_hardlinks", "cross_seed_search", "notify_only"],
+  // Un import bloqué ne se règle ni par suppression ni par hardlink :
+  // la seule action utile est de redemander l'import.
+  import_failed_detected: ["retry_import", "notify_only"],
 }
 
 const emptyRule = (): AutomationWrite => ({

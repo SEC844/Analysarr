@@ -3,8 +3,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-AutomationTrigger = Literal["orphan_detected", "duplicate_detected", "non_hardlink_detected"]
-AutomationAction = Literal["cleanup", "repair_hardlinks", "cross_seed_search", "notify_only"]
+AutomationTrigger = Literal["orphan_detected", "duplicate_detected", "non_hardlink_detected", "import_failed_detected"]
+AutomationAction = Literal["cleanup", "repair_hardlinks", "cross_seed_search", "retry_import", "notify_only"]
 
 
 class AutomationConditions(BaseModel):

@@ -196,6 +196,33 @@ class MediaWatch(SQLModel, table=True):
     last_played_at: Optional[datetime] = None
 
 
+class ImportIssue(SQLModel, table=True):
+    """Téléchargement terminé que Sonarr/Radarr n'a pas réussi à importer
+    (cache reconstruit à chaque scan, comme le reste). Le média existe alors
+    dans Sonarr/Radarr sans que le fichier n'ait rejoint la bibliothèque : ce
+    n'est pas un média « absent du serveur multimédia », c'est un import à
+    débloquer."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    media_id: int = Field(foreign_key="media.id", index=True)
+
+    # Identifiant de l'entrée dans la file d'attente Sonarr/Radarr.
+    queue_id: Optional[int] = None
+    # Identifiant du téléchargement côté client torrent (hash pour qBittorrent).
+    # Sert à demander à Sonarr/Radarr les fichiers importables de CE
+    # téléchargement, jamais fourni par l'utilisateur.
+    download_id: Optional[str] = None
+
+    title: str = ""
+    # trackedDownloadState renvoyé par Sonarr/Radarr (importBlocked, importFailed...).
+    state: str = ""
+    # Motifs concaténés (statusMessages), tronqués : affichés tels quels.
+    reason: str = ""
+    size: Optional[int] = None
+    # Épisodes concernés pour une série ("S01E03"), vide pour un film.
+    episode_label: str = ""
+
+
 class MediaRequest(SQLModel, table=True):
     """Demande Seer rattachée à un média (cache reconstruit à chaque scan).
     Rattachement par identifiant TMDB (films) ou TVDB (séries)."""

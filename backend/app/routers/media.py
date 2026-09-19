@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from app.clients.emby import media_server_client
 from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.database import get_session
-from app.models.media import Media, MediaFile, Torrent
+from app.models.media import ImportIssue, Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.activity import ActionStepRead
 from app.schemas.media import (
@@ -19,6 +19,8 @@ from app.schemas.media import (
     DeletePreview,
     HardlinkRepairPreview,
     HardlinkRepairResult,
+    ImportIssueRead,
+    ImportRetryResult,
     MediaDeleteFootprint,
     MediaDeleteSelection,
     MediaDeleteSelectionResult,
@@ -34,6 +36,7 @@ from app.services.arr_instances import instance_names
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
+from app.services.import_queue import execute_import_retry
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.action_log import MediaRef, record_action
@@ -149,9 +152,23 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media_id)).all()
     seer_enabled = seer_configured(session.get(Settings, 1))
 
+    issues = session.exec(select(ImportIssue).where(ImportIssue.media_id == media_id)).all()
+
     return MediaDetail(
         **_to_list_item(media, seer_enabled, instance_names(session)).model_dump(),
         requests=build_requests_read(session, media) if seer_enabled else [],
+        import_issues=[
+            ImportIssueRead(
+                id=i.id,
+                title=i.title,
+                state=i.state,
+                reason=i.reason,
+                size=i.size,
+                episode_label=i.episode_label,
+                can_retry=bool(i.download_id),
+            )
+            for i in issues
+        ],
         radarr_id=media.radarr_id,
         sonarr_id=media.sonarr_id,
         emby_item_id=media.emby_item_id,
@@ -267,7 +284,9 @@ async def delete_selection_footprint(media_id: int, session: Session = Depends(g
 async def delete_selection(
     media_id: int, payload: MediaDeleteSelection, session: Session = Depends(get_session)
 ) -> MediaDeleteSelectionResult:
-    if not payload.torrent_ids and not payload.media_file_ids:
+    # Un média sans fichier ni torrent n'a rien à cocher : seuls son suivi
+    # Sonarr/Radarr et sa demande Seer peuvent encore être retirés.
+    if not payload.torrent_ids and not payload.media_file_ids and not (payload.remove_from_arr or payload.remove_from_seer):
         raise HTTPException(400, "Aucun élément sélectionné.")
     media = session.get(Media, media_id)
     if media is None:
@@ -307,6 +326,28 @@ async def cross_seed_search(
     ]
     _log_and_notify(session, settings, "cross_seed_search", MediaRef.of(media), steps)
     return result
+
+
+@router.post("/{media_id}/retry-import", response_model=ImportRetryResult)
+async def retry_import_route(media_id: int, session: Session = Depends(get_session)) -> ImportRetryResult:
+    """Relance l'import des téléchargements que Sonarr/Radarr n'a pas réussi à
+    ranger. Seul l'identifiant du média vient de l'utilisateur : les
+    téléchargements ciblés sont ceux que le dernier scan a relevés dans la file
+    d'attente de Sonarr/Radarr."""
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    if settings is None:
+        raise HTTPException(400, "Configuration manquante.")
+
+    steps, imported = await execute_import_retry(session, media, settings)
+    if not steps:
+        raise HTTPException(400, "Aucun import bloqué pour ce média.")
+
+    read_steps = [ActionStepRead(label=s.label, success=s.success, error=s.error) for s in steps]
+    _log_and_notify(session, settings, "import_retry", MediaRef.of(media), read_steps)
+    return ImportRetryResult(steps=steps, imported_files=imported)
 
 
 @router.post("/{media_id}/hardlink-repair/preview", response_model=HardlinkRepairPreview)
