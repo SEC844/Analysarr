@@ -34,6 +34,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("embyuser", "image_tag"),
     ("mediarequest", "auto_approved"),
     ("media", "arr_instance_id"),
+    ("importissue", "output_path"),
 ]
 
 
@@ -62,7 +63,16 @@ def _reset_media_cache_if_stale() -> None:
         return
 
     with engine.begin() as conn:
-        for table in ("mediarequest", "mediawatch", "embyuser", "torrent", "mediafile", "scanrun", "media"):
+        for table in (
+            "importissue",
+            "mediarequest",
+            "mediawatch",
+            "embyuser",
+            "torrent",
+            "mediafile",
+            "scanrun",
+            "media",
+        ):
             conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
 
@@ -160,7 +170,16 @@ def init_db() -> None:
     from app.models.notification_channel import NotificationChannel  # noqa: F401
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
-    from app.models.media import EmbyUser, Media, MediaFile, MediaRequest, MediaWatch, ScanRun, Torrent  # noqa: F401
+    from app.models.media import (  # noqa: F401
+        EmbyUser,
+        ImportIssue,
+        Media,
+        MediaFile,
+        MediaRequest,
+        MediaWatch,
+        ScanRun,
+        Torrent,
+    )
     from app.models.settings import Settings  # noqa: F401
 
     _reset_media_cache_if_stale()

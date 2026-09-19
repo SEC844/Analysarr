@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Copy, Link2, Radio, Tv2, Wifi } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Copy, Hourglass, Link2, PackageX, Radio, Tv2, Wifi } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/i18n"
@@ -29,6 +29,17 @@ const STATUS_CONFIG: Record<MediaStatus, { icon: typeof Copy; className: string 
   manquant_qbit: {
     icon: Wifi,
     className: "bg-destructive/10 text-destructive",
+  },
+  // Le fichier est bien là, c'est son rangement qui a échoué : ambre
+  // (à traiter) plutôt que rouge (contenu perdu).
+  import_rate: {
+    icon: PackageX,
+    className: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  },
+  // Information, pas problème de bibliothèque : le contenu est en route.
+  telechargement_bloque: {
+    icon: Hourglass,
+    className: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
   },
 }
 

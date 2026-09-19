@@ -43,6 +43,8 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Détection**
 - Doublons, torrents orphelins, hardlinks manquants, contenu seedé sur un seul tracker, médias absents du serveur multimédia ou non seedés.
+- **Imports bloqués** : les téléchargements que Sonarr/Radarr a terminés mais n'a pas réussi à ranger ont leur propre statut, avec le motif donné par Sonarr/Radarr et une relance en un clic — le média concerné n'est plus signalé absent du serveur multimédia, et son téléchargement n'est jamais proposé au nettoyage.
+- **Téléchargements en souffrance** : un téléchargement qui n'avance plus est signalé sur la fiche du média, avec son motif. Purement informatif : Analysarr ne supprime ni ne relance jamais un téléchargement.
 - Rattachement torrent ↔ média par inode d'abord (fonctionne pour les copies cross-seed rangées hors des dossiers Sonarr/Radarr), puis historique Sonarr/Radarr, puis similarité de titre.
 - Trackers de chaque torrent, passkeys masquées.
 
@@ -51,6 +53,8 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Suppression sélective (torrents, épisodes, saisons, série entière ou film) avec l'espace disque **réellement** libéré, hardlinks pris en compte.
 - Retrait optionnel de Sonarr/Radarr et de Seer (jamais d'ajout en liste d'exclusion).
 - Réparation des hardlinks en un clic, avec repli par lien symbolique entre systèmes de fichiers.
+- Relance d'un import bloqué (rien n'est supprimé : le fichier déjà sur le disque est simplement redonné à Sonarr/Radarr).
+- Retrait d'un média dont il ne reste rien sur le disque, de Sonarr/Radarr et de Seer.
 - Recherche cross-seed ciblée par épisode, saison ou série intégrale.
 
 **Aide à la décision**
@@ -66,7 +70,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - État de connexion de chaque service dans les réglages, avec une alerte dans l'en-tête dès qu'un service ne répond plus.
 - Widget de tableau de bord en lecture seule (`/api/status`) pour Homepage, Homarr ou tout outil capable de lire du JSON.
 - Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape). Plusieurs canaux, chacun avec ses propres événements : scan terminé, échec de scan, orphelins détectés, suppression, nettoyage, réparation des hardlinks, recherche cross-seed, automatisation.
-- Automatisations optionnelles : sur orphelins, doublons ou torrents non hardlinkés, nettoyer, réparer, chercher un cross-seed ou simplement notifier — avec conditions (ancienneté du seed, ratio, type de média, espace récupérable), mode simulation et plafond par exécution.
+- Automatisations optionnelles : sur orphelins, doublons, torrents non hardlinkés ou imports bloqués, nettoyer, réparer, relancer l'import, chercher un cross-seed ou simplement notifier — avec conditions (ancienneté du seed, ratio, type de média, espace récupérable), mode simulation et plafond par exécution.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.
 - Notification quand une nouvelle version est publiée.

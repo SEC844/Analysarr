@@ -32,23 +32,34 @@ export function AppShell({ children }: { children: ReactNode }) {
     : updateAvailable
       ? APPLICATION_SETTINGS
       : "/settings"
+  // Le lien Réglages mène toujours à la section utile : service en défaut
+  // d'abord, sinon l'onglet Application quand une mise à jour attend.
   const navLinks = [
-    { to: "/", label: t("nav.home"), serviceDown: false, update: false },
-    { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0, update: updateAvailable },
+    { to: "/", label: t("nav.home"), serviceDown: false },
+    { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0 },
   ]
 
   return (
     <div className="bg-background min-h-svh">
       <header className="border-border border-b">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-baseline gap-2">
+          {/* Marque et version alignées sur la même ligne : `items-center` sur
+              le conteneur, la version décalée d'un cheveu pour retomber sur la
+              ligne de base du nom. */}
+          <div className="flex items-center gap-2">
             <Link to="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight hover:opacity-80">
-              <Logo className="size-6 self-center" />
+              <Logo className="size-6" />
               Analysarr
             </Link>
             {appInfo && (
-              <Link to={APPLICATION_SETTINGS} className="text-muted-foreground hover:text-foreground text-xs">
+              <Link
+                to={APPLICATION_SETTINGS}
+                className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs"
+              >
                 {formatVersion(appInfo.version)}
+                {/* Mise à jour disponible : la pastille est ici, au plus près
+                    de la version qu'elle concerne. */}
+                {updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
               </Link>
             )}
           </div>
@@ -72,7 +83,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {link.serviceDown && (
                     <PulseDot tone="danger" label={t("servicesStatus.someDown", { count: downCount })} />
                   )}
-                  {link.update && <PulseDot label={t("nav.updateAvailable")} />}
                 </NavLink>
               ))}
             </nav>

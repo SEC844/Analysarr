@@ -1,5 +1,17 @@
-export const AUTOMATION_TRIGGERS = ["orphan_detected", "duplicate_detected", "non_hardlink_detected"] as const
-export const AUTOMATION_ACTIONS = ["cleanup", "repair_hardlinks", "cross_seed_search", "notify_only"] as const
+export const AUTOMATION_TRIGGERS = [
+  "orphan_detected",
+  "duplicate_detected",
+  "non_hardlink_detected",
+  "import_failed_detected",
+  "stalled_download_detected",
+] as const
+export const AUTOMATION_ACTIONS = [
+  "cleanup",
+  "repair_hardlinks",
+  "cross_seed_search",
+  "retry_import",
+  "notify_only",
+] as const
 
 export type AutomationTrigger = (typeof AUTOMATION_TRIGGERS)[number]
 export type AutomationAction = (typeof AUTOMATION_ACTIONS)[number]

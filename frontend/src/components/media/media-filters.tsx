@@ -27,6 +27,8 @@ const STATUS_OPTIONS: [string, MessageKey][] = [
   ["tracker_unique", "status.tracker_unique"],
   ["manquant_emby", "status.manquant_emby"],
   ["manquant_qbit", "status.manquant_qbit"],
+  ["import_rate", "status.import_rate"],
+  ["telechargement_bloque", "status.telechargement_bloque"],
 ]
 // "any" (et non "all", déjà une valeur de filtre : "vu par tous").
 const WATCH_OPTIONS: [string, MessageKey][] = [

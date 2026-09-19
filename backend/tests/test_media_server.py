@@ -93,3 +93,51 @@ def test_connection_test_reports_rejected_key(fake_http):
     )
     assert not result.success
     assert "401" in result.message
+
+
+# --- Paramètre Fields ---------------------------------------------------------
+# Jellyfin valide `Fields` contre son énumération ItemFields et renvoie 400 sur
+# une valeur inconnue ; Emby ignore ce qu'il ne connaît pas. IndexNumber,
+# ParentIndexNumber, IndexNumberEnd et ImageTags n'appartiennent pas à cette
+# énumération : ce sont des propriétés renvoyées d'office.
+JELLYFIN_ITEM_FIELDS = {"ProviderIds", "Path", "MediaSources", "DateCreated", "Overview", "Genres", "ParentId"}
+
+EPISODE = {"Id": "e1", "ParentIndexNumber": 3, "IndexNumber": 1, "IndexNumberEnd": 2, "Path": "/data/s03e01-e02.mkv"}
+
+
+def strict_items_server(kind: str, calls: list[httpx.Request]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        fields = [f for f in (request.url.params.get("Fields") or "").split(",") if f]
+        if kind == "jellyfin":
+            unknown = [f for f in fields if f not in JELLYFIN_ITEM_FIELDS]
+            if unknown:
+                return httpx.Response(400, json={"detail": f"{unknown[0]} is not a valid value for ItemFields"})
+        return httpx.Response(200, json={"Items": [EPISODE]})
+
+    return handler
+
+
+@pytest.mark.parametrize("kind", ["emby", "jellyfin"])
+def test_episodes_never_request_fields_the_server_would_reject(fake_http, kind):
+    calls: list[httpx.Request] = []
+    fake_http[f"http://{kind}"] = strict_items_server(kind, calls)
+
+    episodes = asyncio.run(EmbyClient(f"http://{kind}", KEY, kind).get_episodes("s1"))
+
+    # Les deux serveurs renvoient la plage d'un fichier multi-épisodes d'office.
+    assert episodes[0]["IndexNumberEnd"] == 2
+    sent = (calls[-1].url.params.get("Fields") or "").split(",")
+    assert ("IndexNumberEnd" in sent) == (kind == "emby")
+
+
+@pytest.mark.parametrize("kind", ["emby", "jellyfin"])
+def test_library_items_never_request_fields_the_server_would_reject(fake_http, kind):
+    calls: list[httpx.Request] = []
+    fake_http[f"http://{kind}"] = strict_items_server(kind, calls)
+
+    asyncio.run(EmbyClient(f"http://{kind}", KEY, kind).get_library_items("Movie"))
+
+    sent = (calls[-1].url.params.get("Fields") or "").split(",")
+    assert ("ImageTags" in sent) == (kind == "emby")
+    assert "ProviderIds" in sent and "MediaSources" in sent

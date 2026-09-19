@@ -12,6 +12,7 @@ import {
   hardlinkRepairPreview,
   listEmbyUsers,
   listMedia,
+  retryImport,
   type CrossSeedSearchScope,
 } from "@/lib/api"
 import type { MediaDeleteSelection, MediaListParams } from "@/types/media"
@@ -85,6 +86,19 @@ export function useDeleteSelectionExecuteMutation() {
 export function useCrossSeedSearchMutation() {
   return useMutation({
     mutationFn: ({ id, scope }: { id: number; scope?: CrossSeedSearchScope }) => crossSeedSearch(id, scope),
+  })
+}
+
+export function useRetryImportMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => retryImport(id),
+    onSuccess: (_data, id) => {
+      // L'import se fait en tâche de fond côté Sonarr/Radarr : le statut
+      // définitif viendra du prochain scan, mais la fiche est rechargée pour
+      // refléter ce qui a déjà changé.
+      queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
+    },
   })
 }
 

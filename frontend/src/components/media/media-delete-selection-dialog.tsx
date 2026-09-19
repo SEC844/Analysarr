@@ -192,10 +192,14 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const selectedTorrents = media.torrents.filter((torrent) => selected.has(torrentKey(torrent.id)))
   const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
   const hasSelection = selected.size > 0
+  // Média vide : plus aucun fichier ni torrent, seuls subsistent le suivi
+  // Sonarr/Radarr et la demande Seer. Rien à cocher, mais il faut pouvoir
+  // s'en débarrasser.
+  const isEmpty = media.files.length === 0 && media.torrents.length === 0
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k))
   // Retrait du média entier de Sonarr/Radarr : seulement si toute sa
   // bibliothèque est cochée, sinon des fichiers non cochés seraient supprimés.
-  const wholeLibrary = hasSelection && selectedFiles.length === media.files.length
+  const wholeLibrary = isEmpty || (hasSelection && selectedFiles.length === media.files.length)
   const arrId = isSeries ? media.sonarr_id : media.radarr_id
   const canRemoveMedia = wholeLibrary && arrId !== null
   const showArrOption = canRemoveMedia || (isSeries && selectedFiles.length > 0)
@@ -331,11 +335,15 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               </div>
             )}
 
-            <ul className="max-h-80 overflow-y-auto text-sm">
-              {tree.map((node) => (
-                <TreeRow key={node.key} node={node} state={treeState} />
-              ))}
-            </ul>
+            {isEmpty ? (
+              <p className="text-muted-foreground text-sm">{t("deleteSelection.emptyMedia")}</p>
+            ) : (
+              <ul className="max-h-80 overflow-y-auto text-sm">
+                {tree.map((node) => (
+                  <TreeRow key={node.key} node={node} state={treeState} />
+                ))}
+              </ul>
+            )}
 
             {selectedFiles.length > 0 && watchStats && watchingUsers.length > 0 && (
               // Supprimer la bibliothèque couperait la lecture en cours de ces
@@ -411,7 +419,9 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
             <Button
               type="button"
               variant="destructive"
-              disabled={!hasSelection || executeMutation.isPending}
+              disabled={
+                (isEmpty ? !removeFromArr && !removeFromSeer : !hasSelection) || executeMutation.isPending
+              }
               onClick={handleConfirm}
             >
               {executeMutation.isPending ? (

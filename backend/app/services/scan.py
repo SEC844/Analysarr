@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,7 @@ from app.models.media import (
     EmbyUser,
     Media,
     MediaFile,
+    ImportIssue,
     MediaRequest,
     MediaType,
     MediaWatch,
@@ -43,6 +45,7 @@ from app.services.notifications import (
     scan_completed_notification,
     scan_failed_notification,
 )
+from app.services.queue_issues import IMPORT_KIND, STALLED_KIND, index_queue_issues, issue_rows_for
 from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.trackers import extract_tracker_domain, status_label
 from app.services.watch_stats import (
@@ -62,6 +65,8 @@ DETECTION_EVENTS = {
     "orphan_detected": "orphelin_qbit",
     "duplicate_detected": "doublon",
     "non_hardlink_detected": "non_hardlink",
+    "import_failed_detected": "import_rate",
+    "stalled_download_detected": "telechargement_bloque",
 }
 
 
@@ -86,6 +91,7 @@ class MediaBuildResult:
     watches: list[MediaWatch] = field(default_factory=list)
     # Demandes Seer rattachées (voir services/seer.py).
     requests: list[MediaRequest] = field(default_factory=list)
+    import_issues: list[ImportIssue] = field(default_factory=list)
 
 
 def current_files_size(files: list[MediaFile]) -> int:
@@ -114,6 +120,37 @@ def _episode_label(item: dict[str, Any]) -> str | None:
     if season is None or episode is None:
         return f"item:{item.get('Id')}"
     return f"S{int(season):02d}E{int(episode):02d}"
+
+
+def _episode_span_labels(item: dict[str, Any]) -> set[str]:
+    """Tous les épisodes couverts par un item Emby. Un fichier multi-épisodes
+    (S03E01-E02 fusionnés) ne produit qu'UN item, numéroté sur son premier
+    épisode et portant `IndexNumberEnd` — sans lui, les épisodes suivants
+    passaient pour absents du serveur multimédia (bug réel)."""
+    label = _episode_label(item)
+    season = item.get("ParentIndexNumber")
+    first = item.get("IndexNumber")
+    last = item.get("IndexNumberEnd")
+    if season is None or first is None or last is None:
+        return {label}
+    first, last = int(first), int(last)
+    # Garde-fou : une borne aberrante ne doit pas masquer des épisodes
+    # réellement absents.
+    if last <= first or last - first > 50:
+        return {label}
+    return {f"S{int(season):02d}E{n:02d}" for n in range(first, last + 1)}
+
+
+def _missing_emby_labels(
+    downloaded: set[str], file_labels: Iterable[str | None], spans: dict[str, set[str]]
+) -> list[str]:
+    """Épisodes téléchargés par Sonarr qu'aucun fichier du serveur multimédia
+    ne couvre. `spans` étend chaque fichier aux épisodes qu'il contient."""
+    covered: set[str] = set()
+    for label in file_labels:
+        if label:
+            covered |= spans.get(label, {label})
+    return sorted(downloaded - covered)
 
 
 def _media_sources(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -352,6 +389,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             event: {_media_key(media) for media in previous_medias if status in media.statuses.split(",")}
             for event, status in DETECTION_EVENTS.items()
         }
+        session.exec(delete(ImportIssue))
         session.exec(delete(MediaRequest))
         session.exec(delete(MediaWatch))
         session.exec(delete(EmbyUser))
@@ -379,6 +417,9 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
             for r in result.requests:
                 r.media_id = result.media.id
                 session.add(r)
+            for issue in result.import_issues:
+                issue.media_id = result.media.id
+                session.add(issue)
         session.commit()
 
         run = session.get(ScanRun, run_id)
@@ -486,6 +527,29 @@ async def _collect(
     await progress("sonarr")
     series_entries = [(target, series) for target in sonarr_targets for series in await target.sonarr().get_series()]
 
+    # --- Imports bloqués -------------------------------------------------
+    # Échec silencieux comme le visionnage : une file d'attente injoignable ne
+    # doit jamais faire échouer un scan. Indexé par (instance, id arr).
+    await progress("file d'attente")
+    movie_issues: dict[tuple[int | None, int], list[dict[str, Any]]] = {}
+    for target in radarr_targets:
+        try:
+            records = await target.radarr().get_queue()
+        except Exception:  # noqa: BLE001 - informatif
+            continue
+        for movie_id, issues in index_queue_issues(records, "movieId").items():
+            # Clé (instance, id) : deux instances Radarr numérotent leurs films
+            # indépendamment, un id seul rattacherait l'import au mauvais média.
+            movie_issues.setdefault((target.instance_id, movie_id), []).extend(issues)
+    series_issues: dict[tuple[int | None, int], list[dict[str, Any]]] = {}
+    for target in sonarr_targets:
+        try:
+            records = await target.sonarr().get_queue()
+        except Exception:  # noqa: BLE001 - informatif
+            continue
+        for series_id, issues in index_queue_issues(records, "seriesId").items():
+            series_issues.setdefault((target.instance_id, series_id), []).extend(issues)
+
     await progress("emby")
     emby_movies = await emby.get_library_items("Movie")
     emby_series = await emby.get_library_items("Series")
@@ -521,8 +585,13 @@ async def _collect(
 
     # --- Films -----------------------------------------------------------
     for target, movie in movie_entries:
-        if not movie.get("hasFile"):
-            continue  # pas encore téléchargé : rien à analyser pour ce film
+        movie_id = movie.get("id")
+        issues = movie_issues.get((target.instance_id, movie_id), []) if isinstance(movie_id, int) else []
+        if not movie.get("hasFile") and not issues:
+            # Pas encore téléchargé et rien de bloqué : rien à analyser. Un
+            # import bloqué, lui, mérite d'apparaître même sans fichier —
+            # c'est justement ce qui explique l'absence du média.
+            continue
         media = Media(
             media_type=MediaType.movie,
             title=movie.get("title") or "Sans titre",
@@ -539,6 +608,8 @@ async def _collect(
             root_path=movie.get("path"),
             alt_titles=[t for t in alt_titles if t and t != media.title],
         )
+
+        result.import_issues = issue_rows_for(issues)
 
         movie_file = movie.get("movieFile") or None
         current_movie_file_id = (movie_file or {}).get("id")
@@ -580,8 +651,10 @@ async def _collect(
 
     # --- Séries ------------------------------------------------------------
     for target, series in series_entries:
-        if not (series.get("statistics") or {}).get("episodeFileCount"):
-            continue  # aucun épisode téléchargé : rien à analyser pour cette série
+        series_id = series.get("id")
+        issues = series_issues.get((target.instance_id, series_id), []) if isinstance(series_id, int) else []
+        if not (series.get("statistics") or {}).get("episodeFileCount") and not issues:
+            continue  # aucun épisode téléchargé ni import bloqué : rien à analyser
         sonarr = target.sonarr()
         media = Media(
             media_type=MediaType.series,
@@ -597,6 +670,7 @@ async def _collect(
             root_path=series.get("path"),
             alt_titles=[t for t in alt_titles if t and t != media.title],
         )
+        result.import_issues = issue_rows_for(issues)
 
         tvdb_key = str(series.get("tvdbId")) if series.get("tvdbId") else None
         candidates = emby_series_by_tvdb.get(tvdb_key, []) if tvdb_key else []
@@ -640,8 +714,13 @@ async def _collect(
             # Fichiers regroupés par épisode : un doublon peut être un item Emby
             # distinct du même épisode, pas seulement une seconde source.
             sources_by_label: dict[str, list[dict[str, Any]]] = {}
+            # Épisodes couverts par chaque fichier, pour ne pas croire absent
+            # le deuxième épisode d'un fichier multi-épisodes.
+            span_by_label: dict[str, set[str]] = {}
             for episode in episodes:
-                sources_by_label.setdefault(_episode_label(episode), []).extend(_media_sources(episode))
+                label = _episode_label(episode)
+                sources_by_label.setdefault(label, []).extend(_media_sources(episode))
+                span_by_label.setdefault(label, set()).update(_episode_span_labels(episode))
             for label, sources in sources_by_label.items():
                 sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
                 episode_file = episode_files_by_id.get(sonarr_episode_file_id) if sonarr_episode_file_id else None
@@ -674,8 +753,9 @@ async def _collect(
             # Sonarr peuvent manquer côté Emby (import manqué) sans que ça ne
             # se voie autrement : aucun MediaFile n'est créé pour eux plus
             # haut puisque la boucle ne parcourt que ce qu'Emby a renvoyé.
-            emby_labels = {f.episode_label for f in result.files if f.episode_label}
-            result.missing_emby_episodes = sorted(sonarr_downloaded_labels - emby_labels)
+            result.missing_emby_episodes = _missing_emby_labels(
+                sonarr_downloaded_labels, [f.episode_label for f in result.files], span_by_label
+            )
         results.append(result)
 
     # --- Correspondance torrent -> média via l'historique Sonarr/Radarr ---
@@ -946,7 +1026,12 @@ async def _collect(
     for result in results:
         result.media.missing_emby_episodes = ",".join(result.missing_emby_episodes)
         statuses, reclaimable = compute_statuses(
-            result.files, result.torrents, bool(result.media.emby_item_id), len(result.missing_emby_episodes)
+            result.files,
+            result.torrents,
+            bool(result.media.emby_item_id),
+            len(result.missing_emby_episodes),
+            {i.download_id.lower() for i in result.import_issues if i.download_id},
+            {i.kind for i in result.import_issues},
         )
         result.media.statuses = ",".join(sorted(statuses))
         result.media.reclaimable_bytes = reclaimable
@@ -982,10 +1067,25 @@ async def _collect(
 
 
 def compute_statuses(
-    files: list[MediaFile], torrents: list[Torrent], has_emby_item: bool, missing_emby_episode_count: int = 0
+    files: list[MediaFile],
+    torrents: list[Torrent],
+    has_emby_item: bool,
+    missing_emby_episode_count: int = 0,
+    import_blocked_hashes: set[str] | None = None,
+    queue_kinds: set[str] | None = None,
 ) -> tuple[set[str], int]:
     statuses: set[str] = set()
     reclaimable = 0
+
+    # Un torrent dont Sonarr/Radarr attend encore l'import n'est ni un
+    # orphelin ni une copie à réparer : son fichier n'a simplement pas encore
+    # rejoint la bibliothèque. Le proposer au nettoyage supprimerait le
+    # téléchargement que l'utilisateur essaie justement d'importer.
+    blocked = import_blocked_hashes or set()
+    if blocked:
+        torrents = [t for t in torrents if (t.hash or "").lower() not in blocked]
+
+    kinds = queue_kinds or set()
 
     groups: dict[str | None, list[MediaFile]] = {}
     for f in files:
@@ -1039,12 +1139,31 @@ def compute_statuses(
     # téléchargé y figure : Sonarr peut avoir un episodeFile pour un épisode
     # qu'Emby n'a jamais importé (bug d'import, bibliothèque pas rescannée...)
     # sans que la série elle-même ne soit absente d'Emby pour autant.
-    if not has_emby_item or missing_emby_episode_count > 0:
+    if IMPORT_KIND in kinds:
+        statuses.add("import_rate")
+    if STALLED_KIND in kinds:
+        # Purement informatif : Analysarr ne supprime ni ne relance un
+        # téléchargement en souffrance, il le signale.
+        statuses.add("telechargement_bloque")
+
+    # Un média sans aucun fichier dont l'import est bloqué n'est pas "absent
+    # du serveur multimédia" : il est bloqué en amont, et c'est ce que dit le
+    # statut import_rate. Afficher les deux enverrait l'utilisateur chercher
+    # un problème côté serveur multimédia.
+    explained_by_import = bool(kinds) and not files
+    if (not has_emby_item or missing_emby_episode_count > 0) and not explained_by_import:
         statuses.add("manquant_emby")
 
     has_active_torrent = any(t.is_hardlinked is True for t in torrents)
     has_unresolved_torrent = any(t.is_hardlinked is None for t in torrents)
-    if not has_active_torrent and not has_unresolved_torrent and not repairable_torrents:
+    if (
+        not has_active_torrent
+        and not has_unresolved_torrent
+        and not repairable_torrents
+        # Un média encore en cours de téléchargement, ou bloqué à l'import,
+        # n'est pas « non seedé » : son contenu est en route.
+        and not kinds
+    ):
         # Sans torrent actif confirmé ni torrent réparable (donc bien seedé) :
         # soit aucun torrent du tout, soit tous orphelins. Si le hardlink n'a
         # pas pu être évalué (chemins non montés), on ne se prononce pas
