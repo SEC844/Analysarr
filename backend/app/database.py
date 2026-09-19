@@ -34,7 +34,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("embyuser", "image_tag"),
     ("mediarequest", "auto_approved"),
     ("media", "arr_instance_id"),
-    ("importissue", "download_id"),
+    ("importissue", "kind"),
 ]
 
 

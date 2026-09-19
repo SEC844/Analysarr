@@ -260,6 +260,7 @@ export const fr = {
       duplicate_detected: "Doublons détectés",
       non_hardlink_detected: "Torrents non hardlinkés détectés",
       import_failed_detected: "Imports bloqués détectés",
+      stalled_download_detected: "Téléchargements en souffrance",
       delete_selection: "Suppression",
       import_retry: "Import relancé",
       cascade_delete: "Nettoyage",
@@ -274,6 +275,7 @@ export const fr = {
       duplicate_detected: "Un scan trouve plusieurs fichiers pour un même film ou épisode.",
       non_hardlink_detected: "Un scan trouve du contenu seedé sans hardlink vers la bibliothèque.",
       import_failed_detected: "Un scan trouve des téléchargements que Sonarr/Radarr n'a pas pu ranger.",
+      stalled_download_detected: "Un scan trouve des téléchargements qui n'avancent plus.",
       delete_selection: "Suppression manuelle depuis une fiche média.",
       import_retry: "Un import bloqué a été relancé depuis une fiche média.",
       cascade_delete: "Nettoyage des doublons et orphelins d'un média.",
@@ -321,6 +323,7 @@ export const fr = {
       duplicate_detected: "Doublon détecté",
       non_hardlink_detected: "Torrent non hardlinké détecté",
       import_failed_detected: "Import bloqué détecté",
+      stalled_download_detected: "Téléchargement en souffrance",
     },
     action: "Action",
     actions: {
@@ -582,6 +585,12 @@ export const fr = {
     },
     nothingImported: "Aucun fichier n'a pu être importé : voir le détail ci-dessous.",
     noDownload: "Téléchargement inconnu du client torrent : à relancer depuis Sonarr/Radarr.",
+    stalledTitle: {
+      one: "1 téléchargement en souffrance",
+      other: "{count} téléchargements en souffrance",
+    },
+    stalledDescription:
+      "Le téléchargement n'avance plus. Analysarr le signale seulement : il ne supprime ni ne relance rien ici.",
   },
   status: {
     sain: "Sain",
@@ -592,6 +601,7 @@ export const fr = {
     manquant_emby: "Absent {deServer}",
     manquant_qbit: "Non seedé",
     import_rate: "Import raté",
+    telechargement_bloque: "Téléchargement en souffrance",
   },
   grid: {
     label: "Taille des cartes : {size}",

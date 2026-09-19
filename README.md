@@ -44,6 +44,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 **Detection**
 - Duplicates, orphan torrents, missing hardlinks, content seeded on a single tracker, media missing from the media server or not seeded at all.
 - **Blocked imports**: downloads Sonarr/Radarr finished but could not move into the library get their own status, with the reason given by Sonarr/Radarr and a one-click retry — a media stuck there is no longer reported as missing from the media server, and its download is never offered for cleanup.
+- **Stalled downloads**: a download that stopped progressing is reported on the media, with the reason. Purely informative — Analysarr never deletes or restarts a download; that is what Cleanuparr and Decluttarr are for.
 - Torrent ↔ media matching by inode first (works for cross-seed copies living outside Sonarr/Radarr folders), then Sonarr/Radarr history, then title similarity.
 - Trackers per torrent, with passkeys hidden.
 

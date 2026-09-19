@@ -31,6 +31,7 @@ TRIGGER_STATUSES = {
     "duplicate_detected": "doublon",
     "non_hardlink_detected": "non_hardlink",
     "import_failed_detected": "import_rate",
+    "stalled_download_detected": "telechargement_bloque",
 }
 MAX_ACTIONS_LIMIT = 50
 
@@ -126,7 +127,7 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
     from app.services.cascade_delete import build_delete_preview, execute_delete
     from app.services.cross_seed import trigger_cross_seed_search
     from app.services.hardlink_repair import execute_repair
-    from app.services.import_queue import execute_import_retry
+    from app.services.queue_issues import execute_import_retry
 
     if rule.action == "notify_only":
         return [AutomationStep(label=media.title, success=True)], 0

@@ -120,6 +120,9 @@ class ImportIssueRead(BaseModel):
     Sonarr/Radarr sont affichés."""
 
     id: int
+    # "import" (rangement impossible, relançable) ou "stalled" (téléchargement
+    # en souffrance, purement informatif).
+    kind: str
     title: str
     state: str
     reason: str

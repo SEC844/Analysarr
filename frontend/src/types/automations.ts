@@ -3,6 +3,7 @@ export const AUTOMATION_TRIGGERS = [
   "duplicate_detected",
   "non_hardlink_detected",
   "import_failed_detected",
+  "stalled_download_detected",
 ] as const
 export const AUTOMATION_ACTIONS = [
   "cleanup",

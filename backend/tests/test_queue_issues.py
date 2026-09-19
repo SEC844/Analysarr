@@ -8,7 +8,7 @@ import pytest
 
 from app.clients.arr import RadarrClient, SonarrClient
 from app.models.media import ImportIssue, MediaFile, Torrent
-from app.services.import_queue import index_import_issues, issue_rows_for, retry_import
+from app.services.queue_issues import index_queue_issues, issue_rows_for, retry_import
 from app.services.scan import compute_statuses
 
 KEY = "arr-key"
@@ -37,7 +37,7 @@ PENDING_WARNING = {**PENDING_OK, "id": 15, "movieId": 10, "trackedDownloadStatus
 
 
 def test_only_blocked_records_are_kept():
-    issues = index_import_issues([BLOCKED, DOWNLOADING, PENDING_OK, PENDING_WARNING], "movieId")
+    issues = index_queue_issues([BLOCKED, DOWNLOADING, PENDING_OK, PENDING_WARNING], "movieId")
     # Un téléchargement en cours, ou un import en attente sans avertissement,
     # est le fonctionnement normal : rien à signaler.
     assert sorted(issues) == [7, 10]
@@ -79,7 +79,7 @@ def stuck_torrent() -> Torrent:
 
 
 def test_blocked_import_replaces_missing_media_server():
-    statuses, _ = compute_statuses([], [], has_emby_item=False, import_issue_count=1)
+    statuses, _ = compute_statuses([], [], has_emby_item=False, queue_kinds={"import"})
     # Le média n'est pas « absent du serveur multimédia » : il est bloqué avant.
     assert "import_rate" in statuses
     assert "manquant_emby" not in statuses
@@ -89,7 +89,7 @@ def test_blocked_import_replaces_missing_media_server():
 def test_torrent_waiting_for_import_is_not_an_orphan():
     torrent = stuck_torrent()
     statuses, reclaimable = compute_statuses(
-        [], [torrent], has_emby_item=False, import_issue_count=1, import_blocked_hashes={torrent.hash}
+        [], [torrent], has_emby_item=False, import_blocked_hashes={torrent.hash}, queue_kinds={"import"}
     )
     assert "orphelin_qbit" not in statuses
     assert reclaimable == 0
@@ -99,7 +99,7 @@ def test_a_real_orphan_is_still_reported_alongside_a_blocked_import():
     stuck, orphan = stuck_torrent(), stuck_torrent()
     orphan.hash = "0000000000000000"
     statuses, reclaimable = compute_statuses(
-        [], [stuck, orphan], has_emby_item=True, import_issue_count=1, import_blocked_hashes={stuck.hash}
+        [], [stuck, orphan], has_emby_item=True, import_blocked_hashes={stuck.hash}, queue_kinds={"import"}
     )
     assert {"import_rate", "orphelin_qbit"} <= statuses
     assert reclaimable == orphan.size
@@ -107,7 +107,7 @@ def test_a_real_orphan_is_still_reported_alongside_a_blocked_import():
 
 def test_media_server_absence_is_still_reported_when_files_exist():
     library_file = MediaFile(media_id=0, path="/data/media/Movie.mkv", size=1, episode_label=None, is_current=True)
-    statuses, _ = compute_statuses([library_file], [], has_emby_item=False, import_issue_count=1)
+    statuses, _ = compute_statuses([library_file], [], has_emby_item=False, queue_kinds={"import"})
     assert {"import_rate", "manquant_emby"} <= statuses
 
 
@@ -209,7 +209,7 @@ def test_series_retry_carries_the_episode_ids(fake_http):
 @pytest.mark.parametrize("status", [401, 500])
 def test_an_unreachable_server_never_raises(fake_http, status):
     fake_http["http://radarr"] = lambda request: httpx.Response(status)
-    from app.services.import_queue import safe_retry_import
+    from app.services.queue_issues import safe_retry_import
 
     imported, rejections, error = asyncio.run(
         safe_retry_import(RadarrClient("http://radarr", KEY), "ABCDEF0123456789", is_series=False)
@@ -229,3 +229,64 @@ def test_issue_rows_are_persisted_per_media(fresh_database):
         session.commit()
         stored = session.exec(select(ImportIssue)).all()
         assert len(stored) == 1 and stored[0].media_id == 1
+
+
+# --- Téléchargements en souffrance -------------------------------------------
+
+STALLED = {
+    "id": 20,
+    "movieId": 11,
+    "downloadId": "1111111111111111",
+    "title": "Movie.2025-GROUP",
+    "trackedDownloadState": "downloading",
+    "trackedDownloadStatus": "warning",
+    "status": "warning",
+    "statusMessages": [{"title": "Movie.2025", "messages": ["The download is stalled with no connections"]}],
+}
+
+
+def test_a_stalled_download_is_kept_and_typed():
+    issues = index_queue_issues([STALLED, DOWNLOADING], "movieId")
+    assert sorted(issues) == [11]
+    assert issue_rows_for(issues[11])[0].kind == "stalled"
+
+
+def test_a_blocked_import_stays_an_import_not_a_stall():
+    assert issue_rows_for([BLOCKED])[0].kind == "import"
+
+
+def test_stalled_download_is_neither_missing_nor_orphan():
+    torrent = stuck_torrent()
+    statuses, reclaimable = compute_statuses(
+        [],
+        [torrent],
+        has_emby_item=False,
+        import_blocked_hashes={torrent.hash},
+        queue_kinds={"stalled"},
+    )
+    assert statuses == {"telechargement_bloque"}
+    assert reclaimable == 0
+
+
+def test_stalled_download_never_offers_a_retry(fresh_database):
+    """La relance ne concerne que les imports : un téléchargement qui n'est pas
+    arrivé n'a rien à importer."""
+    from sqlmodel import Session
+
+    from app.database import engine
+    from app.models.media import Media, MediaType
+    from app.models.settings import Settings
+    from app.services.queue_issues import execute_import_retry
+
+    with Session(engine) as session:
+        media = Media(media_type=MediaType.movie, title="Movie", radarr_id=11)
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        row = issue_rows_for([STALLED])[0]
+        row.media_id = media.id
+        session.add(row)
+        session.commit()
+
+        steps, imported = asyncio.run(execute_import_retry(session, media, Settings(id=1)))
+        assert steps == [] and imported == 0

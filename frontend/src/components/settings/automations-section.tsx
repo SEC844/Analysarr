@@ -42,6 +42,10 @@ const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, AutomationAction[]> = {
   // Un import bloqué ne se règle ni par suppression ni par hardlink :
   // la seule action utile est de redemander l'import.
   import_failed_detected: ["retry_import", "notify_only"],
+  // Analysarr ne touche jamais à un téléchargement en cours : seule la
+  // notification a du sens ici (le nettoyage de file est le rôle de
+  // Cleanuparr ou Decluttarr).
+  stalled_download_detected: ["notify_only"],
 }
 
 const emptyRule = (): AutomationWrite => ({

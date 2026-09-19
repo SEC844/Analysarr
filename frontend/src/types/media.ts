@@ -6,6 +6,7 @@ export type MediaStatus =
   | "manquant_emby"
   | "manquant_qbit"
   | "import_rate"
+  | "telechargement_bloque"
 export type MediaTypeFilter = "movie" | "series"
 
 export interface MediaListItem {
@@ -119,6 +120,9 @@ export interface TorrentRead {
 
 export interface ImportIssueRead {
   id: number
+  // "import" : rangement impossible, relançable. "stalled" : téléchargement en
+  // souffrance, purement informatif.
+  kind: "import" | "stalled"
   title: string
   // trackedDownloadState de Sonarr/Radarr : importBlocked, importFailed…
   state: string

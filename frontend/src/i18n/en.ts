@@ -259,6 +259,7 @@ export const en: Dictionary = {
       duplicate_detected: "Duplicates detected",
       non_hardlink_detected: "Non-hardlinked torrents detected",
       import_failed_detected: "Blocked imports detected",
+      stalled_download_detected: "Stalled downloads",
       delete_selection: "Deletion",
       import_retry: "Import retried",
       cascade_delete: "Cleanup",
@@ -273,6 +274,7 @@ export const en: Dictionary = {
       duplicate_detected: "A scan finds several files for the same movie or episode.",
       non_hardlink_detected: "A scan finds seeded content without a hardlink to the library.",
       import_failed_detected: "A scan finds downloads Sonarr/Radarr could not move into the library.",
+      stalled_download_detected: "A scan finds downloads that are not progressing any more.",
       delete_selection: "Manual deletion from a media page.",
       import_retry: "A blocked import was retried from a media page.",
       cascade_delete: "Cleanup of a media's duplicates and orphans.",
@@ -320,6 +322,7 @@ export const en: Dictionary = {
       duplicate_detected: "Duplicate detected",
       non_hardlink_detected: "Non-hardlinked torrent detected",
       import_failed_detected: "Blocked import detected",
+      stalled_download_detected: "Stalled download",
     },
     action: "Action",
     actions: {
@@ -579,6 +582,9 @@ export const en: Dictionary = {
     },
     nothingImported: "No file could be imported: see the details below.",
     noDownload: "Download unknown to the torrent client: retry it from Sonarr/Radarr.",
+    stalledTitle: { one: "1 stalled download", other: "{count} stalled downloads" },
+    stalledDescription:
+      "The download is not progressing any more. Analysarr only reports it: nothing is deleted or restarted here.",
   },
   status: {
     sain: "Healthy",
@@ -589,6 +595,7 @@ export const en: Dictionary = {
     manquant_emby: "Missing {deServer}",
     manquant_qbit: "Not seeded",
     import_rate: "Failed import",
+    telechargement_bloque: "Stalled download",
   },
   grid: {
     label: "Card size: {size}",

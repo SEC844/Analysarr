@@ -36,7 +36,7 @@ from app.services.arr_instances import instance_names
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
-from app.services.import_queue import execute_import_retry
+from app.services.queue_issues import execute_import_retry
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.action_log import MediaRef, record_action
@@ -160,12 +160,13 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         import_issues=[
             ImportIssueRead(
                 id=i.id,
+                kind=i.kind,
                 title=i.title,
                 state=i.state,
                 reason=i.reason,
                 size=i.size,
                 episode_label=i.episode_label,
-                can_retry=bool(i.download_id),
+                can_retry=i.kind == "import" and bool(i.download_id),
             )
             for i in issues
         ],

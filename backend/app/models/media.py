@@ -197,14 +197,18 @@ class MediaWatch(SQLModel, table=True):
 
 
 class ImportIssue(SQLModel, table=True):
-    """Téléchargement terminé que Sonarr/Radarr n'a pas réussi à importer
-    (cache reconstruit à chaque scan, comme le reste). Le média existe alors
-    dans Sonarr/Radarr sans que le fichier n'ait rejoint la bibliothèque : ce
-    n'est pas un média « absent du serveur multimédia », c'est un import à
-    débloquer."""
+    """Entrée problématique de la file d'attente Sonarr/Radarr (cache
+    reconstruit à chaque scan, comme le reste) : soit un fichier téléchargé que
+    Sonarr/Radarr n'a pas réussi à ranger (`kind = "import"`), soit un
+    téléchargement qui n'avance plus (`kind = "stalled"`). Dans les deux cas le
+    média n'est pas « absent du serveur multimédia » : il est bloqué en
+    amont."""
 
     id: Optional[int] = Field(default=None, primary_key=True)
     media_id: int = Field(foreign_key="media.id", index=True)
+
+    # "import" (rangement impossible) ou "stalled" (téléchargement en souffrance).
+    kind: str = "import"
 
     # Identifiant de l'entrée dans la file d'attente Sonarr/Radarr.
     queue_id: Optional[int] = None

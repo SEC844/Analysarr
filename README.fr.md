@@ -44,6 +44,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 **Détection**
 - Doublons, torrents orphelins, hardlinks manquants, contenu seedé sur un seul tracker, médias absents du serveur multimédia ou non seedés.
 - **Imports bloqués** : les téléchargements que Sonarr/Radarr a terminés mais n'a pas réussi à ranger ont leur propre statut, avec le motif donné par Sonarr/Radarr et une relance en un clic — le média concerné n'est plus signalé absent du serveur multimédia, et son téléchargement n'est jamais proposé au nettoyage.
+- **Téléchargements en souffrance** : un téléchargement qui n'avance plus est signalé sur la fiche du média, avec son motif. Purement informatif — Analysarr ne supprime ni ne relance jamais un téléchargement, c'est le rôle de Cleanuparr ou Decluttarr.
 - Rattachement torrent ↔ média par inode d'abord (fonctionne pour les copies cross-seed rangées hors des dossiers Sonarr/Radarr), puis historique Sonarr/Radarr, puis similarité de titre.
 - Trackers de chaque torrent, passkeys masquées.
 

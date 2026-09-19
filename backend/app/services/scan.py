@@ -45,7 +45,7 @@ from app.services.notifications import (
     scan_completed_notification,
     scan_failed_notification,
 )
-from app.services.import_queue import index_import_issues, issue_rows_for
+from app.services.queue_issues import IMPORT_KIND, STALLED_KIND, index_queue_issues, issue_rows_for
 from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.trackers import extract_tracker_domain, status_label
 from app.services.watch_stats import (
@@ -66,6 +66,7 @@ DETECTION_EVENTS = {
     "duplicate_detected": "doublon",
     "non_hardlink_detected": "non_hardlink",
     "import_failed_detected": "import_rate",
+    "stalled_download_detected": "telechargement_bloque",
 }
 
 
@@ -536,7 +537,7 @@ async def _collect(
             records = await target.radarr().get_queue()
         except Exception:  # noqa: BLE001 - informatif
             continue
-        for movie_id, issues in index_import_issues(records, "movieId").items():
+        for movie_id, issues in index_queue_issues(records, "movieId").items():
             movie_issues[(target.instance_id, movie_id)] = issues
     series_issues: dict[tuple[int | None, int], list[dict[str, Any]]] = {}
     for target in sonarr_targets:
@@ -544,7 +545,7 @@ async def _collect(
             records = await target.sonarr().get_queue()
         except Exception:  # noqa: BLE001 - informatif
             continue
-        for series_id, issues in index_import_issues(records, "seriesId").items():
+        for series_id, issues in index_queue_issues(records, "seriesId").items():
             series_issues[(target.instance_id, series_id)] = issues
 
     await progress("emby")
@@ -1025,8 +1026,8 @@ async def _collect(
             result.torrents,
             bool(result.media.emby_item_id),
             len(result.missing_emby_episodes),
-            len(result.import_issues),
             {i.download_id.lower() for i in result.import_issues if i.download_id},
+            {i.kind for i in result.import_issues},
         )
         result.media.statuses = ",".join(sorted(statuses))
         result.media.reclaimable_bytes = reclaimable
@@ -1066,8 +1067,8 @@ def compute_statuses(
     torrents: list[Torrent],
     has_emby_item: bool,
     missing_emby_episode_count: int = 0,
-    import_issue_count: int = 0,
     import_blocked_hashes: set[str] | None = None,
+    queue_kinds: set[str] | None = None,
 ) -> tuple[set[str], int]:
     statuses: set[str] = set()
     reclaimable = 0
@@ -1079,6 +1080,8 @@ def compute_statuses(
     blocked = import_blocked_hashes or set()
     if blocked:
         torrents = [t for t in torrents if (t.hash or "").lower() not in blocked]
+
+    kinds = queue_kinds or set()
 
     groups: dict[str | None, list[MediaFile]] = {}
     for f in files:
@@ -1132,20 +1135,31 @@ def compute_statuses(
     # téléchargé y figure : Sonarr peut avoir un episodeFile pour un épisode
     # qu'Emby n'a jamais importé (bug d'import, bibliothèque pas rescannée...)
     # sans que la série elle-même ne soit absente d'Emby pour autant.
-    if import_issue_count:
+    if IMPORT_KIND in kinds:
         statuses.add("import_rate")
+    if STALLED_KIND in kinds:
+        # Purement informatif : Analysarr ne supprime ni ne relance un
+        # téléchargement en souffrance, il le signale.
+        statuses.add("telechargement_bloque")
 
     # Un média sans aucun fichier dont l'import est bloqué n'est pas "absent
     # du serveur multimédia" : il est bloqué en amont, et c'est ce que dit le
     # statut import_rate. Afficher les deux enverrait l'utilisateur chercher
     # un problème côté serveur multimédia.
-    explained_by_import = import_issue_count > 0 and not files
+    explained_by_import = bool(kinds) and not files
     if (not has_emby_item or missing_emby_episode_count > 0) and not explained_by_import:
         statuses.add("manquant_emby")
 
     has_active_torrent = any(t.is_hardlinked is True for t in torrents)
     has_unresolved_torrent = any(t.is_hardlinked is None for t in torrents)
-    if not has_active_torrent and not has_unresolved_torrent and not repairable_torrents and not import_issue_count:
+    if (
+        not has_active_torrent
+        and not has_unresolved_torrent
+        and not repairable_torrents
+        # Un média encore en cours de téléchargement, ou bloqué à l'import,
+        # n'est pas « non seedé » : son contenu est en route.
+        and not kinds
+    ):
         # Sans torrent actif confirmé ni torrent réparable (donc bien seedé) :
         # soit aucun torrent du tout, soit tous orphelins. Si le hardlink n'a
         # pas pu être évalué (chemins non montés), on ne se prononce pas

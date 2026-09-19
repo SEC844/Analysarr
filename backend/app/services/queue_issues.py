@@ -1,11 +1,20 @@
-"""Imports bloqués : Sonarr/Radarr a bien téléchargé le fichier, mais n'a pas
-réussi à le ranger dans la bibliothèque. Le média porte alors le statut
-`import_rate` plutôt que de passer pour absent du serveur multimédia, et la
-fiche propose de relancer l'import.
+"""Problèmes de file d'attente Sonarr/Radarr, de deux natures :
+
+- `import` : le fichier est téléchargé mais Sonarr/Radarr n'a pas réussi à le
+  ranger dans la bibliothèque (statut `import_rate`, relance possible) ;
+- `stalled` : le téléchargement lui-même est en souffrance — bloqué, sans
+  source, ou en erreur côté client (statut `telechargement_bloque`, purement
+  informatif : Analysarr ne supprime jamais et ne relance rien pour ça, c'est
+  le rôle de Cleanuparr ou Decluttarr).
 
 La file d'attente (`/api/v3/queue`) est la seule source : elle porte l'état de
-suivi du téléchargement (`trackedDownloadState`) et les motifs de blocage
-(`statusMessages`), exactement ce qu'affiche l'onglet Activité de Sonarr/Radarr.
+suivi (`trackedDownloadState`), le statut du téléchargement (`status`) et les
+motifs (`statusMessages`), exactement ce qu'affiche l'onglet Activité de
+Sonarr/Radarr. Elle couvre aussi Usenet, là où l'état du client torrent
+n'aurait rien dit.
+
+Dans les deux cas, le média n'est plus signalé « absent » et son
+téléchargement n'est jamais proposé au nettoyage : il est en cours de route.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -24,11 +33,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BLOCKED_STATES",
+    "IMPORT_KIND",
+    "STALLED_KIND",
     "execute_import_retry",
-    "index_import_issues",
+    "index_queue_issues",
     "issue_rows_for",
     "retry_import",
 ]
+
+IMPORT_KIND = "import"
+STALLED_KIND = "stalled"
 
 # États de suivi qui signalent un import à débloquer. `importPending` seul ne
 # suffit pas : c'est l'attente normale juste après un téléchargement, sans
@@ -65,6 +79,24 @@ def _is_blocked(record: dict[str, Any]) -> bool:
     return state == "importpending" and status in _WARNING_STATUSES
 
 
+def _is_stalled(record: dict[str, Any]) -> bool:
+    """Téléchargement qui n'avance plus. Sonarr/Radarr signale lui-même le cas
+    (« The download is stalled with no connections ») en passant le statut de
+    la ligne en warning/error, ou en renseignant `errorMessage`."""
+    state = str(record.get("trackedDownloadState") or "").lower()
+    if state not in ("", "downloading"):
+        return False
+    status = str(record.get("status") or "").lower()
+    tracked = str(record.get("trackedDownloadStatus") or "").lower()
+    return status in {"warning", "error", "failed"} or tracked in {"warning", "error"} or bool(record.get("errorMessage"))
+
+
+def _kind(record: dict[str, Any]) -> str | None:
+    if _is_blocked(record):
+        return IMPORT_KIND
+    return STALLED_KIND if _is_stalled(record) else None
+
+
 def _episode_label(record: dict[str, Any]) -> str:
     episode = record.get("episode") or {}
     season = episode.get("seasonNumber")
@@ -74,12 +106,13 @@ def _episode_label(record: dict[str, Any]) -> str:
     return f"S{int(season):02d}E{int(number):02d}"
 
 
-def index_import_issues(records: list[dict[str, Any]], key: str) -> dict[int, list[dict[str, Any]]]:
-    """Entrées bloquées de la file, indexées par `movieId` ou `seriesId`."""
+def index_queue_issues(records: list[dict[str, Any]], key: str) -> dict[int, list[dict[str, Any]]]:
+    """Entrées problématiques de la file, indexées par `movieId` ou `seriesId`.
+    Un téléchargement qui progresse normalement n'est jamais retenu."""
     issues: dict[int, list[dict[str, Any]]] = {}
     for record in records:
         arr_id = record.get(key)
-        if not isinstance(arr_id, int) or not _is_blocked(record):
+        if not isinstance(arr_id, int) or _kind(record) is None:
             continue
         issues.setdefault(arr_id, []).append(record)
     return issues
@@ -92,6 +125,7 @@ def issue_rows_for(records: list[dict[str, Any]]) -> list[ImportIssue]:
         rows.append(
             ImportIssue(
                 media_id=0,
+                kind=_kind(record) or STALLED_KIND,
                 queue_id=record.get("id") if isinstance(record.get("id"), int) else None,
                 download_id=str(download_id) if download_id else None,
                 title=str(record.get("title") or "")[:300],
@@ -193,7 +227,13 @@ async def execute_import_retry(session: "Session", media: "Media", settings: "Se
     from app.schemas.media import DeleteStepResult  # import différé : évite un cycle
     from app.services.arr_instances import arr_target_for
 
-    issues = list(session.exec(select(ImportIssue).where(ImportIssue.media_id == media.id)).all())
+    issues = [
+        issue
+        for issue in session.exec(select(ImportIssue).where(ImportIssue.media_id == media.id)).all()
+        # Un téléchargement en souffrance n'a rien à importer : il n'est pas
+        # encore arrivé. Seuls les imports bloqués se relancent.
+        if issue.kind == IMPORT_KIND
+    ]
     steps: list[DeleteStepResult] = []
     if not issues:
         return steps, 0
