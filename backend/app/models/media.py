@@ -217,6 +217,10 @@ class ImportIssue(SQLModel, table=True):
     # téléchargement, jamais fourni par l'utilisateur.
     download_id: Optional[str] = None
 
+    # Dossier de sortie du téléchargement (`outputPath` de la file d'attente) :
+    # seul repli quand Sonarr/Radarr ne reconnaît plus le `download_id`.
+    output_path: Optional[str] = None
+
     title: str = ""
     # trackedDownloadState renvoyé par Sonarr/Radarr (importBlocked, importFailed...).
     state: str = ""

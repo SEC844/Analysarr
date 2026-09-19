@@ -166,7 +166,9 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
                 reason=i.reason,
                 size=i.size,
                 episode_label=i.episode_label,
-                can_retry=i.kind == "import" and bool(i.download_id),
+                # Relançable dès que Sonarr/Radarr peut retrouver le
+                # téléchargement, par son identifiant ou par son dossier.
+                can_retry=i.kind == "import" and bool(i.download_id or i.output_path),
             )
             for i in issues
         ],

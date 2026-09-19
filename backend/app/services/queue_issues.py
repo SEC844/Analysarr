@@ -126,6 +126,7 @@ def issue_rows_for(records: list[dict[str, Any]]) -> list[ImportIssue]:
             ImportIssue(
                 media_id=0,
                 kind=_kind(record) or STALLED_KIND,
+                output_path=str(record.get("outputPath") or "") or None,
                 queue_id=record.get("id") if isinstance(record.get("id"), int) else None,
                 download_id=str(download_id) if download_id else None,
                 title=str(record.get("title") or "")[:300],
@@ -146,13 +147,13 @@ def _import_file(candidate: dict[str, Any], is_series: bool) -> dict[str, Any] |
     path = candidate.get("path")
     if not path:
         return None
-    entry: dict[str, Any] = {
-        "path": path,
-        "quality": candidate.get("quality"),
-        "languages": candidate.get("languages"),
-        "releaseGroup": candidate.get("releaseGroup"),
-        "downloadId": candidate.get("downloadId"),
-    }
+    entry: dict[str, Any] = {"path": path}
+    # Un champ à null fait échouer la commande côté Sonarr/Radarr (« Quality is
+    # required ») : on n'envoie que ce que le serveur a lui-même renseigné.
+    for key in ("quality", "languages", "releaseGroup", "downloadId", "folderName", "indexerFlags"):
+        value = candidate.get(key)
+        if value not in (None, "", []):
+            entry[key] = value
     if is_series:
         series_id = (candidate.get("series") or {}).get("id")
         episode_ids = [e.get("id") for e in candidate.get("episodes") or [] if e.get("id")]
@@ -183,14 +184,30 @@ def _blocking_rejections(candidate: dict[str, Any]) -> list[str]:
     return reasons
 
 
-async def retry_import(client: ArrClient, download_id: str, is_series: bool) -> tuple[int, list[str]]:
-    """Relance l'import d'un téléchargement. Renvoie (fichiers envoyés,
-    motifs de refus). Ne demande QUE les fichiers de ce téléchargement :
-    `download_id` vient de la file d'attente de Sonarr/Radarr, jamais de
-    l'utilisateur."""
-    candidates = await client.manual_import_candidates(download_id)
-    if not isinstance(candidates, list):
-        return 0, []
+async def retry_import(
+    client: ArrClient, download_id: str | None, is_series: bool, output_path: str | None = None
+) -> tuple[int, list[str]]:
+    """Relance l'import d'un téléchargement. Renvoie (fichiers envoyés, motifs
+    de refus). `download_id` et `output_path` viennent tous deux de la file
+    d'attente de Sonarr/Radarr, jamais de l'utilisateur.
+
+    Trois tentatives dans l'ordre : par téléchargement, puis par dossier de
+    sortie (le `downloadId` n'est plus connu dès que l'entrée quitte la file),
+    puis, si Sonarr/Radarr ne propose toujours rien, une relance de sa tâche
+    « traiter les téléchargements » — le geste que ferait l'utilisateur dans
+    l'interface de Sonarr/Radarr."""
+    candidates: list[dict[str, Any]] = []
+    if download_id:
+        found = await client.manual_import_candidates(download_id=download_id)
+        candidates = found if isinstance(found, list) else []
+    if not candidates and output_path:
+        found = await client.manual_import_candidates(folder=output_path)
+        candidates = found if isinstance(found, list) else []
+    if not candidates:
+        # Rien à importer manuellement : on demande au serveur de repasser sur
+        # sa file. Sans fichier proposé, c'est la seule action utile.
+        await client.process_monitored_downloads()
+        return 0, ["aucun fichier proposé à l'import ; traitement de la file relancé côté Sonarr/Radarr"]
 
     files: list[dict[str, Any]] = []
     rejections: list[str] = []
@@ -210,12 +227,25 @@ async def retry_import(client: ArrClient, download_id: str, is_series: bool) -> 
     return len(files), list(dict.fromkeys(rejections))
 
 
-async def safe_retry_import(client: ArrClient, download_id: str, is_series: bool) -> tuple[int, list[str], str | None]:
+def _error_text(exc: httpx.HTTPError) -> str:
+    """Message d'erreur utile : le code HTTP ET ce que Sonarr/Radarr explique
+    dans le corps de la réponse (tronqué), plutôt qu'un « 400 Bad Request »
+    opaque. Aucune clé API n'y transite : elle voyage dans un en-tête."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return f"{type(exc).__name__} : {exc}"
+    body = " ".join((response.text or "").split())
+    return f"HTTP {response.status_code}{' — ' + body[:200] if body else ''}"
+
+
+async def safe_retry_import(
+    client: ArrClient, download_id: str | None, is_series: bool, output_path: str | None = None
+) -> tuple[int, list[str], str | None]:
     """Variante qui ne lève jamais : l'erreur réseau est renvoyée en texte."""
     try:
-        imported, rejections = await retry_import(client, download_id, is_series)
+        imported, rejections = await retry_import(client, download_id, is_series, output_path)
     except httpx.HTTPError as exc:
-        return 0, [], str(exc)
+        return 0, [], _error_text(exc)
     return imported, rejections, None
 
 
@@ -251,17 +281,19 @@ async def execute_import_retry(session: "Session", media: "Media", settings: "Se
     imported_total = 0
     for issue in issues:
         label = issue.title or media.title
-        if not issue.download_id:
+        if not issue.download_id and not issue.output_path:
             steps.append(
                 DeleteStepResult(
                     kind="import_retry",
                     label=label,
                     success=False,
-                    error="Téléchargement inconnu du client torrent : import à relancer depuis Sonarr/Radarr.",
+                    error="Téléchargement inconnu de Sonarr/Radarr : import à relancer depuis leur interface.",
                 )
             )
             continue
-        imported, rejections, error = await safe_retry_import(client, issue.download_id, is_series)
+        imported, rejections, error = await safe_retry_import(
+            client, issue.download_id, is_series, issue.output_path
+        )
         imported_total += imported
         if error is not None:
             steps.append(DeleteStepResult(kind="import_retry", label=label, success=False, error=error))

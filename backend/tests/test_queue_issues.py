@@ -290,3 +290,83 @@ def test_stalled_download_never_offers_a_retry(fresh_database):
 
         steps, imported = asyncio.run(execute_import_retry(session, media, Settings(id=1)))
         assert steps == [] and imported == 0
+
+
+# --- Relance : replis successifs ----------------------------------------------
+
+
+def arr_server_with_fallback(calls: list[httpx.Request], by_download: list[dict], by_folder: list[dict]):
+    """Sonarr/Radarr ne reconnaît plus le downloadId une fois l'entrée sortie de
+    la file, mais retrouve les fichiers par dossier de sortie."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path == "/api/v3/manualimport":
+            wanted = by_folder if request.url.params.get("folder") else by_download
+            return httpx.Response(200, json=wanted)
+        if request.url.path == "/api/v3/command":
+            return httpx.Response(201, json={"id": 1})
+        return httpx.Response(404)
+
+    return handler
+
+
+def test_output_path_is_kept_from_the_queue():
+    record = {**BLOCKED, "outputPath": "/data/downloads/Movie.2024.1080p-GROUP"}
+    assert issue_rows_for([record])[0].output_path == "/data/downloads/Movie.2024.1080p-GROUP"
+
+
+def test_retry_falls_back_to_the_output_folder(fake_http):
+    calls: list[httpx.Request] = []
+    fake_http["http://radarr"] = arr_server_with_fallback(calls, [], [MOVIE_CANDIDATE])
+
+    imported, rejections = asyncio.run(
+        retry_import(
+            RadarrClient("http://radarr", KEY),
+            "ABCDEF0123456789",
+            is_series=False,
+            output_path="/data/downloads/Movie.2024.1080p-GROUP",
+        )
+    )
+
+    assert (imported, rejections) == (1, [])
+    assert calls[0].url.params.get("downloadId") == "ABCDEF0123456789"
+    assert calls[1].url.params.get("folder") == "/data/downloads/Movie.2024.1080p-GROUP"
+
+
+def test_without_any_candidate_the_queue_processing_is_relaunched(fake_http):
+    calls: list[httpx.Request] = []
+    fake_http["http://radarr"] = arr_server_with_fallback(calls, [], [])
+
+    imported, rejections = asyncio.run(
+        retry_import(RadarrClient("http://radarr", KEY), "ABCDEF0123456789", is_series=False, output_path="/data/x")
+    )
+
+    assert imported == 0 and rejections
+    command = calls[-1]
+    assert command.url.path == "/api/v3/command" and "ProcessMonitoredDownloads" in command.read().decode()
+
+
+def test_empty_fields_are_never_sent_in_the_command(fake_http):
+    calls: list[httpx.Request] = []
+    bare = {"path": "/downloads/movie.mkv", "movie": {"id": 7}, "quality": None, "languages": [], "rejections": []}
+    fake_http["http://radarr"] = arr_server_with_fallback(calls, [bare], [])
+
+    asyncio.run(retry_import(RadarrClient("http://radarr", KEY), "ABCDEF0123456789", is_series=False))
+
+    body = calls[-1].read().decode()
+    # Sonarr/Radarr refuse une qualité nulle : le champ ne doit pas être envoyé.
+    assert '"quality"' not in body and '"languages"' not in body
+    assert '"movieId":7' in body
+
+
+def test_the_server_explanation_is_reported(fake_http):
+    from app.services.queue_issues import safe_retry_import
+
+    fake_http["http://radarr"] = lambda request: httpx.Response(400, text="Quality is required")
+
+    imported, _rejections, error = asyncio.run(
+        safe_retry_import(RadarrClient("http://radarr", KEY), "ABCDEF0123456789", is_series=False)
+    )
+    assert imported == 0
+    assert error is not None and "400" in error and "Quality is required" in error

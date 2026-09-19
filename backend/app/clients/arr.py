@@ -52,12 +52,30 @@ class ArrClient:
                 break
         return records
 
-    async def manual_import_candidates(self, download_id: str) -> list[dict[str, Any]]:
-        """Fichiers qu'un téléchargement terminé propose à l'import, avec les
-        motifs de refus éventuels (`rejections`)."""
-        return await self._get(
-            "/api/v3/manualimport", params={"downloadId": download_id, "filterExistingFiles": "true"}
-        )
+    async def manual_import_candidates(
+        self, *, download_id: str | None = None, folder: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Fichiers proposés à l'import, avec les motifs de refus éventuels
+        (`rejections`). Par téléchargement, ou à défaut par dossier de sortie —
+        Sonarr/Radarr ne connaît plus le `downloadId` dès que l'entrée a quitté
+        la file d'attente, alors que le dossier, lui, existe toujours.
+
+        `filterExistingFiles=false` : on veut TOUS les fichiers du
+        téléchargement, y compris ceux que Sonarr/Radarr écarterait, pour
+        pouvoir afficher la raison plutôt qu'une liste vide."""
+        params: dict[str, Any] = {"filterExistingFiles": "false"}
+        if download_id:
+            params["downloadId"] = download_id
+        if folder:
+            params["folder"] = folder
+        return await self._get("/api/v3/manualimport", params=params)
+
+    async def process_monitored_downloads(self) -> None:
+        """Demande à Sonarr/Radarr de repasser sur sa file d'attente et de
+        retenter les imports en attente — exactement ce que fait la tâche
+        planifiée du même nom. Dernier recours quand aucun fichier n'est
+        proposé à l'import."""
+        await self._post("/api/v3/command", json={"name": "ProcessMonitoredDownloads"})
 
     async def manual_import(self, files: list[dict[str, Any]]) -> None:
         """Relance l'import des fichiers choisis (équivalent du bouton
