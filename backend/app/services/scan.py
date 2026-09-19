@@ -538,7 +538,9 @@ async def _collect(
         except Exception:  # noqa: BLE001 - informatif
             continue
         for movie_id, issues in index_queue_issues(records, "movieId").items():
-            movie_issues[(target.instance_id, movie_id)] = issues
+            # Clé (instance, id) : deux instances Radarr numérotent leurs films
+            # indépendamment, un id seul rattacherait l'import au mauvais média.
+            movie_issues.setdefault((target.instance_id, movie_id), []).extend(issues)
     series_issues: dict[tuple[int | None, int], list[dict[str, Any]]] = {}
     for target in sonarr_targets:
         try:
@@ -546,7 +548,7 @@ async def _collect(
         except Exception:  # noqa: BLE001 - informatif
             continue
         for series_id, issues in index_queue_issues(records, "seriesId").items():
-            series_issues[(target.instance_id, series_id)] = issues
+            series_issues.setdefault((target.instance_id, series_id), []).extend(issues)
 
     await progress("emby")
     emby_movies = await emby.get_library_items("Movie")
@@ -583,7 +585,8 @@ async def _collect(
 
     # --- Films -----------------------------------------------------------
     for target, movie in movie_entries:
-        issues = movie_issues.get((target.instance_id, movie.get("id")), [])
+        movie_id = movie.get("id")
+        issues = movie_issues.get((target.instance_id, movie_id), []) if isinstance(movie_id, int) else []
         if not movie.get("hasFile") and not issues:
             # Pas encore téléchargé et rien de bloqué : rien à analyser. Un
             # import bloqué, lui, mérite d'apparaître même sans fichier —
@@ -648,7 +651,8 @@ async def _collect(
 
     # --- Séries ------------------------------------------------------------
     for target, series in series_entries:
-        issues = series_issues.get((target.instance_id, series.get("id")), [])
+        series_id = series.get("id")
+        issues = series_issues.get((target.instance_id, series_id), []) if isinstance(series_id, int) else []
         if not (series.get("statistics") or {}).get("episodeFileCount") and not issues:
             continue  # aucun épisode téléchargé ni import bloqué : rien à analyser
         sonarr = target.sonarr()

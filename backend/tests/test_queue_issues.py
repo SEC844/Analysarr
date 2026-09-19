@@ -370,3 +370,30 @@ def test_the_server_explanation_is_reported(fake_http):
     )
     assert imported == 0
     assert error is not None and "400" in error and "Quality is required" in error
+
+
+# --- Rattachement : jamais le mauvais média -----------------------------------
+
+
+def test_each_media_only_gets_its_own_records():
+    other = {**BLOCKED, "id": 30, "movieId": 99, "title": "Autre.2024-GROUP", "downloadId": "9999"}
+    issues = index_queue_issues([BLOCKED, other], "movieId")
+    assert [r["title"] for r in issues[7]] == ["Movie.2024.1080p-GROUP"]
+    assert [r["title"] for r in issues[99]] == ["Autre.2024-GROUP"]
+
+
+def test_a_record_without_media_id_is_dropped():
+    unknown = {k: v for k, v in BLOCKED.items() if k not in ("movieId", "seriesId")}
+    assert index_queue_issues([unknown], "movieId") == {}
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "7", 7.0, None])
+def test_only_a_real_positive_id_attaches_a_record(value):
+    assert index_queue_issues([{**BLOCKED, "movieId": value}], "movieId") == {}
+
+
+def test_a_series_record_is_never_read_as_a_movie_one():
+    series_record = {**BLOCKED}
+    series_record.pop("movieId")
+    assert index_queue_issues([series_record], "movieId") == {}
+    assert sorted(index_queue_issues([series_record], "seriesId")) == [7]

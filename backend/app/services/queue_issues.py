@@ -108,11 +108,23 @@ def _episode_label(record: dict[str, Any]) -> str:
 
 def index_queue_issues(records: list[dict[str, Any]], key: str) -> dict[int, list[dict[str, Any]]]:
     """Entrées problématiques de la file, indexées par `movieId` ou `seriesId`.
-    Un téléchargement qui progresse normalement n'est jamais retenu."""
+    Un téléchargement qui progresse normalement n'est jamais retenu.
+
+    Rattachement volontairement strict : SEUL l'identifiant que Sonarr/Radarr
+    donne lui-même à l'entrée compte. Une entrée sans identifiant de média
+    (téléchargement qu'ils ne reconnaissent pas, `movieId: 0` des « unknown
+    items ») est ignorée plutôt que rattachée au petit bonheur — un import
+    raté affiché sur la fiche d'un autre média serait pire que pas d'info du
+    tout. Aucun repli par titre, par chemin ou par hash n'est fait ici,
+    contrairement au rattachement des torrents.
+    """
     issues: dict[int, list[dict[str, Any]]] = {}
     for record in records:
         arr_id = record.get(key)
-        if not isinstance(arr_id, int) or _kind(record) is None:
+        # bool est un int en Python : `True` ne doit pas passer pour un id.
+        if not isinstance(arr_id, int) or isinstance(arr_id, bool) or arr_id <= 0:
+            continue
+        if _kind(record) is None:
             continue
         issues.setdefault(arr_id, []).append(record)
     return issues
