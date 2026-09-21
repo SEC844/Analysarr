@@ -18,13 +18,14 @@ from app.routers import notifications as notifications_router
 from app.routers import scan as scan_router
 from app.routers import services as services_router
 from app.routers import settings as settings_router
+from app.routers import trash as trash_router
 from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
 from app.services.login_log import record_attempt
 from app.services.path_guard import MountUnavailableError
 from app.services.rate_limit import retry_after
 from app.services.security import client_ip, parse_trusted_proxies
-from app.services.scheduler import configure_scan_schedule, refresh_update_watch, scheduler
+from app.services.scheduler import configure_scan_schedule, configure_trash_purge, refresh_update_watch, scheduler
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
 # statut/déconnexion) et le healthcheck Docker.
@@ -79,6 +80,7 @@ async def lifespan(app: FastAPI):
         if settings is not None and settings.scan_schedule_enabled:
             configure_scan_schedule(settings.scan_schedule_interval_minutes)
         refresh_update_watch(session)
+    configure_trash_purge()
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
@@ -174,6 +176,7 @@ app.include_router(history_router.router, prefix="/api/history", tags=["history"
 app.include_router(notifications_router.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(automations_router.router, prefix="/api/automations", tags=["automations"])
 app.include_router(services_router.router, prefix="/api/services", tags=["services"])
+app.include_router(trash_router.router, prefix="/api/trash", tags=["trash"])
 app.include_router(widget_router.router, prefix="/api/status", tags=["widget"])
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"

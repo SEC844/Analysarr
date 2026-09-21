@@ -1,4 +1,3 @@
-import os
 
 import httpx
 from sqlmodel import Session, select
@@ -13,6 +12,7 @@ from app.schemas.media import (
     DeleteStepResult,
 )
 from app.services.path_guard import ensure_paths_available
+from app.services.trash import delete_or_trash
 from app.services.scan import compute_statuses
 
 
@@ -84,7 +84,7 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
 
     for f in duplicate_files:
         try:
-            os.remove(f.path)
+            delete_or_trash(session, settings, f.path, media_title=media.title, action="cascade_delete")
             session.delete(f)
             steps.append(DeleteStepResult(kind="duplicate_file", label=f.path, success=True))
         except OSError as exc:

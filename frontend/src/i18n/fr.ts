@@ -53,6 +53,28 @@ export const fr = {
     otpLabel: "Code de vérification",
     otpHelp: "Code à 6 chiffres de votre application d'authentification, ou un code de secours.",
   },
+  trash: {
+    title: "Corbeille",
+    description:
+      "Au lieu d'être supprimés, les fichiers sont déplacés dans un dossier .analysarr-trash et restent récupérables pendant la durée choisie.",
+    enabled: "Activer la corbeille",
+    retention: "Durée de conservation",
+    days: "jours",
+    retentionHelp:
+      "Passé ce délai, les fichiers sont supprimés définitivement (vérification toutes les 6 heures). L'espace disque n'est donc libéré qu'à ce moment-là.",
+    scopeHelp:
+      "Ne concerne que les fichiers qu'Analysarr supprime lui-même : doublons, fichiers restants et nettoyage. Quand Sonarr ou Radarr supprime le fichier à notre demande, c'est leur propre corbeille qui s'applique ; les torrents, eux, sont supprimés par le client torrent.",
+    contentTitle: "Contenu de la corbeille",
+    contentDescription: "{size} en attente de suppression définitive.",
+    empty: "Vider la corbeille",
+    empty0: "La corbeille est vide.",
+    emptied: "Corbeille vidée.",
+    restore: "Restaurer",
+    restored: "Fichier restauré.",
+    deleteNow: "Supprimer définitivement",
+    missing: "fichier absent",
+    notice: "Les fichiers supprimés iront dans la corbeille et resteront récupérables {days} jours.",
+  },
   security: {
     title: "Sécurité et connexions",
     description:
@@ -469,6 +491,7 @@ export const fr = {
       widget: "Widget",
       history: "Historique",
       account: "Compte",
+      trash: "Corbeille",
       preferences: "Préférences",
       application: "Application",
     },

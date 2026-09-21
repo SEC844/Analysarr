@@ -75,6 +75,11 @@ class Settings(SQLModel, table=True):
     # seule leur requête autorise la lecture de X-Forwarded-For pour connaître
     # l'adresse réelle du client (verrouillage et journal de connexion).
     trusted_proxies: str = ""
+    # Corbeille (services/trash.py) : désactivée par défaut — l'espace n'est
+    # libéré qu'à la purge, ce qui n'est pas ce qu'on attend d'un outil de
+    # nettoyage tant qu'on ne l'a pas demandé.
+    trash_enabled: bool = False
+    trash_retention_days: int = 7
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: Optional[str] = None

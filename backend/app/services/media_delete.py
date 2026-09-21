@@ -24,6 +24,7 @@ from app.schemas.media import (
 )
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.path_guard import ensure_paths_available
+from app.services.trash import delete_or_trash
 from app.services.hardlink import resolve_torrent_files
 from app.services.scan import compute_statuses, current_files_size
 from app.services.seer import remove_seer_requests
@@ -110,7 +111,12 @@ async def _delete_torrents(
 
 
 async def _delete_movie_files(
-    files: list[MediaFile], target: ArrTarget | None, steps: list[DeleteStepResult], session: Session
+    files: list[MediaFile],
+    target: ArrTarget | None,
+    steps: list[DeleteStepResult],
+    session: Session,
+    settings: Settings | None = None,
+    media_title: str = "",
 ) -> None:
     radarr = target.radarr() if target is not None else None
     for f in files:
@@ -120,7 +126,7 @@ async def _delete_movie_files(
             else:
                 # Fichier en trop jamais suivi par Radarr (doublon) : rien à
                 # supprimer côté Radarr, juste le fichier lui-même.
-                os.remove(f.path)
+                delete_or_trash(session, settings, f.path, media_title=media_title, action="delete_selection")
             session.delete(f)
             steps.append(DeleteStepResult(kind="library_file", label=f.path, success=True))
         except (httpx.HTTPError, OSError) as exc:
@@ -128,7 +134,12 @@ async def _delete_movie_files(
 
 
 async def _remove_media_from_arr(
-    files: list[MediaFile], media: Media, target: ArrTarget | None, steps: list[DeleteStepResult], session: Session
+    files: list[MediaFile],
+    media: Media,
+    target: ArrTarget | None,
+    steps: list[DeleteStepResult],
+    session: Session,
+    settings: Settings | None = None,
 ) -> bool:
     """Toute la bibliothèque du média sélectionnée avec retrait Sonarr/Radarr :
     un seul appel au niveau du MÉDIA (film ou série + dossier, sans liste
@@ -166,7 +177,7 @@ async def _remove_media_from_arr(
         label = f.episode_label or f.path
         try:
             if os.path.lexists(f.path):
-                os.remove(f.path)
+                delete_or_trash(session, settings, f.path, media_title=media.title, action="delete_selection")
             session.delete(f)
             steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
         except OSError as exc:
@@ -180,6 +191,8 @@ async def _delete_episode_files(
     remove_from_arr: bool,
     steps: list[DeleteStepResult],
     session: Session,
+    settings: Settings | None = None,
+    media_title: str = "",
 ) -> None:
     sonarr = target.sonarr() if target is not None else None
     episodes_to_unmonitor: list[int] = []
@@ -190,7 +203,7 @@ async def _delete_episode_files(
                 if remove_from_arr and f.sonarr_episode_id:
                     episodes_to_unmonitor.append(f.sonarr_episode_id)
             else:
-                os.remove(f.path)
+                delete_or_trash(session, settings, f.path, media_title=media_title, action="delete_selection")
             session.delete(f)
             steps.append(DeleteStepResult(kind="library_file", label=f.episode_label or f.path, success=True))
         except (httpx.HTTPError, OSError) as exc:
@@ -245,12 +258,16 @@ async def execute_media_delete(
     # bibliothèque est sélectionnée (y compris aucune, pour un média sans
     # fichier) : sinon on supprimerait des fichiers non cochés.
     whole_library = selection.remove_from_arr and len(files) == all_file_count
-    removed_from_arr = whole_library and await _remove_media_from_arr(list(files), media, target, steps, session)
+    removed_from_arr = whole_library and await _remove_media_from_arr(
+        list(files), media, target, steps, session, settings
+    )
     if files and not removed_from_arr:
         if media.media_type == MediaType.movie:
-            await _delete_movie_files(files, target, steps, session)
+            await _delete_movie_files(files, target, steps, session, settings, media.title)
         else:
-            await _delete_episode_files(files, target, selection.remove_from_arr, steps, session)
+            await _delete_episode_files(
+                files, target, selection.remove_from_arr, steps, session, settings, media.title
+            )
 
     # Demande Seer : seulement si toute la bibliothèque du média a bien été
     # supprimée — jamais pour un média qui existe encore, même en partie.

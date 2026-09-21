@@ -53,6 +53,28 @@ export const en: Dictionary = {
     otpLabel: "Verification code",
     otpHelp: "6-digit code from your authenticator app, or a recovery code.",
   },
+  trash: {
+    title: "Trash",
+    description:
+      "Instead of being deleted, files are moved to a .analysarr-trash folder and stay recoverable for the chosen period.",
+    enabled: "Enable the trash",
+    retention: "Retention",
+    days: "days",
+    retentionHelp:
+      "After this delay, files are deleted for good (checked every 6 hours). Disk space is therefore only freed at that point.",
+    scopeHelp:
+      "Only covers the files Analysarr deletes itself: duplicates, leftover files and cleanup. When Sonarr or Radarr deletes the file on our behalf, their own recycling bin applies; torrents are deleted by the torrent client.",
+    contentTitle: "Trash content",
+    contentDescription: "{size} waiting for permanent deletion.",
+    empty: "Empty the trash",
+    empty0: "The trash is empty.",
+    emptied: "Trash emptied.",
+    restore: "Restore",
+    restored: "File restored.",
+    deleteNow: "Delete permanently",
+    missing: "file missing",
+    notice: "Deleted files go to the trash and stay recoverable for {days} days.",
+  },
   security: {
     title: "Security and sign-ins",
     description:
@@ -467,6 +489,7 @@ export const en: Dictionary = {
       widget: "Widget",
       history: "History",
       account: "Account",
+      trash: "Trash",
       preferences: "Preferences",
       application: "Application",
     },

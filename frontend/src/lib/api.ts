@@ -13,6 +13,7 @@ import type {
   TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
+import type { TrashEntry, TrashSettings } from "@/types/trash"
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
@@ -248,6 +249,31 @@ export function saveAutomationGuard(percent: number): Promise<AutomationGuard> {
 /** Reprise manuelle après une mise en pause automatique. */
 export function resumeAutomations(): Promise<AutomationGuard> {
   return request<AutomationGuard>("/api/automations/guard/resume", { method: "POST" })
+}
+
+// --- Corbeille ---------------------------------------------------------------
+export function getTrash(): Promise<TrashEntry[]> {
+  return request<TrashEntry[]>("/api/trash")
+}
+
+export function getTrashSettings(): Promise<TrashSettings> {
+  return request<TrashSettings>("/api/trash/settings")
+}
+
+export function saveTrashSettings(payload: { enabled: boolean; retention_days: number }): Promise<TrashSettings> {
+  return request<TrashSettings>("/api/trash/settings", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function restoreTrashEntry(id: number): Promise<TrashEntry[]> {
+  return request<TrashEntry[]>(`/api/trash/${id}/restore`, { method: "POST" })
+}
+
+export function deleteTrashEntry(id: number): Promise<void> {
+  return request<void>(`/api/trash/${id}`, { method: "DELETE" })
+}
+
+export function emptyTrash(): Promise<void> {
+  return request<void>("/api/trash", { method: "DELETE" })
 }
 
 export function getWidgetKey(): Promise<WidgetKeyRead> {

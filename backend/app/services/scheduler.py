@@ -4,6 +4,8 @@ from sqlmodel import Session
 _JOB_ID = "periodic_scan"
 _UPDATE_JOB_ID = "update_watch"
 _UPDATE_INTERVAL_HOURS = 3
+_TRASH_JOB_ID = "trash_purge"
+_TRASH_INTERVAL_HOURS = 6
 
 scheduler = AsyncIOScheduler()
 
@@ -42,6 +44,22 @@ def refresh_update_watch(session: Session) -> None:
     checking = settings.update_check_enabled if settings else True  # même défaut que GET /api/app/info
     enabled = checking and event_has_subscriber(session, "update_available")
     configure_update_watch(enabled)
+
+
+async def _run_trash_purge() -> None:
+    from app.database import engine
+    from app.models.settings import Settings
+    from app.services.trash import purge_expired
+
+    with Session(engine) as session:
+        purge_expired(session, session.get(Settings, 1))
+
+
+def configure_trash_purge() -> None:
+    """Rétention de la corbeille appliquée toutes les 6 h (et à la demande,
+    voir routers/trash.py). Sans effet quand la corbeille est vide."""
+    if scheduler.get_job(_TRASH_JOB_ID) is None:
+        scheduler.add_job(_run_trash_purge, "interval", hours=_TRASH_INTERVAL_HOURS, id=_TRASH_JOB_ID)
 
 
 def configure_scan_schedule(interval_minutes: int | None) -> None:

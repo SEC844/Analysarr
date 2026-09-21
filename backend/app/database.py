@@ -112,6 +112,8 @@ _SETTINGS_NEW_COLUMNS = [
     ("automations_paused_at", "DATETIME"),
     ("automations_paused_reason", "VARCHAR"),
     ("trusted_proxies", "VARCHAR NOT NULL DEFAULT ''"),
+    ("trash_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("trash_retention_days", "INTEGER NOT NULL DEFAULT 7"),
 ]
 
 
@@ -178,6 +180,7 @@ def init_db() -> None:
     from app.models.arr_instance import ArrInstance  # noqa: F401
     from app.models.automation import Automation  # noqa: F401
     from app.models.notification_channel import NotificationChannel  # noqa: F401
+    from app.models.auth import LoginAttempt  # noqa: F401
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
     from app.models.media import (  # noqa: F401
@@ -192,6 +195,7 @@ def init_db() -> None:
         Torrent,
     )
     from app.models.settings import Settings  # noqa: F401
+    from app.models.trash import TrashEntry  # noqa: F401
 
     _reset_media_cache_if_stale()
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)

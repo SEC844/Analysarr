@@ -17,6 +17,7 @@ import { PathsCard } from "@/components/settings/paths-card"
 import { PreferencesSection } from "@/components/settings/preferences-section"
 import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
+import { TrashSection } from "@/components/settings/trash-section"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
 import { WidgetSection } from "@/components/settings/widget-section"
@@ -63,6 +64,7 @@ const SECTION_GROUPS = [
     sections: [
       { id: "application", label: "settings.sections.application" },
       { id: "account", label: "settings.sections.account" },
+      { id: "trash", label: "settings.sections.trash" },
       { id: "history", label: "settings.sections.history" },
     ],
   },
@@ -72,7 +74,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "widget", "history", "account", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "widget", "history", "account", "trash", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -336,6 +338,8 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           )}
 
           {section === "account" && <AccountSection />}
+
+          {section === "trash" && <TrashSection />}
 
           {section === "preferences" && <PreferencesSection seerEnabled={existing.seer.enabled} />}
 

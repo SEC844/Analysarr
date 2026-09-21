@@ -26,6 +26,7 @@ import {
 import { watchProgressLabel } from "@/components/media/watch-stats"
 import { usePreferences } from "@/hooks/use-app"
 import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation, useMediaWatchQuery } from "@/hooks/use-media"
+import { useTrashSettingsQuery } from "@/hooks/use-trash"
 import { useI18n } from "@/i18n"
 import { diskBytes, fileKey, indexFootprint, reclaimedBytes, torrentKey } from "@/lib/footprint"
 import { formatBytes } from "@/lib/format"
@@ -190,6 +191,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
 
   const isSeries = media.media_type === "series"
   const selectedTorrents = media.torrents.filter((torrent) => selected.has(torrentKey(torrent.id)))
+  const { data: trash } = useTrashSettingsQuery()
   const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
   const hasSelection = selected.size > 0
   // Média vide : plus aucun fichier ni torrent, seuls subsistent le suivi
@@ -357,6 +359,14 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
                   })}
                 </span>
               </div>
+            )}
+
+            {selectedFiles.length > 0 && trash?.enabled && (
+              // La corbeille change ce qui arrive vraiment aux fichiers cochés :
+              // le dire ici, pas seulement dans les réglages.
+              <p className="text-muted-foreground text-xs">
+                {t("trash.notice", { days: trash.retention_days })}
+              </p>
             )}
 
             {showArrOption && (
