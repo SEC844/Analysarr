@@ -204,3 +204,7 @@ Les contributions sont les bienvenues — lisez d'abord [CONTRIBUTING.md](CONTRI
 ## Licence
 
 [GNU AGPL-3.0](LICENSE). Vous pouvez utiliser, modifier et partager Analysarr ; toute version modifiée distribuée ou proposée en service doit rester open source sous la même licence.
+
+## Assistance de l'IA
+
+Analysarr est développé avec l'aide d'un assistant IA. Chaque modification est relue et testée par le mainteneur avant publication.
