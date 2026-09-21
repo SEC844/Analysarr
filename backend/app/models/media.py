@@ -315,6 +315,7 @@ class ScanRun(SQLModel, table=True):
     # deux dans l'historique des scans.
     trigger: str = "manual"
 
-    # Périmètre analysé : "full" (tout), "library", "torrents", "queue",
-    # "watch", "seer" ou "media" (un seul média). Voir services/partial_scan.py.
+    # Périmètre analysé : "full" (tout), ou un service — "radarr", "sonarr",
+    # "media_server", "torrents", "queue", "watch", "seer". Voir
+    # services/scan_scopes.py.
     scope: str = "full"
