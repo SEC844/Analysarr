@@ -15,15 +15,19 @@ function formatDuration(startedAt: string, finishedAt: string | null): string {
   return `${Math.floor(seconds / 60)} min ${seconds % 60} s`
 }
 
-export function ScanHistoryTable() {
+/** Historique des analyses. `trigger` sépare les deux vues : les analyses
+ * planifiées appartiennent à la Planification, les analyses lancées à la main
+ * à l'Historique. */
+export function ScanHistoryTable({ trigger }: { trigger: "manual" | "scheduled" }) {
   const { t } = useI18n()
-  const { data, isLoading } = useScanHistoryQuery()
+  const { data: allRuns, isLoading } = useScanHistoryQuery()
+  const data = allRuns?.filter((run) => (run.trigger === "scheduled") === (trigger === "scheduled"))
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("scanHistory.title")}</CardTitle>
-        <CardDescription>{t("scanHistory.description")}</CardDescription>
+        <CardTitle>{t(`scanHistory.title.${trigger}` as MessageKey)}</CardTitle>
+        <CardDescription>{t(`scanHistory.description.${trigger}` as MessageKey)}</CardDescription>
       </CardHeader>
       <CardContent>
         {isLoading && (
@@ -38,7 +42,7 @@ export function ScanHistoryTable() {
               <thead>
                 <tr className="text-muted-foreground border-b text-left">
                   <th className="py-1.5 pr-4 font-medium">{t("scanHistory.columns.date")}</th>
-                  <th className="py-1.5 pr-4 font-medium">{t("scanHistory.columns.trigger")}</th>
+                  <th className="py-1.5 pr-4 font-medium">{t("scanHistory.columns.scope")}</th>
                   <th className="py-1.5 pr-4 font-medium">{t("scanHistory.columns.status")}</th>
                   <th className="py-1.5 pr-4 font-medium">{t("scanHistory.columns.duration")}</th>
                   <th className="py-1.5 pr-4 font-medium">{t("scanHistory.columns.media")}</th>
@@ -52,16 +56,11 @@ export function ScanHistoryTable() {
                   <tr key={run.id} className="border-border/60 border-b last:border-0">
                     <td className="py-1.5 pr-4 whitespace-nowrap">{formatDateTime(run.started_at) ?? run.started_at}</td>
                     <td className="py-1.5 pr-4">
-                      <Badge variant="outline">
-                        {run.trigger === "scheduled" ? t("scanHistory.scheduled") : t("scanHistory.manual")}
+                      {/* Le périmètre explique un compte de médias ou de
+                          torrents différent d'une analyse complète. */}
+                      <Badge variant={run.scope === "full" ? "outline" : "secondary"}>
+                        {t(`scan.scopes.${run.scope}` as MessageKey)}
                       </Badge>
-                      {/* Analyse partielle : le périmètre explique un compte
-                          de médias ou de torrents différent d'un scan complet. */}
-                      {run.scope !== "full" && (
-                        <Badge variant="secondary" className="ml-1">
-                          {t(`scan.scopes.${run.scope}` as MessageKey)}
-                        </Badge>
-                      )}
                     </td>
                     <td className="py-1.5 pr-4">
                       {run.status === "completed" && (

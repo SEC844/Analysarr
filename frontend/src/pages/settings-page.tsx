@@ -311,7 +311,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                 intervalMinutes={form.scan_schedule_interval_minutes}
                 onIntervalMinutesChange={(v) => set("scan_schedule_interval_minutes", v)}
               />
-              <ScanHistoryTable />
+              <ScanHistoryTable trigger="scheduled" />
             </div>
           )}
 
@@ -321,7 +321,14 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
 
           {section === "widget" && <WidgetSection />}
 
-          {section === "history" && <ActionHistory />}
+          {section === "history" && (
+            <div className="space-y-6">
+              <ActionHistory />
+              {/* Analyses lancées à la main : elles n'ont rien à faire dans la
+                  Planification, qui ne montre que les analyses automatiques. */}
+              <ScanHistoryTable trigger="manual" />
+            </div>
+          )}
 
           {section === "account" && <AccountSection />}
 

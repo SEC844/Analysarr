@@ -27,11 +27,12 @@ const STAGES = new Set([
   "torrents",
   "queue",
   "watch",
+  "media_server",
 ])
 
 // Périmètres proposés par la flèche. L'analyse complète reste l'action du
 // bouton lui-même : cliquer « Analyser » ne doit jamais ouvrir un menu.
-const PARTIAL_SCOPES: ScanScope[] = ["library", "torrents", "queue", "watch", "seer"]
+const SERVICE_SCOPES: ScanScope[] = ["radarr", "sonarr", "media_server", "torrents", "queue", "watch", "seer"]
 
 export function ScanButton() {
   const { t } = useI18n()
@@ -47,7 +48,7 @@ export function ScanButton() {
 
   // Seer n'est proposé que s'il est activé : même principe que partout
   // ailleurs, une fonctionnalité désactivée ne laisse aucune trace.
-  const scopes = PARTIAL_SCOPES.filter((scope) => scope !== "seer" || settings?.seer.enabled)
+  const scopes = SERVICE_SCOPES.filter((scope) => scope !== "seer" || settings?.seer.enabled)
 
   return (
     <div className="flex items-center gap-3">

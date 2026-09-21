@@ -203,6 +203,21 @@ class MediaWatch(SQLModel, table=True):
     last_played_at: Optional[datetime] = None
 
 
+class TorrentFile(SQLModel, table=True):
+    """Fichiers d'un torrent, mémorisés au moment où le client les donne.
+
+    Sert aux analyses par service : après un rafraîchissement de la
+    bibliothèque, l'état « hardlinké » et « réparable » de chaque torrent est
+    recalculé en relisant les inodes de ces chemins sur le disque, sans
+    redemander au client torrent ses fichiers un par un (deux appels par
+    torrent, le point le plus lent d'un scan)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    torrent_hash: str = Field(index=True)
+    path: str
+    size: Optional[int] = None
+
+
 class ImportIssue(SQLModel, table=True):
     """Entrée problématique de la file d'attente Sonarr/Radarr (cache
     reconstruit à chaque scan, comme le reste) : soit un fichier téléchargé que

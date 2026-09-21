@@ -21,7 +21,15 @@ from app.models.settings import Settings
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.trackers import extract_tracker_domain, status_label
 
-__all__ = ["FetchedTorrents", "MediaView", "attach_torrents", "fetch_torrents", "is_usable_root"]
+__all__ = [
+    "FetchedTorrents",
+    "MediaView",
+    "attach_torrents",
+    "fetch_torrents",
+    "is_usable_root",
+    "persist_files",
+    "torrents_from_cache",
+]
 
 
 def is_usable_root(root_path: str, qbittorrent_download_path: str | None) -> bool:
@@ -111,6 +119,10 @@ class FetchedTorrents:
     file_inodes: list[list[tuple[int, int]]] = field(default_factory=list)
     # (nom de fichier, taille annoncée par le client) pour chaque fichier.
     file_details: list[list[tuple[str, int | None]]] = field(default_factory=list)
+    # Chemins complets des fichiers, mémorisés en base (table TorrentFile) pour
+    # que les analyses par service recalculent les hardlinks sans rappeler le
+    # client torrent.
+    file_paths: list[list[tuple[str, int | None]]] = field(default_factory=list)
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -188,6 +200,7 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
         fetched.content_paths.append(content_path)
         fetched.file_inodes.append(resolved_inodes)
         fetched.file_details.append(file_details)
+        fetched.file_paths.append(file_entries)
     return fetched
 
 
@@ -317,3 +330,69 @@ def attach_torrents(
 
         by_media[index].append(torrent_row)
     return by_media
+
+def persist_files(session, fetched: "FetchedTorrents") -> None:
+    """Mémorise les fichiers de chaque torrent (table TorrentFile). Remplace
+    tout : c'est un cache, reconstruit à chaque lecture du client torrent."""
+    from sqlmodel import delete
+
+    from app.models.media import TorrentFile
+
+    session.exec(delete(TorrentFile))
+    for row, paths in zip(fetched.rows, fetched.file_paths):
+        for path, size in paths:
+            session.add(TorrentFile(torrent_hash=row.hash.lower(), path=path, size=size))
+    session.commit()
+
+
+def torrents_from_cache(session) -> "FetchedTorrents":
+    """Reconstruit les torrents connus depuis la base, en RELISANT les inodes
+    sur le disque. Les chemins viennent du dernier passage sur le client
+    torrent ; leur état de hardlink, lui, est réévalué maintenant."""
+    from sqlmodel import select
+
+    from app.models.media import Torrent, TorrentFile
+
+    files_by_hash: dict[str, list[tuple[str, int | None]]] = {}
+    for row in session.exec(select(TorrentFile)).all():
+        files_by_hash.setdefault(row.torrent_hash, []).append((row.path, row.size))
+
+    fetched = FetchedTorrents()
+    for torrent in session.exec(select(Torrent)).all():
+        entries = files_by_hash.get((torrent.hash or "").lower())
+        if not entries:
+            content_path = torrent.content_path or torrent.save_path
+            entries = [(content_path, torrent.size)] if content_path else []
+
+        resolved_inodes: list[tuple[int, int]] = []
+        details: list[tuple[str, int | None]] = []
+        for path, size in entries:
+            inode = stat_inode(path)
+            if inode is not None:
+                resolved_inodes.append(inode)
+            details.append((os.path.basename(path), size))
+
+        fetched.rows.append(
+            Torrent(
+                media_id=0,
+                hash=torrent.hash,
+                name=torrent.name,
+                save_path=torrent.save_path,
+                content_path=torrent.content_path,
+                category=torrent.category,
+                size=torrent.size,
+                inode=resolved_inodes[0][0] if resolved_inodes else None,
+                device=resolved_inodes[0][1] if resolved_inodes else None,
+                ratio=torrent.ratio,
+                seeders=torrent.seeders,
+                leechers=torrent.leechers,
+                added_on=torrent.added_on,
+                completed_on=torrent.completed_on,
+                trackers_json=torrent.trackers_json,
+            )
+        )
+        fetched.content_paths.append(torrent.content_path or torrent.save_path)
+        fetched.file_inodes.append(resolved_inodes)
+        fetched.file_details.append(details)
+        fetched.file_paths.append(entries)
+    return fetched

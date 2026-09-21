@@ -134,7 +134,16 @@ export interface ImportIssueRead {
 
 // Périmètres d'analyse acceptés par l'API (liste fermée côté backend :
 // services/scan_scopes.py).
-export const SCAN_SCOPES = ["full", "library", "torrents", "queue", "watch", "seer"] as const
+export const SCAN_SCOPES = [
+  "full",
+  "radarr",
+  "sonarr",
+  "media_server",
+  "torrents",
+  "queue",
+  "watch",
+  "seer",
+] as const
 export type ScanScope = (typeof SCAN_SCOPES)[number]
 
 export interface MediaRescanResult {
