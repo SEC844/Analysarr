@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, Broom, CheckCircle2, Loader2, XCircle } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -36,7 +37,11 @@ export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
   }, [open, mediaId])
 
   const handleConfirm = () => {
-    executeMutation.mutate(mediaId, { onSuccess: setResult })
+    executeMutation.mutate(mediaId, {
+      onSuccess: setResult,
+      // Message du backend tel quel : montage manquant, service injoignable…
+      onError: (err) => toast.error(err instanceof Error ? err.message : t("cascade.failed")),
+    })
   }
 
   return (

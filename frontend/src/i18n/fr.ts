@@ -705,6 +705,7 @@ export const fr = {
     description:
       "Confirmez pour réparer automatiquement chaque fichier ci-dessous : la copie non protégée est remplacée par un hardlink vers un fichier déjà valide (bibliothèque ou torrent, selon le cas) — aucune étape manuelle à faire, et un hardlink déjà fonctionnel n'est jamais touché.",
     nothing: "Rien à réparer automatiquement pour ce média.",
+    failed: "Échec de la réparation.",
     file: "Fichier",
     fromTorrent: "depuis {name}",
     joinsLibrary: "{name} rejoint le hardlink de la bibliothèque",
@@ -724,6 +725,7 @@ export const fr = {
       orphan_torrent: "Torrent orphelin",
     },
     total: "Total récupérable : {size}",
+    failed: "Échec du nettoyage.",
   },
   deleteSelection: {
     emptyMedia:

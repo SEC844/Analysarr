@@ -23,6 +23,7 @@ from app.schemas.media import (
     MediaDeleteSelectionResult,
 )
 from app.services.arr_instances import ArrTarget, arr_target_for
+from app.services.path_guard import ensure_paths_available
 from app.services.hardlink import resolve_torrent_files
 from app.services.scan import compute_statuses, current_files_size
 from app.services.seer import remove_seer_requests
@@ -228,6 +229,12 @@ async def execute_media_delete(
         if selection.media_file_ids
         else []
     )
+
+    # Montages vérifiés AVANT la première suppression : un volume démonté
+    # ferait disparaître des fichiers bien vivants de la base, de Sonarr/Radarr
+    # et de la fiche média (voir services/path_guard.py).
+    if files or selection.remove_from_arr:
+        ensure_paths_available(settings, [f.path for f in files], "Suppression")
 
     steps: list[DeleteStepResult] = []
     target = arr_target_for(session, settings, media)

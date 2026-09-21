@@ -18,6 +18,7 @@ from app.services.hardlink import (
     resolve_torrent_files,
     stat_inode,
 )
+from app.services.path_guard import ensure_paths_available
 
 
 async def build_repair_preview(session: Session, media: Media, settings: Settings) -> HardlinkRepairPreview:
@@ -232,6 +233,13 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
     possibles dans `build_repair_preview`). Voir `_relink` : l'original n'est
     jamais perdu si la création du lien échoue."""
     preview = await build_repair_preview(session, media, settings)
+    # Voir services/path_guard.py : écrire sous un point de montage vide
+    # cacherait le fichier créé dès que le volume est remonté.
+    ensure_paths_available(
+        settings,
+        [path for item in preview.items for path in (item.target_path, item.source_path)],
+        "Réparation",
+    )
 
     steps: list[HardlinkRepairStepResult] = []
     freed_bytes = 0

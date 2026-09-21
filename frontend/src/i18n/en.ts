@@ -699,6 +699,7 @@ export const en: Dictionary = {
     description:
       "Confirm to automatically repair each file below: the unprotected copy is replaced by a hardlink to an already valid file (library or torrent, depending on the case) — no manual step needed, and a working hardlink is never touched.",
     nothing: "Nothing to repair automatically for this media.",
+    failed: "Repair failed.",
     file: "File",
     fromTorrent: "from {name}",
     joinsLibrary: "{name} joins the library hardlink",
@@ -718,6 +719,7 @@ export const en: Dictionary = {
       orphan_torrent: "Orphan torrent",
     },
     total: "Total reclaimable: {size}",
+    failed: "Cleanup failed.",
   },
   deleteSelection: {
     emptyMedia:

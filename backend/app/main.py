@@ -20,6 +20,7 @@ from app.routers import services as services_router
 from app.routers import settings as settings_router
 from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
+from app.services.path_guard import MountUnavailableError
 from app.services.scheduler import configure_scan_schedule, refresh_update_watch, scheduler
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
@@ -43,6 +44,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Analysarr", lifespan=lifespan)
+
+
+@app.exception_handler(MountUnavailableError)
+async def mount_unavailable(request: Request, exc: MountUnavailableError) -> JSONResponse:
+    """Action refusée faute de montage : 409 plutôt que 500, avec le message
+    exact à afficher (voir services/path_guard.py)."""
+    return JSONResponse({"detail": str(exc)}, status_code=409)
 
 
 @app.middleware("http")

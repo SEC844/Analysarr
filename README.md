@@ -72,6 +72,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 - Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
 - Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, blocked imports, stalled downloads, deletion, cleanup, hardlink repair, cross-seed search, automation, update available.
 - Optional automations: on orphans, duplicates, non-hardlinked torrents or blocked imports, clean up, repair, retry the import, search a cross-seed or just notify â€” with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
+- Mount safety net: any action that touches the disk is refused when a volume is not mounted, so nothing is removed from Sonarr/Radarr or from the database while the files are still there.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.
 - Update check when the app is opened (at most one request every 10 minutes), with an optional notification when a new version is released.

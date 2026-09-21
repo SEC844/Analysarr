@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { CheckCircle2, Link2, Loader2, XCircle } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -36,7 +37,10 @@ export function HardlinkRepairDialog({ mediaId }: { mediaId: number }) {
   }, [open, mediaId])
 
   const handleConfirm = () => {
-    executeMutation.mutate(mediaId, { onSuccess: setResult })
+    executeMutation.mutate(mediaId, {
+      onSuccess: setResult,
+      onError: (err) => toast.error(err instanceof Error ? err.message : t("repair.failed")),
+    })
   }
 
   return (

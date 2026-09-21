@@ -12,6 +12,7 @@ from app.schemas.media import (
     DeletePreviewItem,
     DeleteStepResult,
 )
+from app.services.path_guard import ensure_paths_available
 from app.services.scan import compute_statuses
 
 
@@ -75,6 +76,10 @@ def build_delete_preview(session: Session, media: Media) -> DeletePreview:
 
 async def execute_delete(session: Session, media: Media, settings: Settings) -> DeleteExecuteResult:
     duplicate_files, orphan_torrents = _resolve_candidates(session, media)
+    # Voir services/path_guard.py : un volume non monté ferait passer des
+    # fichiers intacts pour des doublons ou des orphelins supprimables.
+    ensure_paths_available(settings, [f.path for f in duplicate_files], "Suppression")
+
     steps: list[DeleteStepResult] = []
 
     for f in duplicate_files:
