@@ -53,6 +53,25 @@ export const fr = {
     otpLabel: "Code de vérification",
     otpHelp: "Code à 6 chiffres de votre application d'authentification, ou un code de secours.",
   },
+  security: {
+    title: "Sécurité et connexions",
+    description:
+      "Utile quand Analysarr est joignable depuis l'extérieur : voir qui se connecte, et faire remonter la vraie adresse des visiteurs derrière un reverse-proxy.",
+    trustedProxies: "Reverse-proxys de confiance",
+    trustedProxiesHelp:
+      "IP ou plages CIDR séparées par des virgules. Seule une requête venant de ces adresses autorise la lecture de l'en-tête X-Forwarded-For : sans ça, n'importe qui pourrait annoncer l'adresse de son choix et contourner le verrouillage anti-bruteforce. Laissez vide sans reverse-proxy.",
+    history: "Dernières tentatives de connexion",
+    historyEmpty: "Aucune tentative enregistrée.",
+    success: "Réussie",
+    reasons: {
+      password: "Mot de passe incorrect",
+      otp: "Code 2FA incorrect",
+      locked: "Compte verrouillé",
+      rate_limited: "Trop de tentatives",
+      unknown_user: "Utilisateur inconnu",
+    },
+    saved: "Réglages de sécurité enregistrés.",
+  },
   account: {
     title: "Mot de passe",
     description: "Changer le mot de passe du compte administrateur.",

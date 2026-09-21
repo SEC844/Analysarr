@@ -4,8 +4,10 @@ import type {
   ChangePasswordRequest,
   ChangeUsernameRequest,
   CurrentUser,
+  LoginAttempt,
   LoginRequest,
   RecoveryCodes,
+  SecuritySettings,
   SetupRequest,
   TwoFactorDisableRequest,
   TwoFactorSetup,
@@ -131,6 +133,21 @@ export function enableTwoFactor(code: string): Promise<RecoveryCodes> {
 
 export function disableTwoFactor(payload: TwoFactorDisableRequest): Promise<CurrentUser> {
   return request<CurrentUser>("/api/auth/2fa/disable", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function getLoginHistory(): Promise<LoginAttempt[]> {
+  return request<LoginAttempt[]>("/api/auth/login-history")
+}
+
+export function getSecuritySettings(): Promise<SecuritySettings> {
+  return request<SecuritySettings>("/api/auth/security")
+}
+
+export function saveSecuritySettings(trusted_proxies: string): Promise<SecuritySettings> {
+  return request<SecuritySettings>("/api/auth/security", {
+    method: "PUT",
+    body: JSON.stringify({ trusted_proxies }),
+  })
 }
 
 export function getAppInfo(): Promise<AppInfo> {

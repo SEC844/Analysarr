@@ -53,6 +53,25 @@ export const en: Dictionary = {
     otpLabel: "Verification code",
     otpHelp: "6-digit code from your authenticator app, or a recovery code.",
   },
+  security: {
+    title: "Security and sign-ins",
+    description:
+      "Useful when Analysarr is reachable from outside: see who signs in, and surface the real visitor address behind a reverse proxy.",
+    trustedProxies: "Trusted reverse proxies",
+    trustedProxiesHelp:
+      "IP addresses or CIDR ranges, comma separated. Only a request coming from these addresses allows the X-Forwarded-For header to be read: otherwise anyone could announce the address of their choice and bypass the brute-force lockout. Leave empty without a reverse proxy.",
+    history: "Latest sign-in attempts",
+    historyEmpty: "No attempt recorded yet.",
+    success: "Succeeded",
+    reasons: {
+      password: "Wrong password",
+      otp: "Wrong 2FA code",
+      locked: "Account locked",
+      rate_limited: "Too many attempts",
+      unknown_user: "Unknown user",
+    },
+    saved: "Security settings saved.",
+  },
   account: {
     title: "Password",
     description: "Change the administrator account password.",

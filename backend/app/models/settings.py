@@ -71,6 +71,10 @@ class Settings(SQLModel, table=True):
     # Mise en pause effective : date + motif (JSON) du basculement détecté.
     automations_paused_at: Optional[datetime] = None
     automations_paused_reason: Optional[str] = None
+    # Reverse-proxys de confiance (IP ou CIDR, séparés par des virgules) :
+    # seule leur requête autorise la lecture de X-Forwarded-For pour connaître
+    # l'adresse réelle du client (verrouillage et journal de connexion).
+    trusted_proxies: str = ""
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: Optional[str] = None

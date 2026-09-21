@@ -20,7 +20,10 @@ from app.routers import services as services_router
 from app.routers import settings as settings_router
 from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
+from app.services.login_log import record_attempt
 from app.services.path_guard import MountUnavailableError
+from app.services.rate_limit import retry_after
+from app.services.security import client_ip, parse_trusted_proxies
 from app.services.scheduler import configure_scan_schedule, refresh_update_watch, scheduler
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
@@ -28,6 +31,44 @@ from app.services.scheduler import configure_scan_schedule, refresh_update_watch
 _PUBLIC_API_PREFIXES = ("/api/auth/",)
 # `/api/status` : widget externe, protégé par sa propre clé API (routers/widget.py).
 _PUBLIC_API_PATHS = ("/api/health", "/api/status")
+# Exception dans `/api/auth/` : le journal de connexion n'a rien de public.
+_PROTECTED_AUTH_PATHS = ("/api/auth/login-history", "/api/auth/security")
+# Routes d'authentification limitées en débit (par adresse IP) : le
+# verrouillage de compte ne couvre ni le coût d'un bcrypt par requête, ni les
+# routes 2FA. La lecture d'état (`/status`, `/me`) n'est jamais limitée : le
+# frontend l'appelle à chaque chargement de page.
+_RATE_LIMITED_AUTH_PATHS = (
+    "/api/auth/login",
+    "/api/auth/setup",
+    "/api/auth/password",
+    "/api/auth/username",
+    "/api/auth/2fa/setup",
+    "/api/auth/2fa/enable",
+    "/api/auth/2fa/disable",
+)
+# En-têtes de sécurité appliqués à TOUTE réponse. CSP volontairement stricte :
+# l'application ne charge aucun script ni aucune image hors de sa propre
+# origine (jaquettes et avatars sont relayés par l'API). `unsafe-inline` reste
+# nécessaire pour les styles, posés en attribut par React et Base UI.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'self'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "object-src 'none'"
+)
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CSP,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "same-origin",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
 
 
 @asynccontextmanager
@@ -54,9 +95,36 @@ async def mount_unavailable(request: Request, exc: MountUnavailableError) -> JSO
 
 
 @app.middleware("http")
+async def limit_auth_requests(request: Request, call_next):
+    """Fenêtre glissante par adresse IP sur les routes d'authentification
+    (voir services/rate_limit.py). L'adresse n'est lue dans X-Forwarded-For
+    que derrière un proxy déclaré de confiance."""
+    if request.url.path not in _RATE_LIMITED_AUTH_PATHS:
+        return await call_next(request)
+
+    with Session(engine) as session:
+        settings = session.get(Settings, 1)
+        trusted = parse_trusted_proxies(settings.trusted_proxies if settings else "")
+        ip = client_ip(request, trusted)
+        wait = retry_after(ip or "inconnu")
+        if wait is not None:
+            if request.url.path == "/api/auth/login":
+                record_attempt(session, username="", ip=ip, success=False, reason="rate_limited")
+            return JSONResponse(
+                {"detail": f"Trop de tentatives. Réessayez dans {wait} s."},
+                status_code=429,
+                headers={"Retry-After": str(wait)},
+            )
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def require_auth(request: Request, call_next):
     path = request.url.path
-    is_public = path in _PUBLIC_API_PATHS or any(path.startswith(p) for p in _PUBLIC_API_PREFIXES)
+    is_public = (
+        path in _PUBLIC_API_PATHS
+        or any(path.startswith(p) for p in _PUBLIC_API_PREFIXES)
+    ) and path not in _PROTECTED_AUTH_PATHS
     if path.startswith("/api/") and not is_public:
         if not is_request_authenticated(request):
             return JSONResponse({"detail": "Non authentifié."}, status_code=401)
@@ -77,6 +145,17 @@ async def static_cache_headers(request: Request, call_next):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:
         response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Durcissement pour une instance exposée : ces en-têtes ne changent rien
+    en réseau local et coupent le clickjacking, le sniffing de type et le
+    chargement de code tiers."""
+    response = await call_next(request)
+    for header, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
     return response
 
 

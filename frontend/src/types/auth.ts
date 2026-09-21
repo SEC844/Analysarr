@@ -43,3 +43,17 @@ export interface TwoFactorDisableRequest {
   password: string
   code: string
 }
+
+/** Journal des connexions (Réglages → Compte). */
+export interface LoginAttempt {
+  created_at: string
+  username: string
+  ip: string
+  success: boolean
+  reason: string | null
+}
+
+export interface SecuritySettings {
+  /** Reverse-proxys de confiance, IP ou CIDR séparés par des virgules. */
+  trusted_proxies: string
+}

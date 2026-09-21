@@ -38,6 +38,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("media", "root_path"),
     ("scanrun", "scope"),
     ("torrentfile", "torrent_hash"),
+    ("scanrun", "non_hardlink_count"),
 ]
 
 
@@ -110,6 +111,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("automation_guard_percent", "INTEGER NOT NULL DEFAULT 20"),
     ("automations_paused_at", "DATETIME"),
     ("automations_paused_reason", "VARCHAR"),
+    ("trusted_proxies", "VARCHAR NOT NULL DEFAULT ''"),
 ]
 
 
