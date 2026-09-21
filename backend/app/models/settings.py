@@ -65,6 +65,12 @@ class Settings(SQLModel, table=True):
     # Vérifie périodiquement sur GitHub si une nouvelle version est publiée
     # (voir services/updates.py). Désactivable : aucune requête sortante alors.
     update_check_enabled: bool = True
+    # Garde-fou des automatisations (services/automation_guard.py) : part de la
+    # bibliothèque qui peut basculer d'un scan à l'autre avant la mise en pause.
+    automation_guard_percent: int = 20
+    # Mise en pause effective : date + motif (JSON) du basculement détecté.
+    automations_paused_at: Optional[datetime] = None
+    automations_paused_reason: Optional[str] = None
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: Optional[str] = None

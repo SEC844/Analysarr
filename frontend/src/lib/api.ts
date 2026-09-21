@@ -11,7 +11,7 @@ import type {
   TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
-import type { Automation, AutomationRunResult, AutomationWrite } from "@/types/automations"
+import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
 import type { ServicesStatus } from "@/types/services"
@@ -218,6 +218,19 @@ export function previewAutomation(id: number): Promise<AutomationRunResult> {
 
 export function runAutomation(id: number): Promise<AutomationRunResult> {
   return request<AutomationRunResult>(`/api/automations/${id}/run`, { method: "POST" })
+}
+
+export function getAutomationGuard(): Promise<AutomationGuard> {
+  return request<AutomationGuard>("/api/automations/guard")
+}
+
+export function saveAutomationGuard(percent: number): Promise<AutomationGuard> {
+  return request<AutomationGuard>("/api/automations/guard", { method: "PUT", body: JSON.stringify({ percent }) })
+}
+
+/** Reprise manuelle après une mise en pause automatique. */
+export function resumeAutomations(): Promise<AutomationGuard> {
+  return request<AutomationGuard>("/api/automations/guard/resume", { method: "POST" })
 }
 
 export function getWidgetKey(): Promise<WidgetKeyRead> {

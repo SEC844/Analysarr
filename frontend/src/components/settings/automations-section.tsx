@@ -2,6 +2,7 @@ import { useState } from "react"
 import { ChevronRight, Loader2, Play, Plus, Trash2, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { AutomationsPausedBanner } from "@/components/automations/automations-paused-banner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,11 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import {
+  useAutomationGuardQuery,
   useAutomationsQuery,
   useCreateAutomationMutation,
   useDeleteAutomationMutation,
   usePreviewAutomationMutation,
   useRunAutomationMutation,
+  useSaveAutomationGuardMutation,
   useUpdateAutomationMutation,
 } from "@/hooks/use-automations"
 import { useI18n, type MessageKey } from "@/i18n"
@@ -398,6 +401,60 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
   )
 }
 
+/** Seuil du garde-fou + reprise manuelle après une mise en pause. */
+function AutomationGuardCard() {
+  const { t } = useI18n()
+  const { data: guard } = useAutomationGuardQuery()
+  const saveMutation = useSaveAutomationGuardMutation()
+  const [percent, setPercent] = useState<string>("")
+
+  if (!guard) return null
+  const value = percent === "" ? String(guard.percent) : percent
+  const parsed = Number(value)
+  const invalid = !Number.isInteger(parsed) || parsed < guard.min_percent || parsed > 100
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("automations.guard.title")}</CardTitle>
+        <CardDescription>{t("automations.guard.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <AutomationsPausedBanner withResume />
+        <div className="space-y-1.5">
+          <Label htmlFor="automation-guard-percent">{t("automations.guard.threshold")}</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="automation-guard-percent"
+              type="number"
+              min={guard.min_percent}
+              max={100}
+              className="w-28"
+              value={value}
+              onChange={(e) => setPercent(e.target.value)}
+              onBlur={() => {
+                if (invalid || parsed === guard.percent) {
+                  setPercent("")
+                  return
+                }
+                saveMutation.mutate(parsed, {
+                  onSuccess: () => setPercent(""),
+                  onError: (err) => toast.error(err instanceof Error ? err.message : t("common.saveFailed")),
+                })
+              }}
+            />
+            <span className="text-muted-foreground text-sm">%</span>
+            {saveMutation.isPending && <Loader2 className="text-muted-foreground size-4 animate-spin" />}
+          </div>
+          <p className="text-muted-foreground text-xs">
+            {t("automations.guard.thresholdHelp", { min: guard.min_percent })}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AutomationsSection() {
   const { t } = useI18n()
   const { data: automations, isLoading } = useAutomationsQuery()
@@ -425,6 +482,8 @@ export function AutomationsSection() {
           <p className="text-muted-foreground text-sm">{t("automations.safety")}</p>
         </CardContent>
       </Card>
+
+      <AutomationGuardCard />
 
       {automations.map((automation) => (
         <AutomationCard key={automation.id} automation={automation} />

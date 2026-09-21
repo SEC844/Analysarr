@@ -268,6 +268,7 @@ export const en: Dictionary = {
       cross_seed_search: "Cross-seed search",
       automation: "Automation ran",
       update_available: "Update available",
+      automations_paused: "Automations paused",
     },
     eventHelp: {
       scan_completed: "Summary figures after each successful scan.",
@@ -284,6 +285,7 @@ export const en: Dictionary = {
       cross_seed_search: "Search sent to the cross-seed daemon.",
       automation: "An automation rule acted.",
       update_available: "A new version of Analysarr has been released (checked every 3 hours, notified once per version).",
+      automations_paused: "A scan flipped an unusual share of the library: the rules are suspended.",
     },
     urlLabel: {
       discord: "Webhook URL",
@@ -306,6 +308,22 @@ export const en: Dictionary = {
     confirmDelete: "Confirm deletion",
   },
   automations: {
+    guard: {
+      title: "Automation safety net",
+      description:
+        "Suspends the rules when a scan flips an unusual share of the library: unreachable share, torrent client reset, library moved…",
+      threshold: "Share of the library tolerated",
+      thresholdHelp:
+        "Above this percentage of media changing state (duplicate, orphan, not hardlinked) from one full scan to the next without any action from you, automations are paused. Minimum {min}%.",
+      active: "Automatic pause above {percent}% of media flipped between two full scans.",
+      pausedTitle: "Automations paused",
+      reason: "Last scan: {status} went from {previous} to {current} media, that is {percent}% of the library.",
+      reasonUnknown: "A scan flipped an unusual share of the library.",
+      pausedAdvice: "Check your mounts and services, run a scan, then resume the automations.",
+      resume: "Resume automations",
+      resumed: "Automations resumed.",
+      open: "Open automations",
+    },
     title: "Automations",
     description:
       "Rules that act on their own after each scan: for example deleting orphan torrents seeded for more than 30 days. No rule exists by default.",

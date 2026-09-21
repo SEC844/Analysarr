@@ -37,6 +37,20 @@ export interface Automation {
   last_run_count: number
 }
 
+/** Garde-fou : part de la bibliothèque qui peut basculer d'un scan à l'autre
+ * avant que les règles ne soient suspendues (backend : automation_guard.py). */
+export interface AutomationGuard {
+  percent: number
+  min_percent: number
+  paused: boolean
+  paused_at: string | null
+  status: string | null
+  previous: number | null
+  current: number | null
+  total: number | null
+  changed_percent: number | null
+}
+
 export interface AutomationWrite {
   name: string
   enabled: boolean

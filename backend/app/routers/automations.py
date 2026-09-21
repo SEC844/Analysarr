@@ -11,7 +11,20 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.automation import Automation
 from app.models.settings import Settings
-from app.schemas.automations import AutomationRead, AutomationRunResult, AutomationWrite
+from app.schemas.automations import (
+    AutomationGuard,
+    AutomationGuardWrite,
+    AutomationRead,
+    AutomationRunResult,
+    AutomationWrite,
+)
+from app.services.automation_guard import (
+    MIN_THRESHOLD_PERCENT,
+    is_paused,
+    paused_reason,
+    resume_automations,
+    threshold_percent,
+)
 from app.services.automations import TRIGGER_STATUSES, eligible_medias, as_rule, rule_conditions, run_rule
 from app.services.notifications import channel_targets
 
@@ -35,6 +48,28 @@ def _to_read(automation: Automation) -> AutomationRead:
     )
 
 
+def _guard(settings: Settings | None) -> AutomationGuard:
+    reason = paused_reason(settings) or {}
+    return AutomationGuard(
+        percent=threshold_percent(settings),
+        min_percent=MIN_THRESHOLD_PERCENT,
+        paused=is_paused(settings),
+        paused_at=settings.automations_paused_at if settings else None,
+        status=reason.get("status"),
+        previous=reason.get("previous"),
+        current=reason.get("current"),
+        total=reason.get("total"),
+        changed_percent=reason.get("percent"),
+    )
+
+
+def _settings(session: Session) -> Settings:
+    settings = session.get(Settings, 1)
+    if settings is None:
+        raise HTTPException(400, "Configuration manquante.")
+    return settings
+
+
 def _get(automation_id: int, session: Session) -> Automation:
     automation = session.get(Automation, automation_id)
     if automation is None:
@@ -54,6 +89,29 @@ def _apply(automation: Automation, payload: AutomationWrite) -> None:
     automation.conditions = json.dumps(payload.conditions.model_dump(exclude_none=True))
     automation.max_actions = payload.max_actions
     automation.dry_run = payload.dry_run
+
+
+@router.get("/guard", response_model=AutomationGuard)
+def read_guard(session: Session = Depends(get_session)) -> AutomationGuard:
+    return _guard(session.get(Settings, 1))
+
+
+@router.put("/guard", response_model=AutomationGuard)
+def update_guard(payload: AutomationGuardWrite, session: Session = Depends(get_session)) -> AutomationGuard:
+    settings = _settings(session)
+    settings.automation_guard_percent = payload.percent
+    session.add(settings)
+    session.commit()
+    return _guard(settings)
+
+
+@router.post("/guard/resume", response_model=AutomationGuard)
+def resume_guard(session: Session = Depends(get_session)) -> AutomationGuard:
+    """Reprise manuelle après une mise en pause : c'est l'utilisateur qui
+    confirme que le basculement était légitime (voir automation_guard.py)."""
+    settings = _settings(session)
+    resume_automations(session, settings)
+    return _guard(settings)
 
 
 @router.get("", response_model=list[AutomationRead])

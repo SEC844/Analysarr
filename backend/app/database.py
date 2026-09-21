@@ -107,6 +107,9 @@ _SETTINGS_NEW_COLUMNS = [
     ("widget_api_key_hash", "VARCHAR"),
     ("torrent_client", "VARCHAR NOT NULL DEFAULT 'qbittorrent'"),
     ("update_notified_version", "VARCHAR"),
+    ("automation_guard_percent", "INTEGER NOT NULL DEFAULT 20"),
+    ("automations_paused_at", "DATETIME"),
+    ("automations_paused_reason", "VARCHAR"),
 ]
 
 

@@ -68,6 +68,7 @@ NOTIFICATION_EVENTS = (
     "cross_seed_search",
     "automation",
     "update_available",
+    "automations_paused",
 )
 # Sélection par défaut d'un nouveau canal : ce qui demande une action ou
 # signale un problème, jamais le simple résumé de scan (trop fréquent).
@@ -80,6 +81,7 @@ DEFAULT_EVENTS = (
     "cascade_delete",
     "hardlink_repair",
     "update_available",
+    "automations_paused",
 )
 
 DISCORD_WEBHOOK_PREFIXES = (
@@ -137,6 +139,16 @@ _TEXT = {
         "test_body": "Les notifications d'Analysarr fonctionnent : les événements choisis pour ce canal arriveront ici.",
         "rule": "Règle",
         "trigger": "Déclencheur",
+        "automations_paused": "Automatisations mises en pause",
+        "automations_paused_summary": "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues jusqu'à une reprise manuelle.",
+        "guard_status": "Statut concerné",
+        "guard_change": "Médias concernés",
+        "guard_share": "Part de la bibliothèque",
+        "statuses": {
+            "doublon": "Doublon",
+            "orphelin_qbit": "Orphelin",
+            "non_hardlink": "Non hardlinké",
+        },
         "update_available": "Mise à jour disponible",
         "update_available_summary": "Une nouvelle version d'Analysarr est publiée.",
         "installed_version": "Version installée",
@@ -183,6 +195,16 @@ _TEXT = {
         "test_body": "Analysarr notifications are working: the events selected for this channel will show up here.",
         "rule": "Rule",
         "trigger": "Trigger",
+        "automations_paused": "Automations paused",
+        "automations_paused_summary": "A scan flipped an unusual share of the library: rules are suspended until you resume them.",
+        "guard_status": "Status involved",
+        "guard_change": "Media involved",
+        "guard_share": "Share of the library",
+        "statuses": {
+            "doublon": "Duplicate",
+            "orphelin_qbit": "Orphan",
+            "non_hardlink": "Not hardlinked",
+        },
         "update_available": "Update available",
         "update_available_summary": "A new version of Analysarr has been released.",
         "installed_version": "Installed version",
@@ -386,6 +408,25 @@ def detection_notification(language: str, event: str, medias: list[tuple[str, in
         fields=fields,
         details_label=text["details"],
         details=details,
+        colon=text["colon"],
+    )
+
+
+def automations_paused_notification(
+    language: str, *, status: str, previous: int, current: int, percent: int
+) -> Notification:
+    """Basculement massif détecté par un scan : les automatisations sont
+    suspendues (voir services/automation_guard.py)."""
+    text = _TEXT[language]
+    return Notification(
+        title=text["automations_paused"],
+        description=text["automations_paused_summary"],
+        level="warning",
+        fields=[
+            (text["guard_status"], text["statuses"].get(status, status)),
+            (text["guard_change"], f"{previous} → {current}"),
+            (text["guard_share"], f"{percent} %"),
+        ],
         colon=text["colon"],
     )
 

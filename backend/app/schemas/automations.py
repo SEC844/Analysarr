@@ -50,6 +50,27 @@ class AutomationWrite(BaseModel):
     dry_run: bool = False
 
 
+class AutomationGuard(BaseModel):
+    """État du garde-fou (services/automation_guard.py) : part de la
+    bibliothèque tolérée d'un scan à l'autre, et pause éventuelle."""
+
+    percent: int
+    min_percent: int
+    paused: bool
+    paused_at: Optional[datetime] = None
+    # Motif de la pause, tel que détecté par le scan (le libellé est traduit
+    # par l'interface) : statut concerné et compteurs avant/après.
+    status: Optional[str] = None
+    previous: Optional[int] = None
+    current: Optional[int] = None
+    total: Optional[int] = None
+    changed_percent: Optional[int] = None
+
+
+class AutomationGuardWrite(BaseModel):
+    percent: int = Field(ge=5, le=100)
+
+
 class AutomationStep(BaseModel):
     label: str
     success: bool

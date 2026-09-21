@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
+import { useAutomationGuardQuery } from "@/hooks/use-automations"
 import { useRefreshServicesStatusMutation, useServicesStatusQuery } from "@/hooks/use-services"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n, type MediaServer, type MessageKey } from "@/i18n"
@@ -125,6 +126,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
   const saveSettings = useSaveSettingsMutation()
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
+  const automationsPaused = useAutomationGuardQuery().data?.paused ?? false
   // Pastille par service dans la navigation ; encadré d'erreur dans la section
   // d'un service qui ne répond pas (lien direct depuis l'en-tête).
   const { data: services } = useServicesStatusQuery()
@@ -181,6 +183,9 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                   {label(s.label)}
                   {serviceStatuses.bySection[s.id] && <ServiceDot status={serviceStatuses.bySection[s.id]} />}
                   {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
+                  {s.id === "automations" && automationsPaused && (
+                    <PulseDot tone="warning" label={t("automations.guard.pausedTitle")} />
+                  )}
                 </button>
               ))}
             </div>

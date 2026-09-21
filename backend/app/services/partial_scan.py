@@ -294,6 +294,7 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
             run.media_count = len(medias)
             run.duplicate_count = sum(1 for m in medias if "doublon" in m.statuses.split(","))
             run.orphan_count = sum(1 for m in medias if "orphelin_qbit" in m.statuses.split(","))
+            run.non_hardlink_count = sum(1 for m in medias if "non_hardlink" in m.statuses.split(","))
             run.tracker_unique_count = sum(1 for m in medias if "tracker_unique" in m.statuses.split(","))
             run.qbittorrent_torrent_count = torrent_count
             run.qbittorrent_matched_count = matched_count

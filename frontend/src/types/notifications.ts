@@ -16,6 +16,7 @@ export const NOTIFICATION_EVENTS = [
   "cross_seed_search",
   "automation",
   "update_available",
+  "automations_paused",
 ] as const
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number]

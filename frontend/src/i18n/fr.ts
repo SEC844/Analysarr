@@ -270,6 +270,7 @@ export const fr = {
       cross_seed_search: "Recherche cross-seed",
       automation: "Automatisation exécutée",
       update_available: "Mise à jour disponible",
+      automations_paused: "Automatisations mises en pause",
     },
     eventHelp: {
       scan_completed: "Résumé chiffré après chaque scan réussi.",
@@ -286,6 +287,7 @@ export const fr = {
       cross_seed_search: "Recherche lancée auprès du daemon cross-seed.",
       automation: "Une règle d'automatisation a agi.",
       update_available: "Une nouvelle version d'Analysarr est publiée (vérifié toutes les 3 h, une seule notification par version).",
+      automations_paused: "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues.",
     },
     urlLabel: {
       discord: "URL du webhook",
@@ -308,6 +310,22 @@ export const fr = {
     confirmDelete: "Confirmer la suppression",
   },
   automations: {
+    guard: {
+      title: "Garde-fou des automatisations",
+      description:
+        "Suspend les règles quand un scan fait basculer une part anormale de la bibliothèque : partage injoignable, client torrent réinitialisé, bibliothèque déplacée…",
+      threshold: "Part de la bibliothèque tolérée",
+      thresholdHelp:
+        "Au-delà de ce pourcentage de médias qui changent d'état (doublon, orphelin, non hardlink) d'un scan complet à l'autre sans action de votre part, les automatisations se mettent en pause. Minimum {min} %.",
+      active: "Pause automatique au-delà de {percent} % de médias basculés entre deux scans complets.",
+      pausedTitle: "Automatisations en pause",
+      reason: "Dernier scan : {status} passé de {previous} à {current} média(s), soit {percent} % de la bibliothèque.",
+      reasonUnknown: "Un scan a fait basculer une part anormale de la bibliothèque.",
+      pausedAdvice: "Vérifiez vos montages et vos services, relancez un scan, puis reprenez les automatisations.",
+      resume: "Reprendre les automatisations",
+      resumed: "Automatisations reprises.",
+      open: "Voir les automatisations",
+    },
     title: "Automatisations",
     description:
       "Des règles qui agissent toutes seules après chaque scan : par exemple supprimer les torrents orphelins seedés depuis plus de 30 jours. Aucune règle n'existe par défaut.",

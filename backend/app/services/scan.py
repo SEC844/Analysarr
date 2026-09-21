@@ -38,6 +38,7 @@ from app.services.events import scan_events
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.notifications import (
     ChannelTarget,
+    automations_paused_notification,
     channel_targets,
     detection_notification,
     notification_language,
@@ -392,6 +393,7 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         run.media_count = len(results)
         run.duplicate_count = sum(1 for r in results if "doublon" in r.media.statuses.split(","))
         run.orphan_count = sum(1 for r in results if "orphelin_qbit" in r.media.statuses.split(","))
+        run.non_hardlink_count = sum(1 for r in results if "non_hardlink" in r.media.statuses.split(","))
         run.tracker_unique_count = sum(1 for r in results if "tracker_unique" in r.media.statuses.split(","))
         run.qbittorrent_torrent_count = len(fetched_torrents)
         run.qbittorrent_matched_count = sum(len(r.torrents) for r in results)
@@ -425,7 +427,7 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         ]
         if newly_flagged:
             notify(channels, event, detection_notification(notification_language(settings), event, newly_flagged))
-    await _run_automations(channels)
+    await _run_automations(channels, run_id)
 
 
 def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> int | None:
@@ -435,15 +437,37 @@ def _duration_seconds(started_at: datetime | None, finished_at: datetime | None)
     return max(0, int((finished_at.replace(tzinfo=None) - started_at.replace(tzinfo=None)).total_seconds()))
 
 
-async def _run_automations(channels: list[ChannelTarget]) -> None:
+async def _run_automations(channels: list[ChannelTarget], run_id: int) -> None:
     """Règles d'automatisation activées, sur les statuts que ce scan vient de
-    calculer. Import différé : automations.py dépend des services d'action,
-    qui dépendent eux-mêmes de ce module."""
+    calculer — sauf si ce scan a fait basculer une part anormale de la
+    bibliothèque (voir services/automation_guard.py). Import différé :
+    automations.py dépend des services d'action, qui dépendent eux-mêmes de ce
+    module."""
+    from app.services.automation_guard import detect_mass_change, is_paused, pause_automations
     from app.services.automations import run_automations
 
     with Session(engine) as session:
+        settings = session.get(Settings, 1)
+        run = session.get(ScanRun, run_id)
+        if settings is not None and run is not None and not is_paused(settings):
+            change = detect_mass_change(session, run, settings)
+            if change is not None:
+                pause_automations(session, settings, change)
+                notify(
+                    channels,
+                    "automations_paused",
+                    automations_paused_notification(
+                        notification_language(settings),
+                        status=change.status,
+                        previous=change.previous,
+                        current=change.current,
+                        percent=change.percent,
+                    ),
+                )
+        if is_paused(settings):
+            return  # reprise manuelle attendue : aucune règle ne s'exécute
         try:
-            await run_automations(session, session.get(Settings, 1), channels)
+            await run_automations(session, settings, channels)
         except Exception:  # noqa: BLE001 - une règle défaillante ne doit jamais faire échouer le scan
             logger.exception("Échec d'une automatisation après le scan")
 

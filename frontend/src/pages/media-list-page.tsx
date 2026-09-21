@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
+import { AutomationsPausedBanner } from "@/components/automations/automations-paused-banner"
 import { GRID_SIZE_CLASSES, GridSizeToggle, type GridSize } from "@/components/media/grid-size-toggle"
 import { MediaCard } from "@/components/media/media-card"
 import { MediaFilters } from "@/components/media/media-filters"
@@ -63,6 +64,12 @@ export function MediaListPage() {
           <ScanButton />
           <GridSizeToggle value={gridSize} onChange={setGridOverride} />
         </div>
+      </div>
+
+      {/* Automatisations suspendues par le garde-fou : visible dès l'accueil,
+          sinon la pause passerait inaperçue jusqu'à l'ouverture des réglages. */}
+      <div className="mb-6 empty:mb-0">
+        <AutomationsPausedBanner />
       </div>
 
       <div className="mb-6">
