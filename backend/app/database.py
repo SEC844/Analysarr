@@ -106,6 +106,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("notify_on_actions", "BOOLEAN NOT NULL DEFAULT 1"),
     ("widget_api_key_hash", "VARCHAR"),
     ("torrent_client", "VARCHAR NOT NULL DEFAULT 'qbittorrent'"),
+    ("update_notified_version", "VARCHAR"),
 ]
 
 

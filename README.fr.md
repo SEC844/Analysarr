@@ -70,11 +70,11 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Fichiers de la bibliothèque rapprochés de Sonarr/Radarr même quand les conteneurs montent la bibliothèque à des chemins différents.
 - État de connexion de chaque service dans les réglages, avec une alerte dans l'en-tête dès qu'un service ne répond plus.
 - Widget de tableau de bord en lecture seule (`/api/status`) pour Homepage, Homarr ou tout outil capable de lire du JSON.
-- Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape). Plusieurs canaux, chacun avec ses propres événements : scan terminé, échec de scan, orphelins détectés, suppression, nettoyage, réparation des hardlinks, recherche cross-seed, automatisation.
+- Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape). Plusieurs canaux, chacun avec ses propres événements : scan terminé, échec de scan, orphelins détectés, imports bloqués, téléchargements en souffrance, suppression, nettoyage, réparation des hardlinks, recherche cross-seed, automatisation, mise à jour disponible.
 - Automatisations optionnelles : sur orphelins, doublons, torrents non hardlinkés ou imports bloqués, nettoyer, réparer, relancer l'import, chercher un cross-seed ou simplement notifier — avec conditions (ancienneté du seed, ratio, type de média, espace récupérable), mode simulation et plafond par exécution.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.
-- Notification quand une nouvelle version est publiée.
+- Vérification des mises à jour à l'ouverture de l'application (une requête toutes les 10 minutes au maximum), avec notification optionnelle quand une nouvelle version est publiée.
 
 ## Compatibilité
 

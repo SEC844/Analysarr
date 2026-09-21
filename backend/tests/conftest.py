@@ -35,6 +35,7 @@ def fresh_database():
     init_db()
     updates._cached = None
     updates._expires_at = None
+    updates._refresh_task = None
     service_status._cache = None
 
 

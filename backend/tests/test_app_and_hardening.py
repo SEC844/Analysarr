@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -90,3 +90,38 @@ def test_as_utc_keeps_naive_database_dates_in_utc():
     from app.services.watch_stats import as_utc
 
     assert as_utc(datetime(2026, 1, 1)).tzinfo == timezone.utc
+
+
+def test_page_open_refreshes_in_background_without_blocking(fake_http, monkeypatch):
+    """La vérification suit l'ouverture des pages : le premier appel attend le
+    résultat, les suivants renvoient le cache et rafraîchissent en fond."""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return github_release(f"v0.19.{len(calls)}", f"{updates.RELEASES_PAGE}/tag/v0.19.0")(request)
+
+    fake_http["https://api.github.com"] = handler
+    monkeypatch.setattr(updates, "APP_VERSION", "0.18.0")
+
+    async def scenario():
+        first = await updates.status_for_page(True)
+        assert first.latest_version == "0.19.1" and len(calls) == 1
+        assert await updates.status_for_page(True) is first and len(calls) == 1  # cache frais
+
+        updates._expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        assert await updates.status_for_page(True) is first and len(calls) == 1  # réponse immédiate
+        await updates._refresh_task  # le rafraîchissement, lui, s'est bien lancé
+        assert len(calls) == 2
+        assert (await updates.status_for_page(True)).latest_version == "0.19.2"
+
+    asyncio.run(scenario())
+
+
+def test_disabled_update_check_makes_no_outbound_request(fake_http, admin_client):
+    def forbidden(request):
+        raise AssertionError("aucune requête sortante quand la vérification est désactivée")
+
+    fake_http["https://api.github.com"] = forbidden
+    assert admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code == 200
+    assert admin_client.get("/api/app/info").json()["update"] is None

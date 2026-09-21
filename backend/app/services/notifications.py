@@ -67,6 +67,7 @@ NOTIFICATION_EVENTS = (
     "hardlink_repair",
     "cross_seed_search",
     "automation",
+    "update_available",
 )
 # Sélection par défaut d'un nouveau canal : ce qui demande une action ou
 # signale un problème, jamais le simple résumé de scan (trop fréquent).
@@ -78,6 +79,7 @@ DEFAULT_EVENTS = (
     "delete_selection",
     "cascade_delete",
     "hardlink_repair",
+    "update_available",
 )
 
 DISCORD_WEBHOOK_PREFIXES = (
@@ -135,6 +137,10 @@ _TEXT = {
         "test_body": "Les notifications d'Analysarr fonctionnent : les événements choisis pour ce canal arriveront ici.",
         "rule": "Règle",
         "trigger": "Déclencheur",
+        "update_available": "Mise à jour disponible",
+        "update_available_summary": "Une nouvelle version d'Analysarr est publiée.",
+        "installed_version": "Version installée",
+        "latest_version": "Dernière version",
     },
     "en": {
         "colon": ": ",
@@ -177,6 +183,10 @@ _TEXT = {
         "test_body": "Analysarr notifications are working: the events selected for this channel will show up here.",
         "rule": "Rule",
         "trigger": "Trigger",
+        "update_available": "Update available",
+        "update_available_summary": "A new version of Analysarr has been released.",
+        "installed_version": "Installed version",
+        "latest_version": "Latest version",
     },
 }
 
@@ -224,6 +234,12 @@ def channel_events(channel: NotificationChannel) -> tuple[str, ...]:
     except ValueError:
         return ()
     return tuple(event for event in events if event in NOTIFICATION_EVENTS)
+
+
+def event_has_subscriber(session: Session, event: str) -> bool:
+    """Au moins un canal actif abonné à cet événement. Sert à ne planifier une
+    vérification périodique que si quelqu'un l'attend."""
+    return any(target.wants(event) for target in channel_targets(session))
 
 
 def channel_targets(session: Session, only_enabled: bool = True) -> list[ChannelTarget]:
@@ -370,6 +386,24 @@ def detection_notification(language: str, event: str, medias: list[tuple[str, in
         fields=fields,
         details_label=text["details"],
         details=details,
+        colon=text["colon"],
+    )
+
+
+def update_available_notification(
+    language: str, current: str, latest: str, release_url: str | None
+) -> Notification:
+    """Nouvelle version publiée. L'URL vient de `services/updates.py`, qui
+    n'accepte qu'un lien vers la page des releases du dépôt officiel."""
+    text = _TEXT[language]
+    description = text["update_available_summary"]
+    if release_url:
+        description = f"{description}\n{release_url}"
+    return Notification(
+        title=text["update_available"],
+        description=description,
+        level="info",
+        fields=[(text["installed_version"], current), (text["latest_version"], latest)],
         colon=text["colon"],
     )
 

@@ -8,7 +8,8 @@ from app.config import APP_BUILD_DATE, APP_REVISION, APP_VERSION, GITHUB_REPOSIT
 from app.database import get_session
 from app.models.settings import Settings
 from app.schemas.app import AppInfo, AppPreferencesWrite, UiPreferences, UpdateStatus
-from app.services.updates import get_update_status, peek_update_status
+from app.services.scheduler import refresh_update_watch
+from app.services.updates import get_update_status, status_for_page
 
 router = APIRouter()
 
@@ -38,8 +39,7 @@ def _to_info(settings: Settings | None, update: UpdateStatus | None) -> AppInfo:
 async def get_app_info(session: Session = Depends(get_session)) -> AppInfo:
     settings = session.get(Settings, 1)
     enabled = settings.update_check_enabled if settings else True
-    update = await get_update_status() if enabled else peek_update_status()
-    return _to_info(settings, update)
+    return _to_info(settings, await status_for_page(enabled))
 
 
 @router.post("/check-updates", response_model=AppInfo)
@@ -62,5 +62,7 @@ async def put_preferences(payload: AppPreferencesWrite, session: Session = Depen
     session.add(row)
     session.commit()
     session.refresh(row)
-    update = await get_update_status() if row.update_check_enabled else peek_update_status()
-    return _to_info(row, update)
+    # La vérification périodique ne sert qu'aux notifications : elle suit
+    # l'interrupteur de vérification des mises à jour.
+    refresh_update_watch(session)
+    return _to_info(row, await status_for_page(row.update_check_enabled))

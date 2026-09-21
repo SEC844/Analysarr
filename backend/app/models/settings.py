@@ -65,6 +65,9 @@ class Settings(SQLModel, table=True):
     # Vérifie périodiquement sur GitHub si une nouvelle version est publiée
     # (voir services/updates.py). Désactivable : aucune requête sortante alors.
     update_check_enabled: bool = True
+    # Dernière version annoncée par notification : une version n'est notifiée
+    # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
+    update_notified_version: Optional[str] = None
 
     # Identifiants des utilisateurs Emby exclus des statistiques de visionnage
     # (liste JSON) — comptes de test, TV partagée... Les comptes désactivés

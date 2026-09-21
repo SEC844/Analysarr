@@ -5,9 +5,10 @@ import { DEFAULT_UI_PREFERENCES, type AppInfo, type AppPreferences, type UiPrefe
 
 export const APP_INFO_QUERY_KEY = ["app", "info"] as const
 
-// Le backend garde le résultat de la vérification GitHub en cache (6 h) :
-// relire l'état souvent est sans coût, et permet de repérer rapidement qu'une
-// nouvelle version du conteneur vient d'être installée (voir App.tsx).
+// Le backend garde le résultat de la vérification GitHub en cache (10 min) et
+// le rafraîchit en tâche de fond : relire l'état souvent est sans coût, et
+// permet de repérer rapidement qu'une nouvelle version du conteneur vient
+// d'être installée (voir App.tsx).
 export function useAppInfoQuery(enabled = true) {
   return useQuery({
     queryKey: APP_INFO_QUERY_KEY,

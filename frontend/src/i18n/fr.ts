@@ -269,6 +269,7 @@ export const fr = {
       hardlink_repair: "Réparation des hardlinks",
       cross_seed_search: "Recherche cross-seed",
       automation: "Automatisation exécutée",
+      update_available: "Mise à jour disponible",
     },
     eventHelp: {
       scan_completed: "Résumé chiffré après chaque scan réussi.",
@@ -284,6 +285,7 @@ export const fr = {
       hardlink_repair: "Hardlinks recréés pour un média.",
       cross_seed_search: "Recherche lancée auprès du daemon cross-seed.",
       automation: "Une règle d'automatisation a agi.",
+      update_available: "Une nouvelle version d'Analysarr est publiée (vérifié toutes les 3 h, une seule notification par version).",
     },
     urlLabel: {
       discord: "URL du webhook",
@@ -454,7 +456,7 @@ export const fr = {
     checkNow: "Vérifier maintenant",
     autoCheck: "Vérifier automatiquement les mises à jour",
     autoCheckHelp:
-      "Interroge GitHub toutes les 6 heures. Seul le numéro de version d'Analysarr est transmis, aucune autre donnée.",
+      "Interroge GitHub à l'ouverture de l'application, au plus une fois toutes les 10 minutes. Seul le numéro de version d'Analysarr est transmis, aucune autre donnée.",
     sourceCode: "Code source",
     reportIssue: "Signaler un problème",
     starTitle: "Analysarr vous est utile ?",

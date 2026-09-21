@@ -20,7 +20,7 @@ from app.routers import services as services_router
 from app.routers import settings as settings_router
 from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
-from app.services.scheduler import configure_scan_schedule, scheduler
+from app.services.scheduler import configure_scan_schedule, refresh_update_watch, scheduler
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
 # statut/déconnexion) et le healthcheck Docker.
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
         settings = session.get(Settings, 1)
         if settings is not None and settings.scan_schedule_enabled:
             configure_scan_schedule(settings.scan_schedule_interval_minutes)
+        refresh_update_watch(session)
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)

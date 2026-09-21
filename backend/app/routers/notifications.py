@@ -24,6 +24,7 @@ from app.services.notifications import (
     notification_language,
     send,
 )
+from app.services.scheduler import refresh_update_watch
 
 router = APIRouter()
 
@@ -89,6 +90,7 @@ def create_channel(payload: ChannelWrite, session: Session = Depends(get_session
     session.add(channel)
     session.commit()
     session.refresh(channel)
+    refresh_update_watch(session)
     return _to_read(channel)
 
 
@@ -111,6 +113,7 @@ def update_channel(channel_id: int, payload: ChannelWrite, session: Session = De
     session.add(channel)
     session.commit()
     session.refresh(channel)
+    refresh_update_watch(session)
     return _to_read(channel)
 
 
@@ -118,6 +121,7 @@ def update_channel(channel_id: int, payload: ChannelWrite, session: Session = De
 def delete_channel(channel_id: int, session: Session = Depends(get_session)) -> None:
     session.delete(_get(channel_id, session))
     session.commit()
+    refresh_update_watch(session)
 
 
 @router.post("/channels/{channel_id}/test", response_model=ChannelTestResult)

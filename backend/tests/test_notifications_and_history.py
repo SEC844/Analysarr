@@ -9,9 +9,10 @@ from app.models.activity import ActionLog
 from app.models.notification_channel import NotificationChannel
 from app.models.settings import Settings
 from app.schemas.media import DeleteFootprintItem, DeleteStepResult, DiskUnit, MediaDeleteFootprint
-from app.services import action_log, notifications
+from app.services import action_log, notifications, updates
 from app.services.action_log import MediaRef, record_action
 from app.services.hardlink_repair import _separate_copy_size
+from app.services.scheduler import scheduler
 from app.services.media_delete import reclaimed_bytes
 from app.services.notifications import (
     ChannelTarget,
@@ -302,3 +303,66 @@ def test_history_records_actions_and_is_bounded(admin_client, session, monkeypat
 
     assert admin_client.delete("/api/history").status_code == 204
     assert admin_client.get("/api/history").json() == []
+
+
+def test_update_watch_is_scheduled_only_when_a_channel_subscribes(admin_client):
+    """Aucun abonné à `update_available` = aucune vérification périodique, donc
+    aucune requête sortante programmée."""
+    assert create_channel(admin_client, events=["scan_failed"]).status_code == 201
+    assert scheduler.get_job("update_watch") is None
+
+    channel = create_channel(admin_client, name="Updates", events=["update_available"]).json()
+    assert scheduler.get_job("update_watch") is not None
+
+    assert admin_client.delete(f"{CHANNELS}/{channel['id']}").status_code == 204
+    assert scheduler.get_job("update_watch") is None
+
+
+def test_update_watch_stops_with_the_update_check_switch(admin_client):
+    create_channel(admin_client, name="Updates", events=["update_available"])
+    assert admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code == 200
+    assert scheduler.get_job("update_watch") is None
+
+
+def test_a_published_version_is_notified_once(admin_client, settings, fake_http, session, monkeypatch):
+    sent = []
+    fake_http["https://discord.com"] = lambda request: sent.append(discord_payload(request)) or httpx.Response(204)
+    fake_http["https://api.github.com"] = lambda request: httpx.Response(
+        200,
+        json={
+            "tag_name": "v9.9.9",
+            "html_url": f"{updates.RELEASES_PAGE}/tag/v9.9.9",
+            "published_at": "2026-09-21T10:00:00Z",
+        },
+    )
+    monkeypatch.setattr(updates, "APP_VERSION", "0.24.0")
+    create_channel(admin_client, name="Updates", events=["update_available"])
+
+    async def run_twice():
+        await updates.notify_update_available()
+        await asyncio.sleep(0)  # laisse partir l'envoi en tâche de fond
+        await asyncio.gather(*notifications._pending)
+        updates._expires_at = None
+        await updates.notify_update_available()
+        await asyncio.sleep(0)
+        if notifications._pending:
+            await asyncio.gather(*notifications._pending)
+
+    asyncio.run(run_twice())
+
+    assert len(sent) == 1
+    assert "9.9.9" in json.dumps(sent[0])
+    session.expire_all()
+    assert session.get(Settings, 1).update_notified_version == "9.9.9"
+
+
+def test_no_update_notification_without_a_subscriber(admin_client, settings, fake_http, session, monkeypatch):
+    fake_http["https://api.github.com"] = lambda request: (_ for _ in ()).throw(
+        AssertionError("aucune requête sans abonné à l'événement")
+    )
+    monkeypatch.setattr(updates, "APP_VERSION", "0.24.0")
+    create_channel(admin_client, events=["scan_failed"])
+
+    asyncio.run(updates.notify_update_available())
+    session.expire_all()
+    assert session.get(Settings, 1).update_notified_version is None

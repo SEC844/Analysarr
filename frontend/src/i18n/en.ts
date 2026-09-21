@@ -267,6 +267,7 @@ export const en: Dictionary = {
       hardlink_repair: "Hardlink repair",
       cross_seed_search: "Cross-seed search",
       automation: "Automation ran",
+      update_available: "Update available",
     },
     eventHelp: {
       scan_completed: "Summary figures after each successful scan.",
@@ -282,6 +283,7 @@ export const en: Dictionary = {
       hardlink_repair: "Hardlinks recreated for a media.",
       cross_seed_search: "Search sent to the cross-seed daemon.",
       automation: "An automation rule acted.",
+      update_available: "A new version of Analysarr has been released (checked every 3 hours, notified once per version).",
     },
     urlLabel: {
       discord: "Webhook URL",
@@ -451,7 +453,8 @@ export const en: Dictionary = {
     neverChecked: "No check performed yet.",
     checkNow: "Check now",
     autoCheck: "Automatically check for updates",
-    autoCheckHelp: "Queries GitHub every 6 hours. Only the Analysarr version number is sent, no other data.",
+    autoCheckHelp:
+      "Queries GitHub when the app is opened, at most once every 10 minutes. Only the Analysarr version number is sent, no other data.",
     sourceCode: "Source code",
     reportIssue: "Report an issue",
     starTitle: "Enjoying Analysarr?",
