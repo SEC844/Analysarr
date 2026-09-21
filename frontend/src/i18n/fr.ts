@@ -219,12 +219,16 @@ export const fr = {
     hint: "Un scan déjà en cours (manuel ou planifié) n'est jamais interrompu ni dupliqué.",
   },
   scanHistory: {
-    title: "Historique des scans",
-    description: "Les 50 derniers scans, manuels ou planifiés.",
+    title: { manual: "Analyses lancées à la main", scheduled: "Analyses planifiées" },
+    description: {
+      manual: "Les analyses lancées depuis le bouton Scanner (50 dernières).",
+      scheduled: "Les analyses déclenchées automatiquement par la planification (50 dernières).",
+    },
+
     empty: "Aucun scan pour l'instant.",
     columns: {
       date: "Date",
-      trigger: "Déclencheur",
+      scope: "Périmètre",
       status: "Statut",
       duration: "Durée",
       media: "Médias",
@@ -232,8 +236,6 @@ export const fr = {
       orphans: "Orphelins",
       matched: "Torrents rattachés",
     },
-    scheduled: "Planifié",
-    manual: "Manuel",
     completed: "Terminé",
     failed: "Échec",
     running: "En cours",
@@ -592,6 +594,13 @@ export const fr = {
     stalledDescription:
       "Le téléchargement n'avance plus. Analysarr le signale seulement : il ne supprime ni ne relance rien ici.",
   },
+  rescan: {
+    button: "Analyser ce média",
+    running: "Analyse en cours…",
+    done: "Média analysé : {files} fichier(s), {torrents} torrent(s).",
+    deleted: "Ce média n'est plus suivi par Sonarr/Radarr : sa fiche a été supprimée.",
+    hint: "Relit Sonarr/Radarr, le serveur multimédia, la file d'attente et les torrents de ce seul média.",
+  },
   status: {
     sain: "Sain",
     doublon: "Doublon",
@@ -621,6 +630,12 @@ export const fr = {
       enregistrement: "Enregistrement des résultats...",
       visionnage: "Lecture des statistiques de visionnage...",
       seer: "Lecture des demandes Seer...",
+      "file d'attente": "Lecture de la file d'attente...",
+      statuts: "Calcul des statuts...",
+      torrents: "Lecture du client torrent...",
+      queue: "Lecture de la file d'attente...",
+      watch: "Lecture des statistiques de visionnage...",
+      media_server: "Lecture {deServer}...",
     },
     failed: "Échec : {message}",
     summary: "{media} médias · {duplicates} doublons · {orphans} orphelins",
@@ -628,6 +643,27 @@ export const fr = {
     matchedHint:
       "Torrents qBittorrent rattachés à un média connu, sur le total présent dans qBittorrent. Un écart peut signaler un problème de correspondance (chemins, historique Sonarr/Radarr...).",
     alreadyRunning: "Un scan est déjà en cours.",
+    scopeMenu: "Analyser un seul service",
+    scopes: {
+      full: "Analyse complète",
+      radarr: "Radarr",
+      sonarr: "Sonarr",
+      media_server: "{server}",
+      torrents: "Client torrent",
+      queue: "File d'attente",
+      watch: "Visionnage",
+      seer: "Seer",
+    },
+    scopeHelp: {
+      full: "Tous les services.",
+      radarr: "Films suivis, fichiers et file d'attente.",
+      sonarr: "Séries suivies, épisodes et file d'attente.",
+      media_server: "Fichiers de la bibliothèque : doublons, imports manqués.",
+      torrents: "Nouveaux torrents, hardlinks et orphelins.",
+      queue: "Imports bloqués et téléchargements en souffrance.",
+      watch: "Qui a vu quoi, et quand.",
+      seer: "Demandes et demandeurs.",
+    },
   },
   media: {
     notFound: "Média introuvable.",

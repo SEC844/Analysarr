@@ -42,6 +42,13 @@ class Media(SQLModel, table=True):
     # services/poster_cache.py.
     poster_image_tag: Optional[str] = None
 
+    # Dossier racine du média côté Sonarr/Radarr et titres alternatifs : servent
+    # au rattachement des torrents (repli par chemin et par similarité de
+    # titre). Mémorisés ici pour qu'une analyse partielle rattache exactement
+    # comme un scan complet, sans redemander la liste à Sonarr/Radarr.
+    root_path: Optional[str] = None
+    alt_titles: str = ""
+
     # Liste de statuts séparés par des virgules parmi doublon/orphelin_qbit/tracker_unique.
     # Vide = sain. Un média peut cumuler plusieurs statuts.
     statuses: str = ""
@@ -196,6 +203,21 @@ class MediaWatch(SQLModel, table=True):
     last_played_at: Optional[datetime] = None
 
 
+class TorrentFile(SQLModel, table=True):
+    """Fichiers d'un torrent, mémorisés au moment où le client les donne.
+
+    Sert aux analyses par service : après un rafraîchissement de la
+    bibliothèque, l'état « hardlinké » et « réparable » de chaque torrent est
+    recalculé en relisant les inodes de ces chemins sur le disque, sans
+    redemander au client torrent ses fichiers un par un (deux appels par
+    torrent, le point le plus lent d'un scan)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    torrent_hash: str = Field(index=True)
+    path: str
+    size: Optional[int] = None
+
+
 class ImportIssue(SQLModel, table=True):
     """Entrée problématique de la file d'attente Sonarr/Radarr (cache
     reconstruit à chaque scan, comme le reste) : soit un fichier téléchargé que
@@ -292,3 +314,8 @@ class ScanRun(SQLModel, table=True):
     # "manual" (bouton/API) ou "scheduled" (planificateur) — distingue les
     # deux dans l'historique des scans.
     trigger: str = "manual"
+
+    # Périmètre analysé : "full" (tout), ou un service — "radarr", "sonarr",
+    # "media_server", "torrents", "queue", "watch", "seer". Voir
+    # services/scan_scopes.py.
+    scope: str = "full"

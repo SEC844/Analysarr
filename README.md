@@ -64,6 +64,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 
 **Everyday comfort**
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
+- **Targeted scans**: the arrow next to **Scan** runs a single service — Radarr, Sonarr, the media server, the torrent client, the queue, watch activity or Seer — and every media page has its own **Scan this media** button. Both are much faster than a full scan and leave the rest of the cache untouched.
 - qBittorrent, Deluge or Transmission: the torrent client is a setting, everything else works the same way.
 - Several Sonarr and Radarr instances (e.g. a dedicated 4K Radarr): each media stays linked to the instance tracking it, and a version tracked by another instance is never treated as a duplicate.
 - Library files are matched to Sonarr/Radarr even when containers mount the library at different paths.
@@ -196,6 +197,10 @@ Choose the right media server at the top of the media server card in Settings.
 
 **Do I need Seer or cross-seed?**
 No. Both are optional and fully hidden until you enable them.
+
+## AI assistance
+
+Analysarr is developed with the help of an AI assistant. Every change is reviewed and tested by the maintainer before it is released.
 
 ## Contributing
 

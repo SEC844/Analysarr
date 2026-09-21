@@ -35,6 +35,9 @@ _CURRENT_SCHEMA_MARKERS = [
     ("mediarequest", "auto_approved"),
     ("media", "arr_instance_id"),
     ("importissue", "output_path"),
+    ("media", "root_path"),
+    ("scanrun", "scope"),
+    ("torrentfile", "torrent_hash"),
 ]
 
 
@@ -64,6 +67,7 @@ def _reset_media_cache_if_stale() -> None:
 
     with engine.begin() as conn:
         for table in (
+            "torrentfile",
             "importissue",
             "mediarequest",
             "mediawatch",
@@ -173,6 +177,7 @@ def init_db() -> None:
     from app.models.media import (  # noqa: F401
         EmbyUser,
         ImportIssue,
+        TorrentFile,
         Media,
         MediaFile,
         MediaRequest,

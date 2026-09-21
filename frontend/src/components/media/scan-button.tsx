@@ -1,15 +1,43 @@
-import { Loader2, RefreshCw } from "lucide-react"
+import { ChevronDown, Loader2, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useScanRunner } from "@/hooks/use-scan"
+import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n, type MessageKey } from "@/i18n"
+import type { ScanScope } from "@/types/media"
 
 // Étapes envoyées par le backend (événements SSE) : identifiants fixes.
-const STAGES = new Set(["radarr", "sonarr", "emby", "historique", "qbittorrent", "enregistrement", "visionnage", "seer"])
+const STAGES = new Set([
+  "radarr",
+  "sonarr",
+  "emby",
+  "historique",
+  "qbittorrent",
+  "enregistrement",
+  "visionnage",
+  "seer",
+  "file d'attente",
+  "statuts",
+  "torrents",
+  "queue",
+  "watch",
+  "media_server",
+])
+
+// Périmètres proposés par la flèche. L'analyse complète reste l'action du
+// bouton lui-même : cliquer « Analyser » ne doit jamais ouvrir un menu.
+const SERVICE_SCOPES: ScanScope[] = ["radarr", "sonarr", "media_server", "torrents", "queue", "watch", "seer"]
 
 export function ScanButton() {
   const { t } = useI18n()
   const { start, isRunning, event } = useScanRunner()
+  const { data: settings } = useSettingsQuery()
 
   const stageLabel =
     event?.type === "progress" && event.stage
@@ -17,6 +45,10 @@ export function ScanButton() {
         ? t(`scan.stages.${event.stage}` as MessageKey)
         : event.stage
       : t("scan.starting")
+
+  // Seer n'est proposé que s'il est activé : même principe que partout
+  // ailleurs, une fonctionnalité désactivée ne laisse aucune trace.
+  const scopes = SERVICE_SCOPES.filter((scope) => scope !== "seer" || settings?.seer.enabled)
 
   return (
     <div className="flex items-center gap-3">
@@ -48,10 +80,39 @@ export function ScanButton() {
           )}
         </span>
       )}
-      <Button type="button" onClick={start} disabled={isRunning}>
-        {isRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-        {t("scan.button")}
-      </Button>
+
+      {/* Bouton scindé : l'action principale lance l'analyse complète, la
+          flèche ouvre les analyses ciblées. */}
+      <div className="flex items-center">
+        <Button type="button" className="rounded-r-none" onClick={() => start("full")} disabled={isRunning}>
+          {isRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          {t("scan.button")}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                className="border-primary-foreground/20 rounded-l-none border-l px-2"
+                disabled={isRunning}
+                aria-label={t("scan.scopeMenu")}
+              />
+            }
+          >
+            <ChevronDown className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {scopes.map((scope) => (
+              <DropdownMenuItem key={scope} onClick={() => start(scope)}>
+                <span className="flex flex-col">
+                  <span>{t(`scan.scopes.${scope}` as MessageKey)}</span>
+                  <span className="text-muted-foreground text-xs">{t(`scan.scopeHelp.${scope}` as MessageKey)}</span>
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   )
 }

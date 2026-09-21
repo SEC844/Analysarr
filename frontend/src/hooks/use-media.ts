@@ -12,6 +12,7 @@ import {
   hardlinkRepairPreview,
   listEmbyUsers,
   listMedia,
+  rescanMedia,
   retryImport,
   type CrossSeedSearchScope,
 } from "@/lib/api"
@@ -86,6 +87,19 @@ export function useDeleteSelectionExecuteMutation() {
 export function useCrossSeedSearchMutation() {
   return useMutation({
     mutationFn: ({ id, scope }: { id: number; scope?: CrossSeedSearchScope }) => crossSeedSearch(id, scope),
+  })
+}
+
+export function useRescanMediaMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => rescanMedia(id),
+    onSuccess: (_data, id) => {
+      // La fiche et la bibliothèque reflètent immédiatement l'analyse : les
+      // statuts et les torrents viennent d'être recalculés côté serveur.
+      queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
+      queryClient.invalidateQueries({ queryKey: ["media"] })
+    },
   })
 }
 

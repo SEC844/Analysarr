@@ -46,6 +46,14 @@ from app.services.notifications import (
     scan_failed_notification,
 )
 from app.services.queue_issues import IMPORT_KIND, STALLED_KIND, index_queue_issues, issue_rows_for
+from app.services.scan_scopes import SERVICE_SCOPES
+from app.services.torrent_match import (
+    FetchedTorrents,
+    MediaView,
+    attach_torrents,
+    fetch_torrents,
+    persist_files,
+)
 from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.trackers import extract_tracker_domain, status_label
 from app.services.watch_stats import (
@@ -267,72 +275,21 @@ async def _pick_series_item(
     return item, await emby.get_episodes(item["Id"])
 
 
-def _is_usable_root(root_path: str, qbittorrent_download_path: str | None) -> bool:
-    """Faux si `root_path` est trop générique pour servir de repli de rattachement
-    par chemin — c'est-à-dire s'il est égal à, ou un ancêtre de, la racine des
-    téléchargements qBittorrent elle-même. Un tel chemin correspondrait par
-    préfixe à N'IMPORTE QUEL torrent, quel que soit son média réel."""
-    if not qbittorrent_download_path:
-        return True
-    normalized_root = root_path.rstrip("/\\")
-    normalized_qbit = qbittorrent_download_path.rstrip("/\\")
-    if normalized_root == normalized_qbit:
-        return False
-    return not (normalized_qbit.startswith(normalized_root + "/") or normalized_qbit.startswith(normalized_root + "\\"))
-
-
-def _epoch_to_datetime(value: Any) -> datetime | None:
-    """qBittorrent renvoie -1 (voire 0) pour un horodatage non défini."""
-    if not isinstance(value, (int, float)) or value <= 0:
-        return None
-    return datetime.fromtimestamp(value, tz=timezone.utc)
-
-
-# Tags de release à ignorer pour le rattachement par similarité de titre
-# (passe 3) : qualité, source, codec, audio, langue, groupe. Volontairement
-# large plutôt qu'exhaustif — un tag non reconnu qui reste dans les mots ne
-# fait qu'empêcher un match plutôt que d'en créer un faux.
-_RELEASE_TAG_PATTERN = re.compile(
-    r"\b("
-    r"\d{3,4}p|4k|8k|"
-    r"web[-.]?dl|webrip|web|bluray|blu-ray|bdrip|brrip|hdtv|dvdrip|hdrip|remux|"
-    r"x264|x265|h264|h265|hevc|avc|xvid|"
-    r"aac\d?|ac3|ac-3|eac3|dts(-?hd)?|ddp?\d(\.\d)?|truehd|flac|mp3|"
-    r"multi|vostfr|vfi|vff|vf2|vf|french|truefrench|english|"
-    r"integrale|complete|complet|repack|proper|internal|limited|extended|uncut|"
-    r"amzn|nf|dsnp|hmax|atvp|itunes|ma"
-    r")\b",
-    re.IGNORECASE,
-)
-_SEASON_EPISODE_PATTERN = re.compile(r"\bs\d{1,2}(e\d{1,3})?\b", re.IGNORECASE)
-_YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
-
-
-def _normalize_words(text: str) -> list[str]:
-    return re.sub(r"[^a-z0-9]+", " ", text.lower()).split()
-
-
-def _normalize_release_words(name: str) -> list[str]:
-    """Réduit un nom de release qBittorrent à la liste de mots probablement
-    issus du titre, en retirant extension, numérotation saison/épisode et tags
-    qualité/codec/langue/groupe — pour un rattachement approximatif par
-    préfixe de titre quand ni l'inode ni l'historique Sonarr/Radarr n'ont
-    permis de rattacher le torrent à un média (typiquement un ajout manuel
-    antérieur à la mise en place du hardlink sur le serveur)."""
-    base = os.path.splitext(name)[0]
-    base = _SEASON_EPISODE_PATTERN.sub(" ", base)
-    base = _RELEASE_TAG_PATTERN.sub(" ", base)
-    return _normalize_words(base)
-
-
-async def run_scan(trigger: str = "manual") -> None:
+async def run_scan(trigger: str = "manual", scope: str = "full") -> None:
+    """Un seul verrou pour TOUTES les analyses : une analyse partielle et un
+    scan complet ne peuvent jamais écrire en même temps dans le cache."""
     if _scan_lock.locked():
         return
     async with _scan_lock:
-        await _run_scan_impl(trigger)
+        if scope in SERVICE_SCOPES:
+            from app.services.partial_scan import run_service_scan  # import différé : évite un cycle
+
+            await run_service_scan(scope, trigger)
+            return
+        await _run_scan_impl(trigger, scope)
 
 
-async def _run_scan_impl(trigger: str = "manual") -> None:
+async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
     with Session(engine) as session:
         settings = session.get(Settings, 1)
         if settings is not None:
@@ -343,7 +300,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         radarr_targets = arr_targets(session, settings, "radarr")
         sonarr_targets = arr_targets(session, settings, "sonarr")
         channels = channel_targets(session)
-        run = ScanRun(status=ScanStatus.running, trigger=trigger)
+        run = ScanRun(status=ScanStatus.running, trigger=trigger, scope=scope)
         session.add(run)
         session.commit()
         session.refresh(run)
@@ -373,7 +330,9 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         return
 
     try:
-        results, qbit_torrent_count, emby_users = await _collect(settings, run_id, radarr_targets, sonarr_targets)
+        results, fetched_torrents, emby_users = await _collect(
+            settings, run_id, radarr_targets, sonarr_targets, scope
+        )
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
         await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", channels, settings)
         return
@@ -422,6 +381,10 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
                 session.add(issue)
         session.commit()
 
+        # Fichiers des torrents : mémorisés pour que les analyses par service
+        # recalculent les hardlinks sans rappeler le client torrent.
+        persist_files(session, fetched_torrents)
+
         run = session.get(ScanRun, run_id)
         assert run is not None
         run.status = ScanStatus.completed
@@ -430,7 +393,7 @@ async def _run_scan_impl(trigger: str = "manual") -> None:
         run.duplicate_count = sum(1 for r in results if "doublon" in r.media.statuses.split(","))
         run.orphan_count = sum(1 for r in results if "orphelin_qbit" in r.media.statuses.split(","))
         run.tracker_unique_count = sum(1 for r in results if "tracker_unique" in r.media.statuses.split(","))
-        run.qbittorrent_torrent_count = qbit_torrent_count
+        run.qbittorrent_torrent_count = len(fetched_torrents)
         run.qbittorrent_matched_count = sum(len(r.torrents) for r in results)
         session.add(run)
         session.commit()
@@ -506,9 +469,213 @@ async def _fail_scan(
     await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
 
 
+@dataclass
+class LibraryContext:
+    """Tout ce qu'il faut pour construire un média : index du serveur
+    multimédia, fichiers suivis par chaque instance, problèmes de file
+    d'attente. Partagé par le scan complet et les analyses par service, pour
+    qu'un média soit construit exactement de la même façon dans les deux cas."""
+
+    emby: EmbyClient
+    emby_movies_by_tmdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    emby_movies_by_imdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    emby_series_by_tvdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Fichiers suivis par CHAQUE instance : un fichier suivi par une autre
+    # instance ne doit jamais être compté comme doublon.
+    movie_files_by_tmdb: dict[str, list[tuple[ArrTarget, dict[str, Any]]]] = field(default_factory=dict)
+    series_by_tvdb: dict[str, list[tuple[ArrTarget, int]]] = field(default_factory=dict)
+    movie_issues: dict[tuple[int | None, int], list[dict[str, Any]]] = field(default_factory=dict)
+    series_issues: dict[tuple[int | None, int], list[dict[str, Any]]] = field(default_factory=dict)
+    # Fichiers d'épisodes d'une série, mis en cache par (instance, id série).
+    episode_files_for: Any = None
+
+
+async def build_movie_result(ctx: LibraryContext, target: ArrTarget, movie: dict[str, Any]) -> MediaBuildResult | None:
+    """Un film Radarr et ses fichiers. `None` s'il n'y a rien à analyser."""
+    movie_id = movie.get("id")
+    issues = ctx.movie_issues.get((target.instance_id, movie_id), []) if isinstance(movie_id, int) else []
+    if not movie.get("hasFile") and not issues:
+        # Pas encore téléchargé et rien de bloqué : rien à analyser. Un
+        # import bloqué, lui, mérite d'apparaître même sans fichier —
+        # c'est justement ce qui explique l'absence du média.
+        return None
+    media = Media(
+        media_type=MediaType.movie,
+        title=movie.get("title") or "Sans titre",
+        year=movie.get("year"),
+        radarr_id=movie.get("id"),
+        arr_instance_id=target.instance_id,
+        tmdb_id=movie.get("tmdbId"),
+        imdb_id=movie.get("imdbId"),
+    )
+    alt_titles = [movie.get("originalTitle")]
+    alt_titles += [a.get("title") for a in movie.get("alternateTitles") or []]
+    result = MediaBuildResult(
+        media=media,
+        root_path=movie.get("path"),
+        alt_titles=[t for t in alt_titles if t and t != media.title],
+    )
+
+    result.import_issues = issue_rows_for(issues)
+
+    movie_file = movie.get("movieFile") or None
+    current_movie_file_id = (movie_file or {}).get("id")
+
+    tmdb_key = str(movie.get("tmdbId")) if movie.get("tmdbId") else None
+    candidates = (ctx.emby_movies_by_tmdb.get(tmdb_key, []) if tmdb_key else []) or ctx.emby_movies_by_imdb.get(
+        movie.get("imdbId") or "", []
+    )
+    emby_item = _pick_emby_item(candidates, [movie_file] if movie_file else [])
+    if emby_item:
+        media.emby_item_id = emby_item.get("Id")
+        media.has_poster = bool(emby_item.get("Id"))
+        media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
+        media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
+        other_files = [
+            f for other, f in ctx.movie_files_by_tmdb.get(tmdb_key or "", []) if other.instance_id != target.instance_id
+        ]
+        sources = _without_other_instance_files(_media_sources(emby_item), movie_file, other_files)
+        flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], movie_file)
+        for source, is_current in zip(sources, flags):
+            path = source.get("Path")
+            inode = stat_inode(path)
+            result.files.append(
+                MediaFile(
+                    media_id=0,
+                    path=path or "",
+                    size=source.get("Size"),
+                    inode=inode[0] if inode else None,
+                    device=inode[1] if inode else None,
+                    episode_label=None,
+                    is_current=is_current,
+                    # Seul le fichier actuel correspond à un movieFile
+                    # Radarr réel — les autres sont des doublons non
+                    # suivis par Radarr, rien à supprimer côté Radarr.
+                    arr_file_id=current_movie_file_id if is_current else None,
+                )
+            )
+    return result
+
+
+async def build_series_result(
+    ctx: LibraryContext, target: ArrTarget, series: dict[str, Any]
+) -> MediaBuildResult | None:
+    """Une série Sonarr et ses fichiers. `None` s'il n'y a rien à analyser."""
+    series_id = series.get("id")
+    issues = ctx.series_issues.get((target.instance_id, series_id), []) if isinstance(series_id, int) else []
+    if not (series.get("statistics") or {}).get("episodeFileCount") and not issues:
+        return None  # aucun épisode téléchargé ni import bloqué : rien à analyser
+    sonarr = target.sonarr()
+    media = Media(
+        media_type=MediaType.series,
+        title=series.get("title") or "Sans titre",
+        year=series.get("year"),
+        sonarr_id=series.get("id"),
+        arr_instance_id=target.instance_id,
+        tvdb_id=series.get("tvdbId"),
+    )
+    alt_titles = [a.get("title") for a in series.get("alternateTitles") or []]
+    result = MediaBuildResult(
+        media=media,
+        root_path=series.get("path"),
+        alt_titles=[t for t in alt_titles if t and t != media.title],
+    )
+    result.import_issues = issue_rows_for(issues)
+
+    tvdb_key = str(series.get("tvdbId")) if series.get("tvdbId") else None
+    candidates = ctx.emby_series_by_tvdb.get(tvdb_key, []) if tvdb_key else []
+    if candidates:
+        episode_files = await ctx.episode_files_for(target, series["id"])
+        current_paths: set[str] = {f["path"] for f in episode_files if f.get("path")}
+        episode_files_by_id: dict[int, dict[str, Any]] = {f["id"]: f for f in episode_files if f.get("id")}
+        other_files = [
+            f
+            for other, other_series_id in ctx.series_by_tvdb.get(tvdb_key or "", [])
+            if other.instance_id != target.instance_id
+            for f in await ctx.episode_files_for(other, other_series_id)
+        ]
+
+        emby_item, episodes = await _pick_series_item(ctx.emby, candidates, episode_files)
+        media.emby_item_id = emby_item.get("Id")
+        media.has_poster = bool(emby_item.get("Id"))
+        media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
+        media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
+
+        # Épisodes que Sonarr considère téléchargés (episodeFile existant),
+        # indépendamment de ce qu'Emby en a repris — voir plus bas. Sert
+        # aussi à rattacher chaque MediaFile "actuel" à son identité
+        # Sonarr (episode_id pour le monitoring, episodeFileId pour la
+        # suppression du fichier) — voir routers/media.py, delete-selection.
+        sonarr_downloaded_labels: set[str] = set()
+        sonarr_by_label: dict[str, tuple[int, int | None]] = {}
+        try:
+            sonarr_episodes = await sonarr.get_episodes(series["id"])
+            for e in sonarr_episodes:
+                if e.get("seasonNumber") is None or e.get("episodeNumber") is None:
+                    continue
+                label = f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
+                if e.get("hasFile"):
+                    sonarr_downloaded_labels.add(label)
+                sonarr_by_label[label] = (e["id"], e.get("episodeFileId"))
+        except Exception:  # noqa: BLE001 - purement informatif, ne doit pas bloquer le scan
+            pass
+
+        media.episode_count = len(episodes)
+        # Fichiers regroupés par épisode : un doublon peut être un item Emby
+        # distinct du même épisode, pas seulement une seconde source.
+        sources_by_label: dict[str, list[dict[str, Any]]] = {}
+        # Épisodes couverts par chaque fichier, pour ne pas croire absent
+        # le deuxième épisode d'un fichier multi-épisodes.
+        span_by_label: dict[str, set[str]] = {}
+        for episode in episodes:
+            label = _episode_label(episode)
+            sources_by_label.setdefault(label, []).extend(_media_sources(episode))
+            span_by_label.setdefault(label, set()).update(_episode_span_labels(episode))
+        for label, sources in sources_by_label.items():
+            sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
+            episode_file = episode_files_by_id.get(sonarr_episode_file_id) if sonarr_episode_file_id else None
+            sources = _without_other_instance_files(sources, episode_file, other_files)
+            if episode_file is not None:
+                flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], episode_file)
+            else:
+                flags = [bool(s.get("Path") and s.get("Path") in current_paths) for s in sources]
+            for source, is_current in zip(sources, flags):
+                path = source.get("Path")
+                inode = stat_inode(path)
+                result.files.append(
+                    MediaFile(
+                        media_id=0,
+                        path=path or "",
+                        size=source.get("Size"),
+                        inode=inode[0] if inode else None,
+                        device=inode[1] if inode else None,
+                        episode_label=label,
+                        is_current=is_current,
+                        # Comme pour les films : seul le fichier actuel
+                        # correspond à l'episodeFile Sonarr réel.
+                        sonarr_episode_id=sonarr_episode_id if is_current else None,
+                        arr_file_id=sonarr_episode_file_id if is_current else None,
+                    )
+                )
+
+        # La série ELLE-MÊME est bien dans Emby (sinon on ne serait pas
+        # dans cette branche), mais certains épisodes téléchargés par
+        # Sonarr peuvent manquer côté Emby (import manqué) sans que ça ne
+        # se voie autrement : aucun MediaFile n'est créé pour eux plus
+        # haut puisque la boucle ne parcourt que ce qu'Emby a renvoyé.
+        result.missing_emby_episodes = _missing_emby_labels(
+            sonarr_downloaded_labels, [f.episode_label for f in result.files], span_by_label
+        )
+    return result
+
+
 async def _collect(
-    settings: Settings, run_id: int, radarr_targets: list[ArrTarget], sonarr_targets: list[ArrTarget]
-) -> tuple[list[MediaBuildResult], int, list[EmbyUser]]:
+    settings: Settings,
+    run_id: int,
+    radarr_targets: list[ArrTarget],
+    sonarr_targets: list[ArrTarget],
+    scope: str = "full",
+) -> tuple[list[MediaBuildResult], FetchedTorrents, list[EmbyUser]]:
     """Instances Radarr/Sonarr : la principale d'abord, puis les
     supplémentaires (voir services/arr_instances.py). Chaque film/série suivi
     par une instance donne un média distinct."""
@@ -583,180 +750,28 @@ async def _collect(
 
     results: list[MediaBuildResult] = []
 
-    # --- Films -----------------------------------------------------------
+    # --- Films et séries --------------------------------------------------
+    # Construction déléguée à build_movie_result / build_series_result : le
+    # même code sert aux analyses par service (voir services/partial_scan.py).
+    ctx = LibraryContext(
+        emby=emby,
+        emby_movies_by_tmdb=emby_movies_by_tmdb,
+        emby_movies_by_imdb=emby_movies_by_imdb,
+        emby_series_by_tvdb=emby_series_by_tvdb,
+        movie_files_by_tmdb=movie_files_by_tmdb,
+        series_by_tvdb=series_by_tvdb,
+        movie_issues=movie_issues,
+        series_issues=series_issues,
+        episode_files_for=episode_files_for,
+    )
     for target, movie in movie_entries:
-        movie_id = movie.get("id")
-        issues = movie_issues.get((target.instance_id, movie_id), []) if isinstance(movie_id, int) else []
-        if not movie.get("hasFile") and not issues:
-            # Pas encore téléchargé et rien de bloqué : rien à analyser. Un
-            # import bloqué, lui, mérite d'apparaître même sans fichier —
-            # c'est justement ce qui explique l'absence du média.
-            continue
-        media = Media(
-            media_type=MediaType.movie,
-            title=movie.get("title") or "Sans titre",
-            year=movie.get("year"),
-            radarr_id=movie.get("id"),
-            arr_instance_id=target.instance_id,
-            tmdb_id=movie.get("tmdbId"),
-            imdb_id=movie.get("imdbId"),
-        )
-        alt_titles = [movie.get("originalTitle")]
-        alt_titles += [a.get("title") for a in movie.get("alternateTitles") or []]
-        result = MediaBuildResult(
-            media=media,
-            root_path=movie.get("path"),
-            alt_titles=[t for t in alt_titles if t and t != media.title],
-        )
-
-        result.import_issues = issue_rows_for(issues)
-
-        movie_file = movie.get("movieFile") or None
-        current_movie_file_id = (movie_file or {}).get("id")
-
-        tmdb_key = str(movie.get("tmdbId")) if movie.get("tmdbId") else None
-        candidates = (emby_movies_by_tmdb.get(tmdb_key, []) if tmdb_key else []) or emby_movies_by_imdb.get(
-            movie.get("imdbId") or "", []
-        )
-        emby_item = _pick_emby_item(candidates, [movie_file] if movie_file else [])
-        if emby_item:
-            media.emby_item_id = emby_item.get("Id")
-            media.has_poster = bool(emby_item.get("Id"))
-            media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
-            media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
-            other_files = [
-                f for other, f in movie_files_by_tmdb.get(tmdb_key or "", []) if other.instance_id != target.instance_id
-            ]
-            sources = _without_other_instance_files(_media_sources(emby_item), movie_file, other_files)
-            flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], movie_file)
-            for source, is_current in zip(sources, flags):
-                path = source.get("Path")
-                inode = stat_inode(path)
-                result.files.append(
-                    MediaFile(
-                        media_id=0,
-                        path=path or "",
-                        size=source.get("Size"),
-                        inode=inode[0] if inode else None,
-                        device=inode[1] if inode else None,
-                        episode_label=None,
-                        is_current=is_current,
-                        # Seul le fichier actuel correspond à un movieFile
-                        # Radarr réel — les autres sont des doublons non
-                        # suivis par Radarr, rien à supprimer côté Radarr.
-                        arr_file_id=current_movie_file_id if is_current else None,
-                    )
-                )
-        results.append(result)
-
-    # --- Séries ------------------------------------------------------------
+        result = await build_movie_result(ctx, target, movie)
+        if result is not None:
+            results.append(result)
     for target, series in series_entries:
-        series_id = series.get("id")
-        issues = series_issues.get((target.instance_id, series_id), []) if isinstance(series_id, int) else []
-        if not (series.get("statistics") or {}).get("episodeFileCount") and not issues:
-            continue  # aucun épisode téléchargé ni import bloqué : rien à analyser
-        sonarr = target.sonarr()
-        media = Media(
-            media_type=MediaType.series,
-            title=series.get("title") or "Sans titre",
-            year=series.get("year"),
-            sonarr_id=series.get("id"),
-            arr_instance_id=target.instance_id,
-            tvdb_id=series.get("tvdbId"),
-        )
-        alt_titles = [a.get("title") for a in series.get("alternateTitles") or []]
-        result = MediaBuildResult(
-            media=media,
-            root_path=series.get("path"),
-            alt_titles=[t for t in alt_titles if t and t != media.title],
-        )
-        result.import_issues = issue_rows_for(issues)
-
-        tvdb_key = str(series.get("tvdbId")) if series.get("tvdbId") else None
-        candidates = emby_series_by_tvdb.get(tvdb_key, []) if tvdb_key else []
-        if candidates:
-            episode_files = await episode_files_for(target, series["id"])
-            current_paths: set[str] = {f["path"] for f in episode_files if f.get("path")}
-            episode_files_by_id: dict[int, dict[str, Any]] = {f["id"]: f for f in episode_files if f.get("id")}
-            other_files = [
-                f
-                for other, other_series_id in series_by_tvdb.get(tvdb_key or "", [])
-                if other.instance_id != target.instance_id
-                for f in await episode_files_for(other, other_series_id)
-            ]
-
-            emby_item, episodes = await _pick_series_item(emby, candidates, episode_files)
-            media.emby_item_id = emby_item.get("Id")
-            media.has_poster = bool(emby_item.get("Id"))
-            media.poster_image_tag = (emby_item.get("ImageTags") or {}).get("Primary")
-            media.emby_date_added = parse_emby_date(emby_item.get("DateCreated"))
-
-            # Épisodes que Sonarr considère téléchargés (episodeFile existant),
-            # indépendamment de ce qu'Emby en a repris — voir plus bas. Sert
-            # aussi à rattacher chaque MediaFile "actuel" à son identité
-            # Sonarr (episode_id pour le monitoring, episodeFileId pour la
-            # suppression du fichier) — voir routers/media.py, delete-selection.
-            sonarr_downloaded_labels: set[str] = set()
-            sonarr_by_label: dict[str, tuple[int, int | None]] = {}
-            try:
-                sonarr_episodes = await sonarr.get_episodes(series["id"])
-                for e in sonarr_episodes:
-                    if e.get("seasonNumber") is None or e.get("episodeNumber") is None:
-                        continue
-                    label = f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
-                    if e.get("hasFile"):
-                        sonarr_downloaded_labels.add(label)
-                    sonarr_by_label[label] = (e["id"], e.get("episodeFileId"))
-            except Exception:  # noqa: BLE001 - purement informatif, ne doit pas bloquer le scan
-                pass
-
-            media.episode_count = len(episodes)
-            # Fichiers regroupés par épisode : un doublon peut être un item Emby
-            # distinct du même épisode, pas seulement une seconde source.
-            sources_by_label: dict[str, list[dict[str, Any]]] = {}
-            # Épisodes couverts par chaque fichier, pour ne pas croire absent
-            # le deuxième épisode d'un fichier multi-épisodes.
-            span_by_label: dict[str, set[str]] = {}
-            for episode in episodes:
-                label = _episode_label(episode)
-                sources_by_label.setdefault(label, []).extend(_media_sources(episode))
-                span_by_label.setdefault(label, set()).update(_episode_span_labels(episode))
-            for label, sources in sources_by_label.items():
-                sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
-                episode_file = episode_files_by_id.get(sonarr_episode_file_id) if sonarr_episode_file_id else None
-                sources = _without_other_instance_files(sources, episode_file, other_files)
-                if episode_file is not None:
-                    flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], episode_file)
-                else:
-                    flags = [bool(s.get("Path") and s.get("Path") in current_paths) for s in sources]
-                for source, is_current in zip(sources, flags):
-                    path = source.get("Path")
-                    inode = stat_inode(path)
-                    result.files.append(
-                        MediaFile(
-                            media_id=0,
-                            path=path or "",
-                            size=source.get("Size"),
-                            inode=inode[0] if inode else None,
-                            device=inode[1] if inode else None,
-                            episode_label=label,
-                            is_current=is_current,
-                            # Comme pour les films : seul le fichier actuel
-                            # correspond à l'episodeFile Sonarr réel.
-                            sonarr_episode_id=sonarr_episode_id if is_current else None,
-                            arr_file_id=sonarr_episode_file_id if is_current else None,
-                        )
-                    )
-
-            # La série ELLE-MÊME est bien dans Emby (sinon on ne serait pas
-            # dans cette branche), mais certains épisodes téléchargés par
-            # Sonarr peuvent manquer côté Emby (import manqué) sans que ça ne
-            # se voie autrement : aucun MediaFile n'est créé pour eux plus
-            # haut puisque la boucle ne parcourt que ce qu'Emby a renvoyé.
-            result.missing_emby_episodes = _missing_emby_labels(
-                sonarr_downloaded_labels, [f.episode_label for f in result.files], span_by_label
-            )
-        results.append(result)
+        result = await build_series_result(ctx, target, series)
+        if result is not None:
+            results.append(result)
 
     # --- Correspondance torrent -> média via l'historique Sonarr/Radarr ---
     # (indexé par id Radarr/Sonarr, pas par position : certains films/séries
@@ -797,234 +812,33 @@ async def _collect(
             if download_id:
                 hash_to_index[download_id.lower()] = index
 
-    # --- Torrents qBittorrent ------------------------------------------
+    # --- Torrents du client ----------------------------------------------
+    # Récupération et rattachement délégués à services/torrent_match.py : le
+    # même code sert aux analyses partielles et à l'analyse d'un seul média,
+    # qui doivent rattacher exactement comme un scan complet.
     await progress("qbittorrent")
-    try:
-        async with torrent_client(settings) as qbit:
-            torrents = await qbit.get_torrents()
-            trackers_by_hash: dict[str, list[dict[str, Any]]] = {}
-            files_by_hash: dict[str, list[dict[str, Any]]] = {}
-            for t in torrents:
-                try:
-                    trackers_by_hash[t["hash"]] = await qbit.get_trackers(t["hash"])
-                except Exception:  # noqa: BLE001
-                    trackers_by_hash[t["hash"]] = []
-                try:
-                    files_by_hash[t["hash"]] = await qbit.get_files(t["hash"])
-                except Exception:  # noqa: BLE001
-                    files_by_hash[t["hash"]] = []
-    except TorrentAuthError as exc:
-        raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée pendant le scan : {exc}") from exc
-
-    torrent_rows: list[Torrent] = []
-    torrent_content_paths: list[str | None] = []
-    # Inodes de CHAQUE fichier du torrent (pas un seul par torrent) : un pack
-    # saison est un torrent multi-fichiers dont `content_path` ne désigne que
-    # le dossier racine — comparer l'inode de ce dossier à celui d'un épisode
-    # ne peut jamais correspondre. Il faut regarder chaque fichier du torrent.
-    torrent_file_inodes: list[list[tuple[int, int]]] = []
-    # (nom de fichier, taille annoncée par qBittorrent) pour chaque fichier du
-    # torrent — sert à détecter, pour un torrent non hardlinké, s'il s'agit
-    # tout de même du même contenu qu'un fichier actuel (même épisode, même
-    # taille en octets) plutôt qu'une ancienne version : voir plus bas.
-    torrent_file_details: list[list[tuple[str, int | None]]] = []
-    for t in torrents:
-        content_path = t.get("content_path") or t.get("save_path")
-        save_path = t.get("save_path")
-
-        file_entries: list[tuple[str, int | None]] = []
-        files = files_by_hash.get(t["hash"], [])
-        for f in files:
-            rel = f.get("name")
-            if rel and save_path:
-                file_entries.append((os.path.join(save_path, rel), f.get("size")))
-        if not file_entries and content_path:
-            # repli si l'API torrents/files a échoué ou n'a rien renvoyé
-            file_entries.append((content_path, t.get("size")))
-
-        resolved_inodes: list[tuple[int, int]] = []
-        file_details: list[tuple[str, int | None]] = []
-        for path, size in file_entries:
-            inode = stat_inode(path)
-            if inode is not None:
-                resolved_inodes.append(inode)
-            file_details.append((os.path.basename(path), size))
-        torrent_file_inodes.append(resolved_inodes)
-        torrent_file_details.append(file_details)
-
-        first_inode = resolved_inodes[0] if resolved_inodes else None
-
-        domains = []
-        for tr in trackers_by_hash.get(t["hash"], []):
-            domain = extract_tracker_domain(tr.get("url", ""))
-            if domain:
-                domains.append({"domain": domain, "status": status_label(tr.get("status", -1))})
-
-        torrent_rows.append(
-            Torrent(
-                media_id=0,
-                hash=t["hash"],
-                name=t.get("name", ""),
-                save_path=t.get("save_path"),
-                content_path=t.get("content_path"),
-                category=t.get("category") or None,
-                size=t.get("size"),
-                inode=first_inode[0] if first_inode else None,
-                device=first_inode[1] if first_inode else None,
-                ratio=t.get("ratio"),
-                seeders=t.get("num_seeds"),
-                leechers=t.get("num_leechs"),
-                added_on=_epoch_to_datetime(t.get("added_on")),
-                completed_on=_epoch_to_datetime(t.get("completion_on")),
-                trackers_json=json.dumps(domains),
-            )
+    fetched = await fetch_torrents(settings)
+    views = [
+        MediaView(
+            media_type=r.media.media_type,
+            title=r.media.title,
+            year=r.media.year,
+            alt_titles=r.alt_titles,
+            root_path=r.root_path,
+            files=r.files,
         )
-        torrent_content_paths.append(content_path)
-
-    # Index des inodes des fichiers Emby actuels -> média. C'est le signal le
-    # plus fiable pour repérer un torrent protégé, quel que soit son chemin de
-    # stockage réel — notamment les copies cross-seed, qui vivent souvent en
-    # dehors des dossiers gérés par Sonarr/Radarr.
-    emby_inode_to_index: dict[tuple[int, int], int] = {}
-    for i, result in enumerate(results):
-        for f in result.files:
-            if f.inode is not None:
-                emby_inode_to_index[(f.inode, f.device)] = i
-
-    def _match_emby_inode(pos: int) -> int | None:
-        for key in torrent_file_inodes[pos]:
-            index = emby_inode_to_index.get(key)
-            if index is not None:
-                return index
-        return None
-
-    indices: list[int | None] = [None] * len(torrent_rows)
-    protected: list[bool] = [False] * len(torrent_rows)
-    inode_to_index: dict[tuple[int, int], int] = dict(emby_inode_to_index)
-    unresolved: list[int] = []
-
-    # Passe 1 : rattachement direct — inode Emby actuel (n'importe lequel des
-    # fichiers du torrent), puis historique Sonarr/Radarr, puis chemin racine
-    # du média en dernier recours.
-    for pos, torrent_row in enumerate(torrent_rows):
-        index = _match_emby_inode(pos)
-        is_protected = index is not None
-
-        if index is None:
-            index = hash_to_index.get(torrent_row.hash.lower())
-        if index is None:
-            content_path = torrent_content_paths[pos]
-            for i, result in enumerate(results):
-                if (
-                    result.root_path
-                    and _is_usable_root(result.root_path, settings.qbittorrent_download_path)
-                    and content_path
-                    and content_path.startswith(result.root_path)
-                ):
-                    index = i
-                    break
-
-        if index is not None:
-            indices[pos] = index
-            protected[pos] = is_protected
-            for key in torrent_file_inodes[pos]:
-                inode_to_index.setdefault(key, index)
-        else:
-            unresolved.append(pos)
-
-    # Passe 2 : copies cross-seed d'un torrent déjà rattaché — cross-seed (pas
-    # Sonarr/Radarr) les a ajoutées, donc aucune trace dans l'historique, mais
-    # elles partagent au moins un fichier (même inode) avec un torrent que la
-    # passe 1 a su identifier.
-    for pos in unresolved:
-        for key in torrent_file_inodes[pos]:
-            index = inode_to_index.get(key)
-            if index is not None:
-                indices[pos] = index
-                protected[pos] = False  # sinon la passe 1 l'aurait déjà marqué protégé
-                break
-
-    # Passe 3 : repli par similarité de titre — pour les torrents encore non
-    # identifiés (ni inode, ni historique, ni chemin), typiquement des ajouts
-    # manuels antérieurs à la mise en place du hardlink sur le serveur (le
-    # torrent existe bel et bien et concerne ce média, mais son fichier n'a
-    # jamais été lié au fichier de la bibliothèque). Rattachement heuristique
-    # uniquement : jamais marqué protégé, ce qui laisse orphelin_qbit/
-    # manquant_qbit s'appliquer normalement — mais rend le torrent visible sur
-    # la bonne fiche, avec une action de réparation possible.
-    still_unresolved = [pos for pos in unresolved if indices[pos] is None]
-    if still_unresolved:
-        # Titre principal ET titres alternatifs (titre original Radarr,
-        # alternateTitles Radarr/Sonarr) : un torrent nommé d'après le titre
-        # original anglais ("Vantage Point") doit pouvoir matcher un média
-        # dont Radarr affiche le titre localisé ("Angles d'attaque").
-        media_titles: list[tuple[int, list[str]]] = []
-        for i, r in enumerate(results):
-            if r.media.title:
-                media_titles.append((i, _normalize_words(r.media.title)))
-            for alt in r.alt_titles:
-                media_titles.append((i, _normalize_words(alt)))
-        for pos in still_unresolved:
-            release_words = _normalize_release_words(torrent_rows[pos].name)
-            if not release_words:
-                continue
-            best: tuple[int, int] | None = None  # (longueur du titre, index média)
-            for i, title_words in media_titles:
-                n = len(title_words)
-                if n == 0 or n > len(release_words) or release_words[:n] != title_words:
-                    continue
-                media = results[i].media
-                if media.media_type == MediaType.movie and media.year:
-                    # Un titre de film court/générique ("Dune", "Avatar") peut
-                    # préfixer aussi bien le film que sa suite/son remake — si
-                    # UNE année apparaît dans le nom du torrent, elle doit
-                    # correspondre à celle du média. Si le nom n'en contient
-                    # aucune (fréquent, ex: "Vantage.Point.1080p...-FHD"), on
-                    # ne peut simplement pas trancher par l'année : le titre
-                    # (éventuellement un titre alternatif, voir alt_titles)
-                    # fait alors seul foi.
-                    year_in_name = _YEAR_PATTERN.search(torrent_rows[pos].name)
-                    if year_in_name and int(year_in_name.group(1)) != media.year:
-                        continue
-                if best is None or n > best[0]:
-                    best = (n, i)
-            if best is not None:
-                indices[pos] = best[1]
-                protected[pos] = False
-                torrent_rows[pos].matched_by_name = True
-
-    for pos, torrent_row in enumerate(torrent_rows):
-        index = indices[pos]
-        if index is None:
-            continue
-        torrent_row.is_hardlinked = None if not torrent_file_inodes[pos] else protected[pos]
-
-        if torrent_row.is_hardlinked is False:
-            # Non hardlinké : vrai orphelin (ancienne version remplacée par un
-            # upgrade), ou simple copie non hardlinkée du fichier actuel (ex :
-            # ajout antérieur à la mise en place du hardlink sur le serveur) ?
-            # La provenance du rattachement (historique vs nom) ne le dit pas
-            # de façon fiable — seul le contenu fait foi : même épisode/même
-            # média ET même taille en octets qu'un fichier actuellement suivi
-            # par la bibliothèque = quasi certainement le même fichier.
-            by_episode, current_single = resolve_current_files(results[index].files, results[index].media.media_type)
-            for name, size in torrent_file_details[pos]:
-                if size is None:
-                    continue
-                if results[index].media.media_type == MediaType.series:
-                    label = episode_label_from_filename(name)
-                    current = by_episode.get(label) if label else None
-                else:
-                    current = current_single
-                if current is not None and current.size == size:
-                    torrent_row.repairable = True
-                    break
-
-        results[index].torrents.append(torrent_row)
+        for r in results
+    ]
+    for result, torrents_of_media in zip(results, attach_torrents(settings, views, fetched, hash_to_index)):
+        result.torrents.extend(torrents_of_media)
 
     # --- Calcul des statuts -------------------------------------------
     for result in results:
         result.media.missing_emby_episodes = ",".join(result.missing_emby_episodes)
+        # Mémorisés pour les analyses partielles, qui rattachent les torrents
+        # sans redemander la liste à Sonarr/Radarr.
+        result.media.root_path = result.root_path
+        result.media.alt_titles = "\n".join(result.alt_titles)
         statuses, reclaimable = compute_statuses(
             result.files,
             result.torrents,
@@ -1063,7 +877,7 @@ async def _collect(
         for result in results:
             result.requests = build_request_rows(result.media, request_index)
 
-    return results, len(torrents), emby_users
+    return results, fetched, emby_users
 
 
 def compute_statuses(
