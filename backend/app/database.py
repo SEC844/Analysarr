@@ -35,6 +35,8 @@ _CURRENT_SCHEMA_MARKERS = [
     ("mediarequest", "auto_approved"),
     ("media", "arr_instance_id"),
     ("importissue", "output_path"),
+    ("media", "root_path"),
+    ("scanrun", "scope"),
 ]
 
 

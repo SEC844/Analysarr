@@ -132,6 +132,20 @@ export interface ImportIssueRead {
   can_retry: boolean
 }
 
+// Périmètres d'analyse acceptés par l'API (liste fermée côté backend :
+// services/scan_scopes.py).
+export const SCAN_SCOPES = ["full", "library", "torrents", "queue", "watch", "seer"] as const
+export type ScanScope = (typeof SCAN_SCOPES)[number]
+
+export interface MediaRescanResult {
+  // Vrai si Sonarr/Radarr ne suit plus ce média : la fiche a été supprimée.
+  media_deleted: boolean
+  files: number
+  torrents: number
+  import_issues: number
+  statuses: MediaStatus[]
+}
+
 export interface ImportRetryResult {
   steps: DeleteStepResult[]
   imported_files: number
@@ -257,6 +271,8 @@ export interface ScanRunRead {
   qbittorrent_torrent_count: number
   qbittorrent_matched_count: number
   trigger: "manual" | "scheduled"
+  // Périmètre analysé : "full" pour une analyse complète.
+  scope: ScanScope
 }
 
 export interface ScanEvent {

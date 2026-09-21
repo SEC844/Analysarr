@@ -163,6 +163,7 @@ class ScanRunRead(BaseModel):
     qbittorrent_torrent_count: int
     qbittorrent_matched_count: int
     trigger: str
+    scope: str = "full"
 
 
 class DeletePreviewItem(BaseModel):
@@ -243,6 +244,17 @@ class MediaDeleteSelectionResult(BaseModel):
 
 class DeleteExecuteResult(BaseModel):
     steps: list[DeleteStepResult]
+
+
+class MediaRescanResultRead(BaseModel):
+    """Résultat d'une analyse ciblée sur un seul média."""
+
+    # Vrai si Sonarr/Radarr ne suit plus ce média : sa fiche a été supprimée.
+    media_deleted: bool
+    files: int
+    torrents: int
+    import_issues: int
+    statuses: list[str]
 
 
 class ImportRetryResult(BaseModel):

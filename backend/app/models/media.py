@@ -42,6 +42,13 @@ class Media(SQLModel, table=True):
     # services/poster_cache.py.
     poster_image_tag: Optional[str] = None
 
+    # Dossier racine du média côté Sonarr/Radarr et titres alternatifs : servent
+    # au rattachement des torrents (repli par chemin et par similarité de
+    # titre). Mémorisés ici pour qu'une analyse partielle rattache exactement
+    # comme un scan complet, sans redemander la liste à Sonarr/Radarr.
+    root_path: Optional[str] = None
+    alt_titles: str = ""
+
     # Liste de statuts séparés par des virgules parmi doublon/orphelin_qbit/tracker_unique.
     # Vide = sain. Un média peut cumuler plusieurs statuts.
     statuses: str = ""
@@ -292,3 +299,7 @@ class ScanRun(SQLModel, table=True):
     # "manual" (bouton/API) ou "scheduled" (planificateur) — distingue les
     # deux dans l'historique des scans.
     trigger: str = "manual"
+
+    # Périmètre analysé : "full" (tout), "library", "torrents", "queue",
+    # "watch", "seer" ou "media" (un seul média). Voir services/partial_scan.py.
+    scope: str = "full"

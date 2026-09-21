@@ -94,6 +94,16 @@ class RadarrClient(ArrClient):
     async def get_queue(self) -> list[dict[str, Any]]:
         return await self._queue({"includeUnknownMovieItems": "false", "includeMovie": "false"})
 
+    async def get_movie(self, movie_id: int) -> dict[str, Any] | None:
+        """Un seul film, pour l'analyse d'un média. `None` si Radarr ne le
+        suit plus (404) : le média a été retiré depuis le dernier scan."""
+        try:
+            return await self._get(f"/api/v3/movie/{movie_id}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+
     async def get_history_for_movie(self, movie_id: int) -> list[dict[str, Any]]:
         return await self._get("/api/v3/history/movie", params={"movieId": movie_id})
 
@@ -114,6 +124,15 @@ class SonarrClient(ArrClient):
 
     async def get_queue(self) -> list[dict[str, Any]]:
         return await self._queue({"includeUnknownSeriesItems": "false", "includeSeries": "false"})
+
+    async def get_series_by_id(self, series_id: int) -> dict[str, Any] | None:
+        """Une seule série (voir `RadarrClient.get_movie`)."""
+        try:
+            return await self._get(f"/api/v3/series/{series_id}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
 
     async def get_episode_files(self, series_id: int) -> list[dict[str, Any]]:
         return await self._get("/api/v3/episodefile", params={"seriesId": series_id})

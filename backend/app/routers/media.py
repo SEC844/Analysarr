@@ -28,6 +28,7 @@ from app.schemas.media import (
     MediaFileRead,
     MediaListItem,
     MediaListResponse,
+    MediaRescanResultRead,
     MediaWatchStats,
     TorrentRead,
     TrackerRead,
@@ -38,6 +39,7 @@ from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
 from app.services.queue_issues import execute_import_retry
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
+from app.services.media_rescan import rescan_media
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.action_log import MediaRef, record_action
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
@@ -329,6 +331,35 @@ async def cross_seed_search(
     ]
     _log_and_notify(session, settings, "cross_seed_search", MediaRef.of(media), steps)
     return result
+
+
+@router.post("/{media_id}/rescan", response_model=MediaRescanResultRead)
+async def rescan_one_media(media_id: int, session: Session = Depends(get_session)) -> MediaRescanResultRead:
+    """Analyse ciblée d'un seul média : Sonarr/Radarr, serveur multimédia,
+    file d'attente et torrents de CE média uniquement. Ne touche à aucun autre
+    média et conserve l'identifiant de la fiche."""
+    from app.services.scan import is_scan_running  # import différé : évite un cycle
+
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    if settings is None:
+        raise HTTPException(400, "Configuration manquante.")
+    if is_scan_running():
+        raise HTTPException(409, "Une analyse est déjà en cours.")
+
+    try:
+        result = await rescan_media(session, settings, media)
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(502, f"{type(exc).__name__} : {exc}") from exc
+    return MediaRescanResultRead(
+        media_deleted=result.media_deleted,
+        files=result.files,
+        torrents=result.torrents,
+        import_issues=result.import_issues,
+        statuses=result.statuses,
+    )
 
 
 @router.post("/{media_id}/retry-import", response_model=ImportRetryResult)

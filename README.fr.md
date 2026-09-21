@@ -64,6 +64,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Confort au quotidien**
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
+- **Analyses ciblées** : la flèche à côté de **Scanner** lance un seul service — bibliothèque (Sonarr/Radarr + serveur multimédia + torrents), client torrent, file d'attente, visionnage ou Seer — et chaque fiche média a son bouton **Analyser ce média**. Les deux sont bien plus rapides qu'un scan complet et laissent le reste du cache intact.
 - qBittorrent, Deluge ou Transmission : le client torrent est un réglage, tout le reste fonctionne à l'identique.
 - Plusieurs instances Sonarr et Radarr (ex : un Radarr dédié à la 4K) : chaque média reste rattaché à l'instance qui le suit, et une version suivie par une autre instance n'est jamais comptée comme un doublon.
 - Fichiers de la bibliothèque rapprochés de Sonarr/Radarr même quand les conteneurs montent la bibliothèque à des chemins différents.
@@ -197,6 +198,10 @@ Choisissez le bon serveur multimédia en haut de sa carte dans les Réglages.
 **Seer ou cross-seed sont-ils nécessaires ?**
 Non. Les deux sont optionnels et totalement masqués tant qu'ils ne sont pas activés.
 
+## Assistance de l'IA
+
+Analysarr est développé avec l'aide d'un assistant IA. Chaque modification est relue et testée par le mainteneur avant publication.
+
 ## Contribuer
 
 Les contributions sont les bienvenues — lisez d'abord [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -204,7 +209,3 @@ Les contributions sont les bienvenues — lisez d'abord [CONTRIBUTING.md](CONTRI
 ## Licence
 
 [GNU AGPL-3.0](LICENSE). Vous pouvez utiliser, modifier et partager Analysarr ; toute version modifiée distribuée ou proposée en service doit rester open source sous la même licence.
-
-## Assistance de l'IA
-
-Analysarr est développé avec l'aide d'un assistant IA. Chaque modification est relue et testée par le mainteneur avant publication.

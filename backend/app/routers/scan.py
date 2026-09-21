@@ -2,7 +2,7 @@ import asyncio
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
@@ -21,6 +21,7 @@ from app.services.diagnostics import (
 )
 from app.services.events import scan_events
 from app.services.scan import is_scan_running, run_scan
+from app.services.scan_scopes import SCAN_SCOPES
 
 router = APIRouter()
 
@@ -45,16 +46,21 @@ def _to_read(run: ScanRun) -> ScanRunRead:
         qbittorrent_torrent_count=run.qbittorrent_torrent_count,
         qbittorrent_matched_count=run.qbittorrent_matched_count,
         trigger=run.trigger,
+        scope=run.scope,
     )
 
 
 @router.post("", status_code=202)
-async def start_scan() -> dict:
+async def start_scan(scope: str = Query("full", description=" | ".join(SCAN_SCOPES))) -> dict:
+    """Lance une analyse. `scope` limite le périmètre : une valeur inconnue est
+    refusée plutôt qu'interprétée (liste fermée, jamais de texte libre)."""
+    if scope not in SCAN_SCOPES:
+        raise HTTPException(400, f"Périmètre inconnu : {', '.join(SCAN_SCOPES)}.")
     if is_scan_running():
         return {"started": False, "message": "Un scan est déjà en cours."}
     # Référence forte : asyncio ne garde qu'une référence faible sur les tâches,
     # un scan pourrait sinon être collecté par le ramasse-miettes en cours de route.
-    task = asyncio.create_task(run_scan())
+    task = asyncio.create_task(run_scan(scope=scope))
     _running_tasks.add(task)
     task.add_done_callback(_running_tasks.discard)
     return {"started": True}

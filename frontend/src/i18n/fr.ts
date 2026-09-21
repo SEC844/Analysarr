@@ -592,6 +592,13 @@ export const fr = {
     stalledDescription:
       "Le téléchargement n'avance plus. Analysarr le signale seulement : il ne supprime ni ne relance rien ici.",
   },
+  rescan: {
+    button: "Analyser ce média",
+    running: "Analyse en cours…",
+    done: "Média analysé : {files} fichier(s), {torrents} torrent(s).",
+    deleted: "Ce média n'est plus suivi par Sonarr/Radarr : sa fiche a été supprimée.",
+    hint: "Relit Sonarr/Radarr, le serveur multimédia, la file d'attente et les torrents de ce seul média.",
+  },
   status: {
     sain: "Sain",
     doublon: "Doublon",
@@ -621,6 +628,11 @@ export const fr = {
       enregistrement: "Enregistrement des résultats...",
       visionnage: "Lecture des statistiques de visionnage...",
       seer: "Lecture des demandes Seer...",
+      "file d'attente": "Lecture de la file d'attente...",
+      statuts: "Calcul des statuts...",
+      torrents: "Lecture du client torrent...",
+      queue: "Lecture de la file d'attente...",
+      watch: "Lecture des statistiques de visionnage...",
     },
     failed: "Échec : {message}",
     summary: "{media} médias · {duplicates} doublons · {orphans} orphelins",
@@ -628,6 +640,21 @@ export const fr = {
     matchedHint:
       "Torrents qBittorrent rattachés à un média connu, sur le total présent dans qBittorrent. Un écart peut signaler un problème de correspondance (chemins, historique Sonarr/Radarr...).",
     alreadyRunning: "Un scan est déjà en cours.",
+    scopeMenu: "Analyser un seul service",
+    scopes: {
+      library: "Bibliothèque",
+      torrents: "Client torrent",
+      queue: "File d'attente",
+      watch: "Visionnage",
+      seer: "Seer",
+    },
+    scopeHelp: {
+      library: "Sonarr, Radarr, {server} et les torrents : la liste des médias est reconstruite.",
+      torrents: "Nouveaux torrents, hardlinks et orphelins. Le reste est conservé.",
+      queue: "Imports bloqués et téléchargements en souffrance.",
+      watch: "Qui a vu quoi, et quand.",
+      seer: "Demandes et demandeurs.",
+    },
   },
   media: {
     notFound: "Média introuvable.",

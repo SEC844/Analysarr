@@ -3,7 +3,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useScanHistoryQuery } from "@/hooks/use-scan"
-import { useI18n } from "@/i18n"
+import { useI18n, type MessageKey } from "@/i18n"
 import { formatDateTime } from "@/lib/format"
 
 function formatDuration(startedAt: string, finishedAt: string | null): string {
@@ -55,6 +55,13 @@ export function ScanHistoryTable() {
                       <Badge variant="outline">
                         {run.trigger === "scheduled" ? t("scanHistory.scheduled") : t("scanHistory.manual")}
                       </Badge>
+                      {/* Analyse partielle : le périmètre explique un compte
+                          de médias ou de torrents différent d'un scan complet. */}
+                      {run.scope !== "full" && (
+                        <Badge variant="secondary" className="ml-1">
+                          {t(`scan.scopes.${run.scope}` as MessageKey)}
+                        </Badge>
+                      )}
                     </td>
                     <td className="py-1.5 pr-4">
                       {run.status === "completed" && (

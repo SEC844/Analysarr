@@ -23,6 +23,8 @@ import type {
   HardlinkRepairPreview,
   HardlinkRepairResult,
   ImportRetryResult,
+  MediaRescanResult,
+  ScanScope,
   MediaDeleteFootprint,
   MediaDeleteSelection,
   MediaDeleteSelectionResult,
@@ -318,8 +320,12 @@ export function hardlinkRepairExecute(id: number): Promise<HardlinkRepairResult>
   return request<HardlinkRepairResult>(`/api/media/${id}/hardlink-repair/execute`, { method: "POST" })
 }
 
-export function startScan(): Promise<{ started: boolean; message?: string }> {
-  return request(`/api/scan`, { method: "POST" })
+export function startScan(scope: ScanScope = "full"): Promise<{ started: boolean; message?: string }> {
+  return request(`/api/scan?scope=${scope}`, { method: "POST" })
+}
+
+export function rescanMedia(id: number): Promise<MediaRescanResult> {
+  return request<MediaRescanResult>(`/api/media/${id}/rescan`, { method: "POST" })
 }
 
 export function getScanStatus(): Promise<ScanRunRead | null> {

@@ -19,6 +19,7 @@ import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { ImportIssues } from "@/components/media/import-issues"
 import { MediaRequests } from "@/components/media/media-requests"
+import { RescanMediaButton } from "@/components/media/rescan-media-button"
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { WatchSummary } from "@/components/media/watch-stats"
 import { Badge } from "@/components/ui/badge"
@@ -217,6 +218,7 @@ export function MediaDetailPage() {
           )}
 
           <div className="flex flex-wrap gap-2 pt-2">
+            <RescanMediaButton mediaId={media.id} onMediaDeleted={() => navigate(-1)} />
             {settings?.cross_seed.enabled &&
               (media.torrents.length > 0 || media.files.length > 0) &&
               (media.media_type === "series" ? (

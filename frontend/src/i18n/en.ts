@@ -586,6 +586,13 @@ export const en: Dictionary = {
     stalledDescription:
       "The download is not progressing any more. Analysarr only reports it: nothing is deleted or restarted here.",
   },
+  rescan: {
+    button: "Scan this media",
+    running: "Scanning…",
+    done: "Media scanned: {files} file(s), {torrents} torrent(s).",
+    deleted: "Sonarr/Radarr no longer tracks this media: its page has been removed.",
+    hint: "Re-reads Sonarr/Radarr, the media server, the queue and the torrents of this media only.",
+  },
   status: {
     sain: "Healthy",
     doublon: "Duplicate",
@@ -615,6 +622,11 @@ export const en: Dictionary = {
       enregistrement: "Saving results...",
       visionnage: "Reading watch statistics...",
       seer: "Reading Seer requests...",
+      "file d'attente": "Reading the queue...",
+      statuts: "Computing statuses...",
+      torrents: "Reading the torrent client...",
+      queue: "Reading the queue...",
+      watch: "Reading watch activity...",
     },
     failed: "Failed: {message}",
     summary: "{media} media · {duplicates} duplicates · {orphans} orphans",
@@ -622,6 +634,21 @@ export const en: Dictionary = {
     matchedHint:
       "qBittorrent torrents matched to a known media, out of the total in qBittorrent. A gap may indicate a matching issue (paths, Sonarr/Radarr history...).",
     alreadyRunning: "A scan is already running.",
+    scopeMenu: "Scan a single service",
+    scopes: {
+      library: "Library",
+      torrents: "Torrent client",
+      queue: "Queue",
+      watch: "Watch activity",
+      seer: "Seer",
+    },
+    scopeHelp: {
+      library: "Sonarr, Radarr, {server} and torrents: the media list is rebuilt.",
+      torrents: "New torrents, hardlinks and orphans. Everything else is kept.",
+      queue: "Blocked imports and stalled downloads.",
+      watch: "Who watched what, and when.",
+      seer: "Requests and requesters.",
+    },
   },
   media: {
     notFound: "Media not found.",

@@ -64,6 +64,23 @@ class EmbyClient:
             resp.raise_for_status()
             return resp.json().get("Items", [])
 
+    async def get_items_by_ids(self, item_ids: list[str]) -> list[dict[str, Any]]:
+        """Éléments précis, par identifiant — pour rafraîchir un seul média
+        sans relire toute la bibliothèque."""
+        if not item_ids:
+            return []
+        async with self._client() as client:
+            resp = await client.get(
+                "/Items",
+                params={
+                    "Recursive": "true",
+                    "Ids": ",".join(item_ids),
+                    "Fields": self._fields("ProviderIds", "Path", "MediaSources", "ImageTags", "DateCreated"),
+                },
+            )
+            resp.raise_for_status()
+            return resp.json().get("Items", [])
+
     async def get_episodes(self, series_item_id: str) -> list[dict[str, Any]]:
         async with self._client() as client:
             resp = await client.get(
