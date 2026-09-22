@@ -68,18 +68,34 @@ export function isTwoFactorRequired(error: unknown): boolean {
   return (error.body as { two_factor_required?: unknown } | null)?.two_factor_required === true
 }
 
+let sessionExpired: () => void = () => {}
+
+/** Branche la réaction à une session perdue (voir main.tsx). Volontairement un
+ * rappel et NON un `window.location` : recharger la page sur un 401 bouclait
+ * à l'infini dès que l'API répondait 401 de façon durable — la page se
+ * rechargeait, relançait les mêmes appels, reprenait un 401 (bug réel :
+ * derrière un reverse-proxy, écran clignotant plusieurs fois par seconde,
+ * impossible à utiliser). Remettre l'état d'authentification à « déconnecté »
+ * affiche l'écran de connexion et s'arrête là. */
+export function setSessionExpiredHandler(handler: () => void) {
+  sessionExpired = handler
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
+    // Aucune réponse d'API ne doit être servie depuis un cache (navigateur ou
+    // reverse-proxy) : un état d'authentification périmé renvoyait l'interface
+    // dans une boucle de 401.
+    cache: "no-store",
     ...init,
   })
   if (!res.ok) {
     // Session expirée/absente en cours d'usage (pas sur les appels d'auth
     // eux-mêmes, où un 401 est une réponse normale à afficher dans le
-    // formulaire) : on revient à l'accueil, qui réévaluera /api/auth/status
-    // et affichera l'écran de connexion.
+    // formulaire) : l'application repasse à l'écran de connexion.
     if (res.status === 401 && !path.startsWith("/api/auth/")) {
-      window.location.assign("/")
+      sessionExpired()
     }
     const body = await res.text()
     // FastAPI renvoie {"detail": "..."} — sans ça, l'erreur affichée à

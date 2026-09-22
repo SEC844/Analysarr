@@ -19,8 +19,15 @@ export function useAppInfoQuery(enabled = true) {
   })
 }
 
+/** Préférences d'affichage, LUES dans le cache de `useAppInfoQuery` sans
+ * jamais déclencher l'appel : `/api/app/info` est protégé, et ce hook est
+ * utilisé dès le premier rendu, avant même l'écran de connexion. Un appel émis
+ * là répondait 401 — donc, avant correction, une redirection vers l'accueil qui
+ * relançait le même appel, en boucle (écran clignotant derrière un
+ * reverse-proxy, où aucun cookie de session n'existait encore). C'est App.tsx
+ * qui lance l'unique requête, une fois l'authentification confirmée. */
 export function usePreferences(): UiPreferences {
-  const { data } = useAppInfoQuery()
+  const { data } = useQuery({ queryKey: APP_INFO_QUERY_KEY, queryFn: getAppInfo, enabled: false })
   return data?.ui ?? DEFAULT_UI_PREFERENCES
 }
 

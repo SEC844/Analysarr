@@ -360,6 +360,61 @@ def item_available(item: TrashItem) -> bool:
     return bool(paths) and all(os.path.lexists(path) for path in paths)
 
 
+def _disk_files(path: str) -> list[str]:
+    """Fichiers réguliers derrière un élément de corbeille : le fichier
+    lui-même, ou tous ceux d'un dossier (données d'un torrent multi-fichiers).
+    Les liens symboliques sont ignorés — les supprimer ne libère rien."""
+    if os.path.islink(path):
+        return []
+    if os.path.isdir(path):
+        found: list[str] = []
+        for directory, _dirs, names in os.walk(path):
+            for name in names:
+                candidate = os.path.join(directory, name)
+                if not os.path.islink(candidate):
+                    found.append(candidate)
+        return found
+    return [path] if os.path.exists(path) else []
+
+
+def reclaimable_sizes(session: Session, trash_actions: list[TrashAction]) -> dict[int, int]:
+    """Espace que la purge libérerait RÉELLEMENT, action par action — jamais la
+    somme des tailles (bug réel : une série et ses torrents hardlinkés étaient
+    annoncés deux fois, et un fichier dont un lien vit encore hors de la
+    corbeille comptait alors qu'il ne libère rien).
+
+    Même règle que l'empreinte disque du dialogue de suppression
+    (services/media_delete.py::reclaimed_bytes, lib/footprint.ts) : une unité
+    disque ne compte que si la corbeille détient TOUS ses liens (`st_nlink`).
+    Un lien subsistant ailleurs (fichier de bibliothèque conservé, torrent
+    toujours en place) rend la purge sans effet sur l'espace libre. Le compte
+    des liens est global : deux suppressions différentes peuvent détenir deux
+    liens du même fichier, et l'unité est alors attribuée à une seule d'entre
+    elles."""
+    # (device, inode) -> [taille, nombre de liens réels, liens détenus par action]
+    units: dict[tuple[int, int], tuple[int, int, dict[int, int]]] = {}
+    for action in trash_actions:
+        for item in items_of(session, action):
+            for path in trashed_paths(item):
+                for file_path in _disk_files(path):
+                    try:
+                        stat = os.stat(file_path)
+                    except OSError:
+                        continue  # illisible : compté pour rien, la purge ne libérera rien de sûr
+                    key = (stat.st_dev, stat.st_ino)
+                    size, links, holders = units.get(key, (stat.st_size, stat.st_nlink, {}))
+                    holders[action.id] = holders.get(action.id, 0) + 1
+                    units[key] = (size, links, holders)
+
+    sizes = {action.id: 0 for action in trash_actions}
+    for size, links, holders in units.values():
+        if sum(holders.values()) < links:
+            continue  # un lien vit encore hors de la corbeille : rien à libérer
+        owner = max(holders, key=lambda action_id: holders[action_id])
+        sizes[owner] = sizes.get(owner, 0) + size
+    return sizes
+
+
 def purge_action(session: Session, action: TrashAction) -> None:
     """Suppression définitive : les éléments mis de côté sont effacés."""
     for item in items_of(session, action):

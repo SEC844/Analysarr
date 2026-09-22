@@ -142,6 +142,12 @@ async def static_cache_headers(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
     if path.startswith("/api/"):
+        # Aucune réponse d'API n'est mise en cache : sans directive explicite,
+        # un cache intermédiaire (reverse-proxy, CDN) peut appliquer sa propre
+        # fraîcheur heuristique et resservir un état d'authentification périmé
+        # — l'interface boucle alors sur des 401. Les routes qui posent leur
+        # propre en-tête (jaquettes, avatars, flux SSE) gardent le leur.
+        response.headers.setdefault("Cache-Control", "no-store")
         return response
     if path.startswith("/assets/") and response.status_code == 200:
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"

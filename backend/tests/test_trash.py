@@ -409,3 +409,65 @@ def test_a_restore_is_recorded_and_triggers_a_scan(admin_client, session, settin
     session.expire_all()
     entry = session.exec(select(ActionLog)).one()
     assert entry.action == "trash_restore" and entry.media_title == "Titre"
+
+
+def test_the_announced_size_counts_hardlinks_once(admin_client, session, settings, tmp_path, monkeypatch):
+    """Bug réel : la corbeille annonçait la somme des tailles. Un film et le
+    torrent qui le seede sont le MÊME fichier sur le disque (un seul inode,
+    deux liens) : le purger ne libère cette taille qu'une fois."""
+    enable_trash(session, settings, tmp_path)
+    patch_client(monkeypatch, FakeTorrentClient())
+    media = Media(media_type=MediaType.movie, title="Titre")
+    session.add(media)
+    session.commit()
+    library = tmp_path / "Film.mkv"
+    library.write_bytes(b"x" * 1000)
+    download = tmp_path / "Film.2020.mkv"
+    os.link(library, download)  # hardlink : même inode que la bibliothèque
+    row = MediaFile(media_id=media.id, path=str(library), size=1000)
+    torrent = Torrent(
+        media_id=media.id,
+        hash="abc123",
+        name="Film.2020",
+        save_path=str(tmp_path),
+        content_path=str(download),
+        size=1000,
+        trackers_json="[]",
+    )
+    session.add(row)
+    session.add(torrent)
+    session.commit()
+
+    asyncio.run(
+        execute_media_delete(
+            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+        )
+    )
+
+    listed = admin_client.get("/api/trash").json()
+    assert len(listed[0]["items"]) == 2
+    assert listed[0]["size"] == 1000  # et non 2000
+
+
+def test_a_file_still_linked_outside_the_trash_frees_nothing(
+    admin_client, session, settings, tmp_path, monkeypatch
+):
+    """Le torrent reste en place et garde un lien vers le fichier : purger la
+    corbeille ne rendra pas un octet tant que ce lien existe."""
+    enable_trash(session, settings, tmp_path)
+    patch_client(monkeypatch, FakeTorrentClient())
+    media = Media(media_type=MediaType.movie, title="Titre")
+    session.add(media)
+    session.commit()
+    library = tmp_path / "Film.mkv"
+    library.write_bytes(b"x" * 1000)
+    os.link(library, tmp_path / "Film.seed.mkv")  # le torrent reste en place
+    row = MediaFile(media_id=media.id, path=str(library), size=1000)
+    session.add(row)
+    session.commit()
+
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+
+    listed = admin_client.get("/api/trash").json()
+    assert listed[0]["items"][0]["size"] == 1000  # la taille du fichier reste affichée
+    assert listed[0]["size"] == 0  # mais rien ne sera libéré
