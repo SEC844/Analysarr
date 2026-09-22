@@ -108,9 +108,10 @@ export const en: Dictionary = {
     scopeHelp:
       "Covers the files Analysarr deletes itself and the torrents it removes from the client (their data is set aside, never erased). When Sonarr or Radarr deletes a file on our behalf, their own recycling bin applies.",
     ratioHelp:
-      "On restore: files return to their location with their hardlinks, the torrent goes back to the client with its data (no re-download), and the media is recreated in Sonarr/Radarr and Seer. Only the torrent sharing stats (ratio, uploaded) start over: no torrent client allows restoring them.",
+      "On restore: files return to their location with their hardlinks, the torrent goes back to the client with its data (no re-download), and the media is recreated in Sonarr/Radarr. Only the torrent sharing stats (ratio, uploaded) start over: no torrent client allows restoring them.",
     contentTitle: "Trash content",
-    contentDescription: "{size} waiting for permanent deletion.",
+    contentDescription:
+      "{size} will be freed on permanent deletion. A file still hardlinked elsewhere frees nothing until its last link is gone, so it counts as zero.",
     empty: "Empty the trash",
     empty0: "The trash is empty.",
     emptied: "Trash emptied.",

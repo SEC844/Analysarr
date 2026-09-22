@@ -25,6 +25,7 @@ from app.services.trash import (
     items_of,
     purge_action,
     purge_expired,
+    reclaimable_sizes,
     restore_action,
     retention_days,
 )
@@ -32,7 +33,7 @@ from app.services.trash import (
 router = APIRouter()
 
 
-def _to_read(session: Session, action: TrashAction) -> TrashActionRead:
+def _to_read(session: Session, action: TrashAction, reclaimable: int) -> TrashActionRead:
     items = items_of(session, action)
     reads = [
         TrashItemRead(
@@ -50,7 +51,10 @@ def _to_read(session: Session, action: TrashAction) -> TrashActionRead:
         action=action.action,
         media_title=action.media_title,
         media_type=action.media_type,
-        size=sum(item.size for item in items),
+        # Jamais la somme des tailles : voir trash.reclaimable_sizes — un
+        # fichier et ses hardlinks ne libèrent qu'une fois leur taille, et
+        # rien du tout tant qu'un lien vit encore hors de la corbeille.
+        size=reclaimable,
         items=reads,
         restores_arr=bool(action.arr_payload),
         restorable=all(read.available for read in reads),
@@ -58,7 +62,9 @@ def _to_read(session: Session, action: TrashAction) -> TrashActionRead:
 
 
 def _list(session: Session) -> list[TrashActionRead]:
-    return [_to_read(session, action) for action in actions(session)]
+    rows = actions(session)
+    sizes = reclaimable_sizes(session, rows)
+    return [_to_read(session, action, sizes.get(action.id, 0)) for action in rows]
 
 
 def _get(action_id: int, session: Session) -> TrashAction:

@@ -81,9 +81,13 @@ def test_avatar_requires_a_valid_and_known_user_id(admin_client, session):
     assert admin_client.get("/api/emby/users/abc123/avatar").status_code == 404  # pas d'avatar
 
 
-def test_pages_are_revalidated_but_api_responses_untouched(client):
+def test_pages_are_revalidated_and_api_responses_never_cached(client):
     assert client.get("/some/page").headers.get("cache-control") == "no-cache"
-    assert "cache-control" not in client.get("/api/health").headers
+    # Sans directive, un cache intermédiaire (reverse-proxy, CDN) applique sa
+    # propre fraîcheur heuristique et peut resservir un état d'authentification
+    # périmé — l'interface boucle alors sur des 401 (bug réel).
+    assert client.get("/api/health").headers.get("cache-control") == "no-store"
+    assert client.get("/api/auth/status").headers.get("cache-control") == "no-store"
 
 
 def test_as_utc_keeps_naive_database_dates_in_utc():

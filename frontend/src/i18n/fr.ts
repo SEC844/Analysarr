@@ -108,9 +108,10 @@ export const fr = {
     scopeHelp:
       "Concerne les fichiers qu'Analysarr supprime lui-même et les torrents qu'il retire du client (leurs données sont mises de côté, jamais effacées). Quand Sonarr ou Radarr supprime un fichier à notre demande, c'est leur propre corbeille qui s'applique.",
     ratioHelp:
-      "À la restauration : les fichiers retrouvent leur emplacement et leurs hardlinks, le torrent est remis dans le client avec ses données (aucun retéléchargement), et le média est recréé dans Sonarr/Radarr et Seer. Seules les statistiques de partage du torrent (ratio, quantité envoyée) repartent de zéro : aucun client torrent ne permet de les restaurer.",
+      "À la restauration : les fichiers retrouvent leur emplacement et leurs hardlinks, le torrent est remis dans le client avec ses données (aucun retéléchargement), et le média est recréé dans Sonarr/Radarr. Seules les statistiques de partage du torrent (ratio, quantité envoyée) repartent de zéro : aucun client torrent ne permet de les restaurer.",
     contentTitle: "Contenu de la corbeille",
-    contentDescription: "{size} en attente de suppression définitive.",
+    contentDescription:
+      "{size} seront libérés à la suppression définitive. Un fichier encore hardlinké ailleurs ne libère rien tant que son dernier lien existe : il compte donc pour zéro.",
     empty: "Vider la corbeille",
     empty0: "La corbeille est vide.",
     emptied: "Corbeille vidée.",
