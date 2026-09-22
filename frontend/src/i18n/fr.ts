@@ -60,22 +60,26 @@ export const fr = {
     action: "Mettre une étoile sur GitHub",
     later: "Plus tard",
   },
-  untracked: {
+  linkArr: {
     buttonMovie: "Lier à Radarr",
     buttonSeries: "Lier à Sonarr",
-    whyMovie:
-      "Ce film est dans la bibliothèque mais aucun Radarr ne le suit : pas de mise à jour de qualité ni de renommage, et Analysarr ne peut agir que sur ses fichiers. Le rattachement se fait dans Radarr, en quatre étapes.",
-    whySeries:
-      "Cette série est dans la bibliothèque mais aucun Sonarr ne la suit : aucun nouvel épisode récupéré, pas de mise à jour de qualité, et Analysarr ne peut agir que sur ses fichiers. Le rattachement se fait dans Sonarr, en quatre étapes.",
-    step1Movie: "Dans Radarr, ouvrez Films puis Ajouter un film.",
-    step1Series: "Dans Sonarr, ouvrez Séries puis Ajouter une série.",
-    step2: "Cherchez {query} (l'identifiant évite les homonymes).",
-    step3: "Choisissez le MÊME dossier racine que celui des fichiers déjà en place.",
-    step4: "Validez : les fichiers existants sont repris tels quels, rien n'est retéléchargé. Relancez ensuite une analyse dans Analysarr.",
-    folder: "Fichier actuel : {path}",
-    copy: "Copier l'identifiant",
-    copied: "Identifiant copié.",
-    copyFailed: "Copie impossible : sélectionnez le texte à la main.",
+    descriptionMovie:
+      "Ajoute ce film dans Radarr avec le dossier qui contient déjà ses fichiers : ils sont repris tels quels, rien n'est retéléchargé.",
+    descriptionSeries:
+      "Ajoute cette série dans Sonarr avec le dossier qui contient déjà ses fichiers : ils sont repris tels quels, rien n'est retéléchargé.",
+    candidate: "Fiche à rattacher",
+    candidateHelp:
+      "Chaque fiche a été retrouvée puis vérifiée auprès de Sonarr/Radarr (titre et année). Les identifiants du serveur multimédia sont parfois faux : ils ne sont jamais repris tels quels.",
+    certain: "Correspondance certaine",
+    rootFolder: "Dossier racine",
+    rootFolderHelp: "Celui qui contient déjà les fichiers, pour que Sonarr/Radarr les reprenne sans rien retélécharger.",
+    noRootFolder: "Aucun dossier racine",
+    qualityProfile: "Profil de qualité",
+    confirm: "Ajouter dans {service}",
+    linked: "{title} ajouté : analyse en cours pour reprendre ses fichiers.",
+    failed: "Rattachement impossible.",
+    noCandidate:
+      "Aucune fiche ne correspond à ce média chez Sonarr/Radarr. Vérifiez son titre dans la bibliothèque, puis ajoutez-le à la main.",
   },
   trash: {
     title: "Corbeille",
@@ -433,6 +437,7 @@ export const fr = {
       repair_hardlinks: "Réparer les hardlinks",
       cross_seed_search: "Chercher un cross-seed",
       retry_import: "Relancer l'import",
+      link_to_arr: "Lier à Sonarr/Radarr",
       notify_only: "Notifier seulement",
     },
     actionHelp: {
@@ -440,6 +445,8 @@ export const fr = {
       repair_hardlinks: "Même action que le bouton « Réparer les hardlinks ».",
       cross_seed_search: "Lance une recherche cross-seed par épisode pour le média.",
       retry_import: "Redemande à Sonarr/Radarr d'importer le téléchargement bloqué. Ne supprime rien.",
+      link_to_arr:
+        "Ajoute le média dans Sonarr/Radarr avec le dossier qui contient déjà ses fichiers. Seulement en cas de correspondance certaine, sinon la règle passe son tour. Ne supprime rien.",
       notify_only: "N'agit pas : liste les médias concernés dans la notification et l'historique.",
     },
     conditions: "Conditions (toutes optionnelles)",
@@ -503,6 +510,7 @@ export const fr = {
       import_retry: "Import relancé",
       automation: "Automatisation",
       trash_restore: "Restauration",
+      arr_link: "Rattachement",
     },
     succeeded: { one: "{count} réussite", other: "{count} réussites" },
     failures: { one: "{count} échec", other: "{count} échecs" },

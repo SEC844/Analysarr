@@ -9,8 +9,11 @@ AutomationTrigger = Literal[
     "non_hardlink_detected",
     "import_failed_detected",
     "stalled_download_detected",
+    "untracked_detected",
 ]
-AutomationAction = Literal["cleanup", "repair_hardlinks", "cross_seed_search", "retry_import", "notify_only"]
+AutomationAction = Literal[
+    "cleanup", "repair_hardlinks", "cross_seed_search", "retry_import", "link_to_arr", "notify_only"
+]
 
 
 class AutomationConditions(BaseModel):

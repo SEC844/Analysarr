@@ -11,6 +11,7 @@ export const AUTOMATION_ACTIONS = [
   "repair_hardlinks",
   "cross_seed_search",
   "retry_import",
+  "link_to_arr",
   "notify_only",
 ] as const
 

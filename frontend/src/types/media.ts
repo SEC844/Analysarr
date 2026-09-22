@@ -176,6 +176,40 @@ export interface MediaDetail extends MediaListItem {
   import_issues: ImportIssueRead[]
 }
 
+/** Fiche Sonarr/Radarr proposée pour rattacher un média non suivi. */
+export interface ArrCandidate {
+  key: string
+  title: string
+  year: number | null
+  tmdb_id: number | null
+  tvdb_id: number | null
+  imdb_id: string | null
+  /** "certain" : identifiant résolu par Sonarr/Radarr, titre et année concordants. */
+  confidence: "certain" | "probable"
+}
+
+export interface ArrLinkPreview {
+  service: "radarr" | "sonarr"
+  instance_name: string
+  candidates: ArrCandidate[]
+  root_folders: string[]
+  suggested_root: string | null
+  quality_profiles: { id: number; name: string }[]
+  suggested_profile: number | null
+}
+
+export interface ArrLinkRequest {
+  candidate_key: string
+  root_folder: string
+  quality_profile_id: number
+  monitored?: boolean
+}
+
+export interface ArrLinkResult {
+  title: string
+  service: "radarr" | "sonarr"
+}
+
 export interface DeletePreviewItem {
   kind: "duplicate_file" | "orphan_torrent"
   label: string

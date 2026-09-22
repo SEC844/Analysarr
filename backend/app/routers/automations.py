@@ -91,6 +91,8 @@ def _apply(automation: Automation, payload: AutomationWrite) -> None:
         raise HTTPException(400, "Chaque automatisation doit avoir un nom.")
     if payload.action == "repair_hardlinks" and payload.trigger != "non_hardlink_detected":
         raise HTTPException(400, "La réparation des hardlinks ne s'applique qu'aux torrents non hardlinkés.")
+    if payload.action == "link_to_arr" and payload.trigger != "untracked_detected":
+        raise HTTPException(400, "Le rattachement ne s'applique qu'aux médias non suivis par Sonarr/Radarr.")
     automation.name = payload.name.strip()
     automation.enabled = payload.enabled
     automation.trigger = payload.trigger

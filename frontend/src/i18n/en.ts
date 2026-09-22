@@ -60,22 +60,26 @@ export const en: Dictionary = {
     action: "Star on GitHub",
     later: "Later",
   },
-  untracked: {
+  linkArr: {
     buttonMovie: "Link to Radarr",
     buttonSeries: "Link to Sonarr",
-    whyMovie:
-      "This movie is in the library but no Radarr tracks it: no quality upgrade, no renaming, and Analysarr can only act on its files. Linking it is done in Radarr, in four steps.",
-    whySeries:
-      "This series is in the library but no Sonarr tracks it: no new episode grabbed, no quality upgrade, and Analysarr can only act on its files. Linking it is done in Sonarr, in four steps.",
-    step1Movie: "In Radarr, open Movies then Add New Movie.",
-    step1Series: "In Sonarr, open Series then Add New Series.",
-    step2: "Search for {query} (the id avoids same-name matches).",
-    step3: "Pick the SAME root folder as the files already in place.",
-    step4: "Confirm: existing files are picked up as they are, nothing is downloaded again. Then run a scan in Analysarr.",
-    folder: "Current file: {path}",
-    copy: "Copy the id",
-    copied: "Id copied.",
-    copyFailed: "Copy failed: select the text by hand.",
+    descriptionMovie:
+      "Adds this movie to Radarr with the folder that already holds its files: they are picked up as they are, nothing is downloaded again.",
+    descriptionSeries:
+      "Adds this series to Sonarr with the folder that already holds its files: they are picked up as they are, nothing is downloaded again.",
+    candidate: "Entry to link",
+    candidateHelp:
+      "Every entry was looked up and then checked against Sonarr/Radarr (title and year). Media server ids are sometimes wrong: they are never used as they are.",
+    certain: "Certain match",
+    rootFolder: "Root folder",
+    rootFolderHelp: "The one that already holds the files, so Sonarr/Radarr picks them up without downloading again.",
+    noRootFolder: "No root folder",
+    qualityProfile: "Quality profile",
+    confirm: "Add to {service}",
+    linked: "{title} added: a scan is running to pick up its files.",
+    failed: "Linking failed.",
+    noCandidate:
+      "No entry matches this media in Sonarr/Radarr. Check its title in the library, then add it by hand.",
   },
   trash: {
     title: "Trash",
@@ -431,6 +435,7 @@ export const en: Dictionary = {
       repair_hardlinks: "Repair hardlinks",
       cross_seed_search: "Search for a cross-seed",
       retry_import: "Retry import",
+      link_to_arr: "Link to Sonarr/Radarr",
       notify_only: "Notify only",
     },
     actionHelp: {
@@ -438,6 +443,8 @@ export const en: Dictionary = {
       repair_hardlinks: "Same action as the Repair hardlinks button.",
       cross_seed_search: "Starts a per-episode cross-seed search for the media.",
       retry_import: "Asks Sonarr/Radarr to import the blocked download again. Deletes nothing.",
+      link_to_arr:
+        "Adds the media to Sonarr/Radarr with the folder that already holds its files. Only on a certain match, otherwise the rule skips it. Deletes nothing.",
       notify_only: "Does not act: lists the matching media in the notification and the history.",
     },
     conditions: "Conditions (all optional)",
@@ -501,6 +508,7 @@ export const en: Dictionary = {
       import_retry: "Import retried",
       automation: "Automation",
       trash_restore: "Restore",
+      arr_link: "Link",
     },
     succeeded: { one: "{count} succeeded", other: "{count} succeeded" },
     failures: { one: "{count} failure", other: "{count} failures" },

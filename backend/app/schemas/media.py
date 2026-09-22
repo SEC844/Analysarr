@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MediaFileRead(BaseModel):
@@ -148,6 +148,50 @@ class MediaDetail(MediaListItem):
     # Vide si Seer n'est pas activé.
     requests: list["MediaRequestRead"]
     import_issues: list["ImportIssueRead"]
+
+
+class ArrCandidateRead(BaseModel):
+    """Fiche Sonarr/Radarr proposée pour rattacher un média non suivi."""
+
+    key: str
+    title: str
+    year: Optional[int] = None
+    tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    imdb_id: Optional[str] = None
+    # "certain" : identifiant résolu par Sonarr/Radarr, titre et année
+    # concordants. "probable" : trouvé par recherche de titre.
+    confidence: str
+
+
+class ArrLinkPreview(BaseModel):
+    service: str
+    instance_name: str
+    candidates: list[ArrCandidateRead]
+    root_folders: list[str]
+    suggested_root: Optional[str] = None
+    quality_profiles: list["ArrQualityProfile"]
+    suggested_profile: Optional[int] = None
+
+
+class ArrQualityProfile(BaseModel):
+    id: int
+    name: str
+
+
+class ArrLinkRequest(BaseModel):
+    """Choix de l'utilisateur. Tout est revérifié côté serveur contre ce que
+    Sonarr/Radarr déclare (voir services/arr_link.py)."""
+
+    candidate_key: str = Field(max_length=64)
+    root_folder: str = Field(max_length=512)
+    quality_profile_id: int = Field(ge=1)
+    monitored: bool = True
+
+
+class ArrLinkResult(BaseModel):
+    title: str
+    service: str
 
 
 class MediaListResponse(BaseModel):

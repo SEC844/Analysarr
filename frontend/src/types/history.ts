@@ -6,6 +6,7 @@ export type ActionKind =
   | "import_retry"
   | "automation"
   | "trash_restore"
+  | "arr_link"
 
 export interface ActionStep {
   label: string

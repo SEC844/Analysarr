@@ -53,7 +53,7 @@ const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, AutomationAction[]> = {
   stalled_download_detected: ["notify_only"],
   // Ajouter le média dans Sonarr/Radarr est une décision humaine :
   // Analysarr se contente de le signaler.
-  untracked_detected: ["notify_only"],
+  untracked_detected: ["link_to_arr", "notify_only"],
 }
 
 const emptyRule = (): AutomationWrite => ({

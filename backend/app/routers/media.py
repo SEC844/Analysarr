@@ -10,12 +10,18 @@ from sqlmodel import Session, select
 from app.clients.emby import media_server_client
 from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.database import get_session
-from app.models.media import ImportIssue, Media, MediaFile, Torrent
+from app.models.media import ImportIssue, Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.schemas.activity import ActionStepRead
 from app.schemas.media import (
+    ArrCandidateRead,
+    ArrLinkPreview,
+    ArrLinkRequest,
+    ArrLinkResult,
+    ArrQualityProfile,
     CrossSeedSearchResult,
     DeleteExecuteResult,
+    DeleteStepResult,
     DeletePreview,
     HardlinkRepairPreview,
     HardlinkRepairResult,
@@ -34,6 +40,7 @@ from app.schemas.media import (
     TrackerRead,
 )
 from app.services.arr_instances import instance_names
+from app.services.arr_link import ArrLinkError, build_link_preview, link_media
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
@@ -41,6 +48,7 @@ from app.services.queue_issues import execute_import_retry
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.media_rescan import rescan_media
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
+from app.services.scan import launch_scan
 from app.services.action_log import MediaRef, record_action
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
 from app.services.seer import build_requests_read, seer_configured
@@ -142,6 +150,18 @@ def list_media(
     seer_enabled = seer_configured(session.get(Settings, 1))
     names = instance_names(session)
     return MediaListResponse(items=[_to_list_item(m, seer_enabled, names) for m in medias], total=len(medias))
+
+
+def _media_and_settings(media_id: int, session: Session) -> tuple[Media, Settings]:
+    """Média et configuration, ou l'erreur HTTP correspondante : préambule
+    commun à toutes les routes qui agissent sur un média."""
+    media = session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(404, "Média introuvable.")
+    settings = session.get(Settings, 1)
+    if settings is None:
+        raise HTTPException(400, "Configuration manquante.")
+    return media, settings
 
 
 @router.get("/{media_id}", response_model=MediaDetail)
@@ -264,12 +284,7 @@ def delete_preview(media_id: int, session: Session = Depends(get_session)) -> De
 
 @router.post("/{media_id}/delete/execute", response_model=DeleteExecuteResult)
 async def delete_execute(media_id: int, session: Session = Depends(get_session)) -> DeleteExecuteResult:
-    media = session.get(Media, media_id)
-    if media is None:
-        raise HTTPException(404, "Média introuvable.")
-    settings = session.get(Settings, 1)
-    if settings is None:
-        raise HTTPException(400, "Configuration manquante.")
+    media, settings = _media_and_settings(media_id, session)
     ref = MediaRef.of(media)
     freed = build_delete_preview(session, media).total_reclaimable_bytes
     result = await execute_delete(session, media, settings)
@@ -279,12 +294,7 @@ async def delete_execute(media_id: int, session: Session = Depends(get_session))
 
 @router.get("/{media_id}/delete-selection/footprint", response_model=MediaDeleteFootprint)
 async def delete_selection_footprint(media_id: int, session: Session = Depends(get_session)) -> MediaDeleteFootprint:
-    media = session.get(Media, media_id)
-    if media is None:
-        raise HTTPException(404, "Média introuvable.")
-    settings = session.get(Settings, 1)
-    if settings is None:
-        raise HTTPException(400, "Configuration manquante.")
+    media, settings = _media_and_settings(media_id, session)
     return await build_delete_footprint(session, media, settings)
 
 
@@ -296,12 +306,7 @@ async def delete_selection(
     # Sonarr/Radarr et sa demande Seer peuvent encore être retirés.
     if not payload.torrent_ids and not payload.media_file_ids and not payload.remove_from_arr:
         raise HTTPException(400, "Aucun élément sélectionné.")
-    media = session.get(Media, media_id)
-    if media is None:
-        raise HTTPException(404, "Média introuvable.")
-    settings = session.get(Settings, 1)
-    if settings is None:
-        raise HTTPException(400, "Configuration manquante.")
+    media, settings = _media_and_settings(media_id, session)
     ref = MediaRef.of(media)
     # Empreinte calculée AVANT la suppression : les inodes ne sont plus
     # lisibles ensuite.
@@ -310,6 +315,65 @@ async def delete_selection(
     result = await execute_media_delete(session, media, settings, payload)
     _log_and_notify(session, settings, "delete_selection", ref, result.steps, freed)
     return result
+
+
+@router.get("/{media_id}/arr-link", response_model=ArrLinkPreview)
+async def arr_link_preview(media_id: int, session: Session = Depends(get_session)) -> ArrLinkPreview:
+    """Ce qu'Analysarr propose pour rattacher ce média à Sonarr/Radarr."""
+    media, settings = _media_and_settings(media_id, session)
+    try:
+        preview = await build_link_preview(session, settings, media)
+    except ArrLinkError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return ArrLinkPreview(
+        service=preview.service,
+        instance_name=preview.instance_name,
+        candidates=[
+            ArrCandidateRead(
+                key=candidate.key,
+                title=candidate.title,
+                year=candidate.year,
+                tmdb_id=candidate.tmdb_id,
+                tvdb_id=candidate.tvdb_id,
+                imdb_id=candidate.imdb_id,
+                confidence=candidate.confidence,
+            )
+            for candidate in preview.candidates
+        ],
+        root_folders=preview.root_folders,
+        suggested_root=preview.suggested_root,
+        quality_profiles=[ArrQualityProfile(id=profile_id, name=name) for profile_id, name in preview.quality_profiles],
+        suggested_profile=preview.suggested_profile,
+    )
+
+
+@router.post("/{media_id}/arr-link", response_model=ArrLinkResult)
+async def arr_link(media_id: int, payload: ArrLinkRequest, session: Session = Depends(get_session)) -> ArrLinkResult:
+    """Ajoute le média dans Sonarr/Radarr avec le dossier qui contient déjà ses
+    fichiers, puis relit ce média pour qu'il apparaisse comme suivi."""
+    media, settings = _media_and_settings(media_id, session)
+    ref = MediaRef.of(media)
+    try:
+        title = await link_media(
+            session,
+            settings,
+            media,
+            candidate_key=payload.candidate_key,
+            root_folder=payload.root_folder,
+            quality_profile_id=payload.quality_profile_id,
+            monitored=payload.monitored,
+        )
+    except ArrLinkError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    service = "radarr" if media.media_type == MediaType.movie else "sonarr"
+    _log_and_notify(
+        session, settings, "arr_link", ref, [DeleteStepResult(kind="arr_media", label=title, success=True)]
+    )
+    # Le média doit réapparaître suivi sans scan manuel : seule une analyse du
+    # service concerné peut lui donner son identité Sonarr/Radarr.
+    launch_scan(scope=service)
+    return ArrLinkResult(title=title, service=service)
 
 
 @router.post("/{media_id}/cross-seed-search", response_model=CrossSeedSearchResult)
@@ -343,12 +407,7 @@ async def rescan_one_media(media_id: int, session: Session = Depends(get_session
     média et conserve l'identifiant de la fiche."""
     from app.services.scan import is_scan_running  # import différé : évite un cycle
 
-    media = session.get(Media, media_id)
-    if media is None:
-        raise HTTPException(404, "Média introuvable.")
-    settings = session.get(Settings, 1)
-    if settings is None:
-        raise HTTPException(400, "Configuration manquante.")
+    media, settings = _media_and_settings(media_id, session)
     if is_scan_running():
         raise HTTPException(409, "Une analyse est déjà en cours.")
 
@@ -371,12 +430,7 @@ async def retry_import_route(media_id: int, session: Session = Depends(get_sessi
     ranger. Seul l'identifiant du média vient de l'utilisateur : les
     téléchargements ciblés sont ceux que le dernier scan a relevés dans la file
     d'attente de Sonarr/Radarr."""
-    media = session.get(Media, media_id)
-    if media is None:
-        raise HTTPException(404, "Média introuvable.")
-    settings = session.get(Settings, 1)
-    if settings is None:
-        raise HTTPException(400, "Configuration manquante.")
+    media, settings = _media_and_settings(media_id, session)
 
     steps, imported = await execute_import_retry(session, media, settings)
     if not steps:

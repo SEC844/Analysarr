@@ -143,6 +143,7 @@ def eligible_medias(session: Session, rule: AutomationRule) -> list[tuple[Media,
 async def _execute(rule: AutomationRule, session: Session, settings: Settings, media: Media) -> tuple[list[AutomationStep], int]:
     """Exécute l'action de la règle sur un média. Réutilise exactement le code
     des actions manuelles (imports différés : ces modules dépendent du scan)."""
+    from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic
     from app.services.cascade_delete import build_delete_preview, execute_delete
     from app.services.cross_seed import trigger_cross_seed_search
     from app.services.hardlink_repair import execute_repair
@@ -166,6 +167,24 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
                 for s in import_steps
             ]
             return steps or [AutomationStep(label=media.title, success=False, error="Aucun import bloqué.")], 0
+        if rule.action == "link_to_arr":
+            # Rattachement automatique : uniquement sur un candidat CERTAIN
+            # (identifiant résolu par Sonarr/Radarr, titre et année
+            # concordants) et un dossier racine déduit des fichiers en place.
+            # Tout le reste attend une confirmation humaine.
+            preview = await build_link_preview(session, settings, media)
+            candidate = pick_automatic(preview)
+            if candidate is None:
+                return [AutomationStep(label=media.title, success=False, error="Aucune correspondance certaine.")], 0
+            title = await link_media(
+                session,
+                settings,
+                media,
+                candidate_key=candidate.key,
+                root_folder=preview.suggested_root,
+                quality_profile_id=preview.suggested_profile,
+            )
+            return [AutomationStep(label=f"{media.title} — {title}", success=True)], 0
         if rule.action == "repair_hardlinks":
             result = await execute_repair(session, media, settings)
             steps = [AutomationStep(label=f"{media.title} — {s.label}", success=s.success, error=s.error) for s in result.steps]
@@ -177,7 +196,7 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
             AutomationStep(label=media.title, success=False, error=error) for error in search.errors
         ]
         return steps or [AutomationStep(label=media.title, success=False, error="Aucune recherche déclenchée.")], 0
-    except (httpx.HTTPError, OSError, RuntimeError) as exc:
+    except (httpx.HTTPError, OSError, RuntimeError, ArrLinkError) as exc:
         return [AutomationStep(label=media.title, success=False, error=f"{type(exc).__name__} : {exc}")], 0
 
 

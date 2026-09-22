@@ -5,18 +5,20 @@ import {
   deleteExecute,
   deletePreview,
   deleteSelectionExecute,
+  getArrLinkPreview,
   getDeleteFootprint,
   getMedia,
   getMediaWatch,
   hardlinkRepairExecute,
   hardlinkRepairPreview,
+  linkMediaToArr,
   listEmbyUsers,
   listMedia,
   rescanMedia,
   retryImport,
   type CrossSeedSearchScope,
 } from "@/lib/api"
-import type { MediaDeleteSelection, MediaListParams } from "@/types/media"
+import type { ArrLinkRequest, MediaDeleteSelection, MediaListParams } from "@/types/media"
 
 export function useMediaListQuery(params: MediaListParams) {
   return useQuery({
@@ -118,6 +120,25 @@ export function useRetryImportMutation() {
 
 export function useHardlinkRepairPreviewMutation() {
   return useMutation({ mutationFn: (id: number) => hardlinkRepairPreview(id) })
+}
+
+/** Chargé seulement à l'ouverture du dialogue : la recherche interroge
+ * Sonarr/Radarr, inutile de la lancer sur chaque fiche. */
+export function useArrLinkPreviewQuery(id: number, enabled: boolean) {
+  return useQuery({ queryKey: ["media", "arr-link", id], queryFn: () => getArrLinkPreview(id), enabled, retry: false })
+}
+
+export function useArrLinkMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: ArrLinkRequest }) => linkMediaToArr(id, payload),
+    // Le média devient suivi : sa fiche, la bibliothèque et l'historique changent.
+    onSuccess: (_result, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["media"] })
+      queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
+      queryClient.invalidateQueries({ queryKey: ["history"] })
+    },
+  })
 }
 
 export function useHardlinkRepairExecuteMutation() {

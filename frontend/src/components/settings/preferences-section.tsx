@@ -197,21 +197,19 @@ export function PreferencesSection({ seerEnabled }: { seerEnabled: boolean }) {
           {toggle("delete_remove_from_arr_default", "preferences.removeArrDefault", "preferences.removeArrDefaultHelp")}
           {toggle("absolute_dates", "preferences.absoluteDates", "preferences.absoluteDatesHelp")}
           <SettingRow id="pref-timezone" label={t("preferences.timezone")} help={t("preferences.timezoneHelp")}>
-            {/* Liste longue : un <select> natif reste le plus rapide à
-                parcourir au clavier, et évite une liste virtualisée. */}
-            <select
-              id="pref-timezone"
-              className="border-input bg-background h-9 w-52 shrink-0 rounded-md border px-3 text-sm"
-              value={info.ui.timezone}
-              onChange={(e) => update("timezone", e.target.value)}
-            >
-              <option value="">{t("preferences.timezoneAuto")}</option>
-              {timeZones().map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
+            <Select value={info.ui.timezone} onValueChange={(value) => update("timezone", value ?? "")}>
+              <SelectTrigger id="pref-timezone" className="w-52 shrink-0">
+                <SelectValue>{(value: string) => value || t("preferences.timezoneAuto")}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{t("preferences.timezoneAuto")}</SelectItem>
+                {timeZones().map((zone) => (
+                  <SelectItem key={zone} value={zone}>
+                    {zone}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </SettingRow>
         </CardContent>
       </Card>

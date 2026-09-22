@@ -35,6 +35,14 @@ class ArrClient:
             resp.raise_for_status()
             return resp.json() if resp.content else None
 
+    async def get_root_folders(self) -> list[dict[str, Any]]:
+        """Dossiers racine déclarés dans Sonarr/Radarr. Un ajout ne peut viser
+        qu'un de ces dossiers : c'est la liste qui borne le chemin accepté."""
+        return await self._get("/api/v3/rootfolder")
+
+    async def get_quality_profiles(self) -> list[dict[str, Any]]:
+        return await self._get("/api/v3/qualityprofile")
+
     async def _queue(self, extra_params: dict[str, Any]) -> list[dict[str, Any]]:
         """File d'attente paginée. Sonarr et Radarr renvoient au maximum une
         page à la fois ; le garde-fou à 25 pages évite une boucle infinie si un
@@ -126,6 +134,32 @@ class RadarrClient(ArrClient):
         )
 
 
+    async def lookup_movie_by_tmdb(self, tmdb_id: int) -> dict[str, Any] | None:
+        """Fiche Radarr d'un film par identifiant TMDB (endpoint dédié : pas de
+        recherche texte, donc pas d'homonyme)."""
+        try:
+            movie = await self._get("/api/v3/movie/lookup/tmdb", params={"tmdbId": tmdb_id})
+        except httpx.HTTPStatusError:
+            return None
+        return movie if isinstance(movie, dict) and movie.get("tmdbId") else None
+
+    async def lookup_movie_by_imdb(self, imdb_id: str) -> dict[str, Any] | None:
+        try:
+            movie = await self._get("/api/v3/movie/lookup/imdb", params={"imdbId": imdb_id})
+        except httpx.HTTPStatusError:
+            return None
+        return movie if isinstance(movie, dict) and movie.get("tmdbId") else None
+
+    async def lookup_movies(self, term: str) -> list[dict[str, Any]]:
+        """Recherche par titre : sert quand aucun identifiant n'est exploitable
+        (ou faux), et ses résultats sont toujours confrontés au titre et à
+        l'année du média avant d'être proposés."""
+        try:
+            results = await self._get("/api/v3/movie/lookup", params={"term": term})
+        except httpx.HTTPStatusError:
+            return []
+        return [movie for movie in results or [] if isinstance(movie, dict)]
+
     async def add_movie(self, body: dict[str, Any]) -> dict[str, Any]:
         """Ré-ajoute un film retiré (restauration depuis la corbeille) à partir
         de la fiche capturée AVANT la suppression : mêmes profil, dossier
@@ -186,6 +220,17 @@ class SonarrClient(ArrClient):
             f"/api/v3/series/{series_id}",
             params={"deleteFiles": str(delete_files).lower(), "addImportListExclusion": "false"},
         )
+
+    async def lookup_series(self, term: str) -> list[dict[str, Any]]:
+        """Recherche de séries. Sonarr ne comprend que le préfixe `tvdb:`
+        (vérifié dans SkyHookProxy.SearchForNewSeries) : un `imdb:`/`tmdb:`
+        retomberait en recherche texte, donc l'appelant passe l'identifiant
+        TVDB quand il l'a, et le titre sinon."""
+        try:
+            results = await self._get("/api/v3/series/lookup", params={"term": term})
+        except httpx.HTTPStatusError:
+            return []
+        return [series for series in results or [] if isinstance(series, dict)]
 
     async def add_series(self, body: dict[str, Any]) -> dict[str, Any]:
         """Ré-ajoute une série retirée (voir `RadarrClient.add_movie`). Les

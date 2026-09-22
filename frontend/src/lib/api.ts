@@ -19,6 +19,9 @@ import type { ActionLogEntry } from "@/types/history"
 import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
 import type { ServicesStatus } from "@/types/services"
 import type {
+  ArrLinkPreview,
+  ArrLinkRequest,
+  ArrLinkResult,
   CrossSeedSearchResult,
   DeleteExecuteResult,
   DeletePreview,
@@ -380,6 +383,16 @@ export function hardlinkRepairExecute(id: number): Promise<HardlinkRepairResult>
 
 export function startScan(scope: ScanScope = "full"): Promise<{ started: boolean; message?: string }> {
   return request(`/api/scan?scope=${scope}`, { method: "POST" })
+}
+
+/** Ce qu'Analysarr propose pour rattacher un média non suivi (candidats
+ * vérifiés, dossiers racine et profils de l'instance). */
+export function getArrLinkPreview(id: number): Promise<ArrLinkPreview> {
+  return request<ArrLinkPreview>(`/api/media/${id}/arr-link`)
+}
+
+export function linkMediaToArr(id: number, payload: ArrLinkRequest): Promise<ArrLinkResult> {
+  return request<ArrLinkResult>(`/api/media/${id}/arr-link`, { method: "POST", body: JSON.stringify(payload) })
 }
 
 export function rescanMedia(id: number): Promise<MediaRescanResult> {
