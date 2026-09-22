@@ -27,6 +27,7 @@ from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.path_guard import ensure_paths_available
 from app.services.trash import (
     capture_arr,
+    clean_media_folders,
     close_action,
     delete_or_trash,
     open_action,
@@ -380,6 +381,9 @@ async def execute_media_delete(
         else:
             await _delete_episode_files(files, target, selection.remove_from_arr, steps, session, settings, trash)
 
+    # Dossiers vidés de leurs vidéos : leurs NFO et affiches n'ont plus
+    # d'objet, et un dossier vide resterait dans la bibliothèque.
+    clean_media_folders(session, settings, [f.path for f in files], action=trash)
     close_action(session, trash)
     session.commit()
 

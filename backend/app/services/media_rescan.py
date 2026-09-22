@@ -23,13 +23,14 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from sqlmodel import Session, delete, select
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client, torrent_client_configured
 from app.models.media import ImportIssue, Media, MediaFile, MediaType, MediaRequest, MediaWatch, Torrent
 from app.models.settings import Settings
-from app.services.arr_instances import arr_target_for
+from app.services.arr_instances import arr_target_for, arr_targets
 from app.services.hardlink import stat_inode
 from app.services.queue_issues import index_queue_issues, issue_rows_for
 from app.services.scan import (
@@ -123,6 +124,33 @@ async def rescan_media(session: Session, settings: Settings, media: Media) -> Me
     )
 
 
+async def _adopt_arr_entry(session: Session, settings: Settings, media: Media, is_series: bool) -> bool:
+    """Un Sonarr/Radarr suit-il désormais ce média ? Après un rattachement, la
+    fiche doit reprendre son identité sans attendre un scan complet : sans
+    cette recherche, « Analyser ce média » laissait le statut « Non suivi »
+    (bug réel)."""
+    for target in arr_targets(session, settings, "sonarr" if is_series else "radarr"):
+        try:
+            entry = (
+                await target.sonarr().find_series(media.tvdb_id)
+                if is_series
+                else await target.radarr().find_movie(media.tmdb_id, media.imdb_id)
+            )
+        except httpx.HTTPError:
+            continue
+        if entry is None:
+            continue
+        media.arr_instance_id = target.instance_id
+        if is_series:
+            media.sonarr_id = entry["id"]
+        else:
+            media.radarr_id = entry["id"]
+        session.add(media)
+        session.commit()
+        return True
+    return False
+
+
 async def _rescan_untracked(
     session: Session, settings: Settings, media: Media, is_series: bool
 ) -> MediaRescanResult:
@@ -130,6 +158,11 @@ async def _rescan_untracked(
     multimédia, ses fichiers, puis ses torrents. Si l'item a disparu de la
     bibliothèque, la fiche n'a plus lieu d'être."""
     from app.services.scan import build_untracked_movie, build_untracked_series
+
+    # Un rattachement a pu avoir lieu entre-temps : dans ce cas le média
+    # redevient un média suivi, et c'est le chemin normal qui s'applique.
+    if await _adopt_arr_entry(session, settings, media, is_series):
+        return await rescan_media(session, settings, media)
 
     emby = media_server_client(settings)
     items = await emby.get_items_by_ids([media.emby_item_id]) if media.emby_item_id else []

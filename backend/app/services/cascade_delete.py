@@ -14,7 +14,7 @@ from app.schemas.media import (
 from app.services.media_delete import torrent_paths
 from app.services.path_guard import ensure_paths_available
 from app.services.scan import compute_statuses
-from app.services.trash import close_action, delete_or_trash, open_action, trash_torrent
+from app.services.trash import clean_media_folders, close_action, delete_or_trash, open_action, trash_torrent
 
 
 def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile], list[Torrent]]:
@@ -109,6 +109,7 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
             for t in orphan_torrents:
                 steps.append(DeleteStepResult(kind="orphan_torrent", label=t.name, success=False, error=str(exc)))
 
+    clean_media_folders(session, settings, [f.path for f in duplicate_files], action=trash)
     close_action(session, trash)
     session.commit()
 

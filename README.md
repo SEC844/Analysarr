@@ -50,7 +50,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 
 **Actions â€” always with a preview and an explicit confirmation**
 - Cascade cleanup of duplicates and orphans.
-- Selective deletion (torrents, episodes, seasons, whole series or movie) with the **real** disk space freed, hardlinks accounted for.
+- Selective deletion (torrents, episodes, seasons, whole series or movie) with the **real** disk space freed, hardlinks accounted for. Companion files (NFO, subtitles, artwork) follow the video, and a folder left without any video is removed.
 - Optional removal from Sonarr/Radarr and Seer (never added to exclusion lists).
 - One-click hardlink repair, with a symbolic link fallback across filesystems.
 - Retry a blocked import (nothing is deleted: the file already on disk is simply handed back to Sonarr/Radarr).

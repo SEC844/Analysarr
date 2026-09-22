@@ -50,7 +50,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Actions — toujours avec aperçu et confirmation explicite**
 - Nettoyage en cascade des doublons et orphelins.
-- Suppression sélective (torrents, épisodes, saisons, série entière ou film) avec l'espace disque **réellement** libéré, hardlinks pris en compte.
+- Suppression sélective (torrents, épisodes, saisons, série entière ou film) avec l'espace disque **réellement** libéré, hardlinks pris en compte. Les fichiers annexes (NFO, sous-titres, jaquettes) suivent la vidéo, et un dossier qui ne contient plus aucune vidéo est supprimé.
 - Retrait optionnel de Sonarr/Radarr et de Seer (jamais d'ajout en liste d'exclusion).
 - Réparation des hardlinks en un clic, avec repli par lien symbolique entre systèmes de fichiers.
 - Relance d'un import bloqué (rien n'est supprimé : le fichier déjà sur le disque est simplement redonné à Sonarr/Radarr).

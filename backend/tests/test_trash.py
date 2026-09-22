@@ -253,7 +253,10 @@ def test_the_movie_is_restored_in_radarr(session, settings, tmp_path, fake_http,
     steps, complete = asyncio.run(restore_action(session, settings, action))
 
     assert complete and any(step.kind == "arr_media" and step.success for step in steps)
-    assert ("POST", "/api/v3/movie") in calls and ("POST", "/api/v3/command") in calls
+    assert ("POST", "/api/v3/movie") in calls
+    # Aucun rescan demandé : Radarr rafraîchit déjà la fiche qu'il ajoute, et un
+    # second scan en parallèle enregistrait le fichier et ses NFO en double.
+    assert ("POST", "/api/v3/command") not in calls
 
 
 def test_retention_purges_whole_actions(session, settings, tmp_path):

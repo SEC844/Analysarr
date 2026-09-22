@@ -39,6 +39,14 @@ import httpx
 from sqlmodel import Session, select
 
 from app.clients.torrent_base import TorrentAuthError, TorrentClient, magnet_for
+from app.services.companion_files import (
+    is_inside,
+    companions,
+    folders_of,
+    has_video,
+    leftovers,
+    prune_empty_dirs,
+)
 from app.models.media import Media, Torrent
 from app.models.settings import Settings
 from app.models.trash import TrashAction, TrashItem
@@ -160,18 +168,17 @@ def close_action(session: Session, action: TrashAction | None) -> None:
 # Ni `delete_or_trash` ni `trash_torrent` ne committent : l'appelant le fait en
 # fin de suppression. Un commit au milieu d'une boucle vide les objets déjà
 # marqués supprimés et casse la lecture de leurs attributs (bug réel).
-def delete_or_trash(
+def _remove_or_move(
     session: Session,
     settings: Settings | None,
     path: str,
     *,
-    action: TrashAction | None = None,
-    label: str = "",
+    action: TrashAction | None,
+    label: str,
 ) -> TrashItem | None:
-    """Supprime le fichier, ou le déplace en corbeille quand une action est
-    ouverte (l'élément créé est renvoyé, pour pouvoir le remettre en place si
-    l'étape suivante échoue). Un fichier déjà absent n'est jamais une erreur :
-    c'est le résultat voulu (Sonarr/Radarr peut l'avoir supprimé juste avant)."""
+    """Un seul fichier : supprimé, ou déplacé en corbeille quand une action est
+    ouverte. Un fichier déjà absent n'est jamais une erreur — c'est le résultat
+    voulu (Sonarr/Radarr peut l'avoir supprimé juste avant)."""
     if action is None or not is_enabled(settings):
         try:
             os.remove(path)
@@ -193,6 +200,50 @@ def delete_or_trash(
     )
     session.add(item)
     return item
+
+
+def delete_or_trash(
+    session: Session,
+    settings: Settings | None,
+    path: str,
+    *,
+    action: TrashAction | None = None,
+    label: str = "",
+) -> TrashItem | None:
+    """Supprime le fichier ET ses annexes (NFO, sous-titres, images : voir
+    services/companion_files.py), ou les déplace en corbeille quand une action
+    est ouverte. Renvoie l'élément du fichier vidéo, pour pouvoir tout remettre
+    en place si l'étape suivante échoue.
+
+    Les annexes suivent toujours la vidéo : les laisser derrière encombrait la
+    bibliothèque, et ne pas les mettre de côté les perdait à la restauration
+    (bug réel : des dizaines de NFO disparus)."""
+    item = _remove_or_move(session, settings, path, action=action, label=label)
+    for companion in companions(path):
+        _remove_or_move(session, settings, companion, action=action, label=os.path.basename(companion))
+    return item
+
+
+def clean_media_folders(
+    session: Session,
+    settings: Settings | None,
+    paths: list[str],
+    *,
+    action: TrashAction | None = None,
+) -> None:
+    """Après la suppression : un dossier qui n'a plus aucune vidéo n'a plus
+    d'objet. Ce qu'il lui reste (NFO du dossier, affiche, fanart) part de la
+    même façon que les fichiers, puis les dossiers vides sont retirés — jamais
+    au-dessus de la racine de la bibliothèque."""
+    root = (settings.emby_library_path or "").strip() if settings else ""
+    if not root:
+        return
+    for folder in folders_of(paths):
+        if not is_inside(folder, root) or has_video(folder):
+            continue
+        for leftover in leftovers(folder):
+            _remove_or_move(session, settings, leftover, action=action, label=os.path.basename(leftover))
+        prune_empty_dirs(folder, root)
 
 
 def undo_items(session: Session, items: list[TrashItem]) -> None:
@@ -430,16 +481,15 @@ async def _restore_arr(
 
     body = payload.get("body") or {}
     try:
+        # Aucun rescan demandé ici : Sonarr/Radarr rafraîchit déjà la fiche
+        # qu'il vient d'ajouter (MovieAddedHandler pousse RefreshMovie), et un
+        # second scan lancé en parallèle enregistrait le même fichier et les
+        # mêmes NFO plusieurs fois (bug réel : 2 fichiers et 3 NFO identiques
+        # sur une fiche Radarr restaurée).
         if service == "radarr":
-            created = await target.radarr().add_movie(body) or {}
-            if created.get("id"):
-                # Rescan : c'est lui qui fait retrouver au film les fichiers
-                # qu'on vient de remettre en place.
-                await target.radarr().rescan_movie(created["id"])
+            await target.radarr().add_movie(body)
         else:
-            created = await target.sonarr().add_series(body) or {}
-            if created.get("id"):
-                await target.sonarr().rescan_series(created["id"])
+            await target.sonarr().add_series(body)
     except (httpx.HTTPError, ValueError) as exc:
         steps.append(DeleteStepResult(kind="arr_media", label=action.media_title, success=False, error=str(exc)))
         return False

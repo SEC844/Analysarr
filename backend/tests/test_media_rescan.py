@@ -263,3 +263,65 @@ def test_torrent_details_are_only_requested_for_candidates(fake_http, fake_inode
     asyncio.run(rescan_media(session, settings, movie))
 
     assert set(asked) == {"AAAA"}
+
+
+def test_an_untracked_media_adopts_its_new_radarr_entry(fake_http, fake_inodes, session, settings):
+    """Après un rattachement, « Analyser ce média » doit faire tomber le statut
+    « Non suivi » : le média reprend l'identité Radarr sans attendre un scan
+    complet (bug réel : le statut restait affiché)."""
+    media = Media(
+        media_type=MediaType.movie,
+        title="Matrix",
+        year=1999,
+        tmdb_id=603,
+        emby_item_id="emby-1",
+        root_path="/data/media/movies/Matrix (1999)",
+        statuses="manquant_arr",
+    )
+    session.add(media)
+    session.commit()
+    session.refresh(media)
+    media_id = media.id
+    session.add(MediaFile(media_id=media_id, path=MOVIE_PATH, size=10, is_current=True))
+    session.commit()
+    fake_inodes[MOVIE_PATH] = LIBRARY_INODE
+    fake_inodes[TORRENT_FILE] = LIBRARY_INODE
+    fake_http["http://radarr"] = radarr_handler(MOVIE)
+    fake_http["http://emby"] = emby_handler([EMBY_MOVIE])
+    fake_http["http://qbit"] = qbit_handler([TORRENT])
+
+    result = asyncio.run(rescan_media(session, settings, media))
+
+    assert result.media_deleted is False
+    refreshed = session.get(Media, media_id)
+    assert refreshed is not None and refreshed.radarr_id == 1
+    assert "manquant_arr" not in refreshed.statuses.split(",")
+
+
+def test_an_untracked_media_stays_untracked_while_radarr_ignores_it(fake_http, fake_inodes, session, settings):
+    """Aucun film correspondant chez Radarr : la fiche reste un média non suivi,
+    et surtout elle n'adopte pas une identité au hasard."""
+    media = Media(
+        media_type=MediaType.movie,
+        title="Matrix",
+        year=1999,
+        tmdb_id=603,
+        emby_item_id="emby-1",
+        root_path="/data/media/movies/Matrix (1999)",
+        statuses="manquant_arr",
+    )
+    session.add(media)
+    session.commit()
+    session.refresh(media)
+    media_id = media.id
+    fake_inodes[MOVIE_PATH] = LIBRARY_INODE
+    fake_http["http://radarr"] = radarr_handler(None)
+    fake_http["http://emby"] = emby_handler([EMBY_MOVIE])
+    fake_http["http://qbit"] = qbit_handler([])
+
+    result = asyncio.run(rescan_media(session, settings, media))
+
+    assert result.media_deleted is False
+    refreshed = session.get(Media, media_id)
+    assert refreshed is not None and refreshed.radarr_id is None
+    assert "manquant_arr" in refreshed.statuses.split(",")
