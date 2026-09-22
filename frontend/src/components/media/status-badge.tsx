@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Copy, Hourglass, Link2, PackageX, Radio, T
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
-import type { MediaStatus } from "@/types/media"
+import { INFO_STATUSES, type MediaStatus } from "@/types/media"
 
 const STATUS_CONFIG: Record<MediaStatus, { icon: typeof Copy; className: string }> = {
   doublon: {
@@ -17,6 +17,12 @@ const STATUS_CONFIG: Record<MediaStatus, { icon: typeof Copy; className: string 
   non_hardlink: {
     icon: Link2,
     className: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  },
+  // Couverture tracker : information, jamais une alerte. Un média sain porte
+  // donc deux badges : « Sain » + « Cross-seed » ou « Tracker unique ».
+  cross_seed: {
+    icon: Radio,
+    className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   },
   tracker_unique: {
     icon: Radio,
@@ -63,18 +69,21 @@ export function StatusBadge({ status }: { status: MediaStatus }) {
 
 export function StatusBadgeList({ statuses }: { statuses: MediaStatus[] }) {
   const { t } = useI18n()
-  if (statuses.length === 0) {
-    return (
-      <Badge variant="outline" className="border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-        <CheckCircle2 className="size-3" />
-        {t("status.sain")}
-      </Badge>
-    )
-  }
+  // Sain = aucune alerte. La couverture tracker s'affiche à côté, comme un
+  // complément d'information (même découpage que le backend).
+  const alerts = statuses.filter((status) => !INFO_STATUSES.includes(status))
+  const info = statuses.filter((status) => INFO_STATUSES.includes(status))
+
   return (
     <div className="flex flex-wrap gap-1">
-      {statuses.map((s) => (
-        <StatusBadge key={s} status={s} />
+      {alerts.length === 0 && (
+        <Badge variant="outline" className="border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="size-3" />
+          {t("status.sain")}
+        </Badge>
+      )}
+      {[...alerts, ...info].map((status) => (
+        <StatusBadge key={status} status={status} />
       ))}
     </div>
   )

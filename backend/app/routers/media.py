@@ -48,7 +48,7 @@ from app.services.queue_issues import execute_import_retry
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.media_rescan import rescan_media
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
-from app.services.scan import launch_scan
+from app.services.scan import MEDIA_STATUSES, is_healthy, launch_scan
 from app.services.action_log import MediaRef, record_action
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
 from app.services.seer import build_requests_read, seer_configured
@@ -86,6 +86,17 @@ def _to_list_item(media: Media, seer_enabled: bool = False, names: dict[int, str
     )
 
 
+# Filtres à choix multiple : listes fermées, une valeur inconnue est ignorée
+# plutôt qu'interprétée.
+WATCH_FILTERS = ("never", "in_progress", "all")
+HEALTH_FILTERS = ("sain", "alerte")
+
+
+def _selected(value: str | None, allowed: tuple[str, ...]) -> list[str]:
+    """Valeurs d'un filtre multiple, séparées par des virgules dans l'URL."""
+    return [item for item in (value or "").split(",") if item in allowed]
+
+
 def _matches_watch_filter(media: Media, watch: str) -> bool:
     if watch == "never":
         return media.watch_user_count > 0 and media.watch_played_count == 0 and media.watch_in_progress_count == 0
@@ -103,9 +114,11 @@ def _idle_since(media: Media) -> datetime | None:
 
 @router.get("", response_model=MediaListResponse)
 def list_media(
-    status: Optional[str] = Query(None, description="doublon | orphelin_qbit | non_hardlink | tracker_unique | sain"),
+    health: Optional[str] = Query(None, description="sain | alerte"),
+    status: Optional[str] = Query(None, description="statuts séparés par des virgules"),
+    match: str = Query("any", description="any (au moins un statut) | all (tous)"),
     media_type: Optional[str] = Query(None, description="movie | series"),
-    watch: Optional[str] = Query(None, description="never | in_progress | all"),
+    watch: Optional[str] = Query(None, description="never | in_progress | all, séparés par des virgules"),
     search: Optional[str] = None,
     sort: str = Query("title", description="title | year | size | last_played | cleanup"),
     session: Session = Depends(get_session),
@@ -117,13 +130,24 @@ def list_media(
     if search:
         needle = search.lower()
         medias = [m for m in medias if needle in m.title.lower()]
-    if status:
-        if status == "sain":
-            medias = [m for m in medias if not m.statuses]
-        else:
-            medias = [m for m in medias if status in m.statuses.split(",")]
-    if watch:
-        medias = [m for m in medias if _matches_watch_filter(m, watch)]
+    if health in HEALTH_FILTERS:
+        healthy = health == "sain"
+        medias = [m for m in medias if is_healthy(m.statuses.split(",")) is healthy]
+
+    wanted = _selected(status, MEDIA_STATUSES)
+    if wanted:
+        # `all` : le média porte TOUS les statuts cochés (demande de l'issue
+        # #35, pour croiser « non hardlink » et « absent du serveur »).
+        # `any` (défaut) : il en porte au moins un.
+        medias = [
+            m
+            for m in medias
+            if (set(wanted) <= set(m.statuses.split(",")) if match == "all" else bool(set(wanted) & set(m.statuses.split(","))))
+        ]
+
+    watches = _selected(watch, WATCH_FILTERS)
+    if watches:
+        medias = [m for m in medias if any(_matches_watch_filter(m, value) for value in watches)]
 
     now = datetime.now(timezone.utc)
     if sort == "year":

@@ -63,6 +63,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Tri « candidats au nettoyage » : les gros fichiers que personne n'a regardés depuis longtemps.
 
 **Confort au quotidien**
+- Filtres de la bibliothèque : type de média, état (sain / alerte), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
 - **Analyses ciblées** : la flèche à côté de **Scanner** lance un seul service — Radarr, Sonarr, le serveur multimédia, le client torrent, la file d'attente, le visionnage ou Seer — et chaque fiche média a son bouton **Analyser ce média**. Les deux sont bien plus rapides qu'un scan complet et laissent le reste du cache intact.
 - qBittorrent, Deluge ou Transmission : le client torrent est un réglage, tout le reste fonctionne à l'identique.

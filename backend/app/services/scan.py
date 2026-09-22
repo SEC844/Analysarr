@@ -70,6 +70,38 @@ logger = logging.getLogger("analysarr.scan")
 _scan_lock = asyncio.Lock()
 
 # Statuts dont l'APPARITION est notifiable (événement -> statut calculé au scan).
+# Liste fermée des statuts qu'un média peut porter : elle borne le filtre de
+# l'API et sert de référence à l'interface (types/media.ts).
+MEDIA_STATUSES = (
+    "doublon",
+    "orphelin_qbit",
+    "non_hardlink",
+    "tracker_unique",
+    "cross_seed",
+    "manquant_emby",
+    "manquant_qbit",
+    "manquant_arr",
+    "import_rate",
+    "telechargement_bloque",
+)
+# Statuts purement informatifs : ils décrivent la couverture tracker et
+# n'empêchent jamais un média d'être sain (voir `is_healthy`).
+INFO_STATUSES = frozenset({"tracker_unique", "cross_seed"})
+
+
+def alert_statuses(statuses: set[str] | list[str]) -> set[str]:
+    """Statuts qui demandent une action. Tout le reste est informatif."""
+    return {status for status in statuses if status and status not in INFO_STATUSES}
+
+
+def is_healthy(statuses: set[str] | list[str]) -> bool:
+    """Média sain : suivi par Sonarr/Radarr, présent sur le serveur multimédia
+    et protégé par un torrent hardlinké. Ces trois conditions sont exactement
+    l'absence de `manquant_arr`, `manquant_emby` et `manquant_qbit`, auxquelles
+    s'ajoute l'absence de tout autre problème (doublon, orphelin...)."""
+    return not alert_statuses(statuses)
+
+
 DETECTION_EVENTS = {
     "orphan_detected": "orphelin_qbit",
     "duplicate_detected": "doublon",
@@ -1127,9 +1159,15 @@ def compute_statuses(
         # seedé" à tort, avec son propre filtre et son action de réparation.
         statuses.add("non_hardlink")
 
-    all_domains = {d["domain"] for t in torrents for d in json.loads(t.trackers_json)}
-    if len(all_domains) == 1:
+    # Couverture tracker : information, pas problème de santé. Calculée sur les
+    # torrents qui protègent vraiment le média (hardlinkés) — les trackers d'un
+    # orphelin ne couvrent plus rien.
+    protecting = [t for t in torrents if t.is_hardlinked is True] or torrents
+    domains = {d["domain"] for t in protecting for d in json.loads(t.trackers_json)}
+    if len(domains) == 1:
         statuses.add("tracker_unique")
+    elif len(domains) > 1:
+        statuses.add("cross_seed")
 
     # Un média sain doit être présent à la fois dans Emby et dans qBittorrent
     # (activement protégé par un torrent, cross-seedé ou non). Pour une série,

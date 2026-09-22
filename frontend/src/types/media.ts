@@ -1,3 +1,20 @@
+/** Couverture tracker : information affichée à côté de « Sain ». */
+export const INFO_STATUSES: MediaStatus[] = ["tracker_unique", "cross_seed"]
+
+/** Statuts d'alerte : ceux qui demandent une action. La couverture tracker
+ * (`tracker_unique`, `cross_seed`) est informative et n'en fait pas partie —
+ * même découpage que `services/scan.py::INFO_STATUSES`. */
+export const ALERT_STATUSES = [
+  "doublon",
+  "orphelin_qbit",
+  "non_hardlink",
+  "manquant_emby",
+  "manquant_qbit",
+  "manquant_arr",
+  "import_rate",
+  "telechargement_bloque",
+] as const
+
 export type MediaStatus =
   | "doublon"
   | "orphelin_qbit"
@@ -6,6 +23,7 @@ export type MediaStatus =
   | "manquant_emby"
   | "manquant_qbit"
   | "manquant_arr"
+  | "cross_seed"
   | "import_rate"
   | "telechargement_bloque"
 export type MediaTypeFilter = "movie" | "series"
@@ -297,9 +315,13 @@ export interface HardlinkRepairResult {
 }
 
 export interface MediaListParams {
-  status?: MediaStatus | "sain"
+  /** Statuts cochés dans le panneau de filtres (plusieurs possibles). */
+  status?: MediaStatus[]
+  /** "all" : le média porte TOUS les statuts cochés ; sinon au moins un. */
+  match?: "all"
+  health?: "sain" | "alerte"
   media_type?: MediaTypeFilter
-  watch?: WatchFilter
+  watch?: WatchFilter[]
   search?: string
   sort?: MediaSort
 }

@@ -308,9 +308,13 @@ export function clearActionHistory(): Promise<void> {
 
 export function listMedia(params: MediaListParams): Promise<MediaListResponse> {
   const search = new URLSearchParams()
-  if (params.status) search.set("status", params.status)
+  // Filtres multiples : valeurs séparées par des virgules, comme les attend
+  // l'API (listes fermées côté serveur).
+  if (params.status?.length) search.set("status", params.status.join(","))
+  if (params.match) search.set("match", params.match)
+  if (params.health) search.set("health", params.health)
   if (params.media_type) search.set("media_type", params.media_type)
-  if (params.watch) search.set("watch", params.watch)
+  if (params.watch?.length) search.set("watch", params.watch.join(","))
   if (params.search) search.set("search", params.search)
   if (params.sort) search.set("sort", params.sort)
   const qs = search.toString()

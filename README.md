@@ -63,6 +63,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - "Cleanup candidates" sort: big files nobody watched for a long time.
 
 **Everyday comfort**
+- Library filters: media type, state (healthy / alert), sorting and search at hand, plus a "Filters" panel where several statuses and watch states can be combined.
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
 - **Targeted scans**: the arrow next to **Scan** runs a single service — Radarr, Sonarr, the media server, the torrent client, the queue, watch activity or Seer — and every media page has its own **Scan this media** button. Both are much faster than a full scan and leave the rest of the cache untouched.
 - qBittorrent, Deluge or Transmission: the torrent client is a setting, everything else works the same way.
