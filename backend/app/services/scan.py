@@ -290,6 +290,23 @@ async def run_scan(trigger: str = "manual", scope: str = "full") -> None:
         await _run_scan_impl(trigger, scope)
 
 
+# Références fortes vers les analyses lancées en tâche de fond : asyncio ne
+# garde qu'une référence faible, une analyse pourrait sinon être collectée en
+# cours de route.
+_background_scans: set[asyncio.Task] = set()
+
+
+def launch_scan(scope: str = "full", trigger: str = "manual") -> bool:
+    """Lance une analyse en tâche de fond. Renvoie False si une analyse tourne
+    déjà (le verrou est unique, voir `run_scan`)."""
+    if is_scan_running():
+        return False
+    task = asyncio.create_task(run_scan(trigger=trigger, scope=scope))
+    _background_scans.add(task)
+    task.add_done_callback(_background_scans.discard)
+    return True
+
+
 async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
     with Session(engine) as session:
         settings = session.get(Settings, 1)

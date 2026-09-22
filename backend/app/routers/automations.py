@@ -26,7 +26,14 @@ from app.services.automation_guard import (
     threshold_percent,
     watched_statuses,
 )
-from app.services.automations import TRIGGER_STATUSES, eligible_medias, as_rule, rule_conditions, run_rule
+from app.services.automations import (
+    TRIGGER_STATUSES,
+    applicable_conditions,
+    as_rule,
+    eligible_medias,
+    rule_conditions,
+    run_rule,
+)
 from app.services.notifications import channel_targets
 
 router = APIRouter()
@@ -88,7 +95,15 @@ def _apply(automation: Automation, payload: AutomationWrite) -> None:
     automation.enabled = payload.enabled
     automation.trigger = payload.trigger
     automation.action = payload.action
-    automation.conditions = json.dumps(payload.conditions.model_dump(exclude_none=True))
+    # Conditions hors sujet pour ce déclencheur : effacées plutôt que gardées
+    # sans effet (une condition de ratio n'existe pas pour un import bloqué).
+    allowed = applicable_conditions(payload.trigger)
+    conditions = {
+        key: value
+        for key, value in payload.conditions.model_dump(exclude_none=True).items()
+        if key == "media_types" or key in allowed
+    }
+    automation.conditions = json.dumps(conditions)
     automation.max_actions = payload.max_actions
     automation.dry_run = payload.dry_run
 

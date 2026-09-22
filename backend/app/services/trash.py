@@ -164,31 +164,48 @@ def delete_or_trash(
     *,
     action: TrashAction | None = None,
     label: str = "",
-) -> None:
+) -> TrashItem | None:
     """Supprime le fichier, ou le déplace en corbeille quand une action est
-    ouverte. Un fichier déjà absent n'est jamais une erreur : c'est le résultat
-    voulu (Sonarr/Radarr peut l'avoir supprimé de son côté juste avant)."""
+    ouverte (l'élément créé est renvoyé, pour pouvoir le remettre en place si
+    l'étape suivante échoue). Un fichier déjà absent n'est jamais une erreur :
+    c'est le résultat voulu (Sonarr/Radarr peut l'avoir supprimé juste avant)."""
     if action is None or not is_enabled(settings):
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
-        return
+        return None
     size = _size_of(path)
     try:
         trashed_path = move_to_trash(settings, path)
     except FileNotFoundError:
-        return
-    session.add(
-        TrashItem(
-            action_id=action.id,
-            kind="library_file",
-            label=label or os.path.basename(path),
-            size=size,
-            original_path=path,
-            trashed_path=trashed_path,
-        )
+        return None
+    item = TrashItem(
+        action_id=action.id,
+        kind="library_file",
+        label=label or os.path.basename(path),
+        size=size,
+        original_path=path,
+        trashed_path=trashed_path,
     )
+    session.add(item)
+    return item
+
+
+def undo_items(session: Session, items: list[TrashItem]) -> None:
+    """Remet ces éléments à leur place et les retire de la corbeille. Sert
+    quand une étape ultérieure échoue : la promesse « si Sonarr/Radarr refuse,
+    rien n'est supprimé du disque » vaut aussi avec la corbeille active."""
+    for item in items:
+        if item.trashed_path and item.original_path:
+            try:
+                _restore_path(item.trashed_path, item.original_path)
+            except (OSError, FileExistsError):
+                continue
+        if item.id is None:
+            session.expunge(item)  # jamais enregistré : il suffit de l'oublier
+        else:
+            session.delete(item)
 
 
 async def trash_torrent(
@@ -420,11 +437,13 @@ async def _restore_arr(
     body = payload.get("body") or {}
     try:
         if service == "radarr":
-            created = await target.radarr().add_movie(body)
+            created = await target.radarr().add_movie(body) or {}
             if created.get("id"):
+                # Rescan : c'est lui qui fait retrouver au film les fichiers
+                # qu'on vient de remettre en place.
                 await target.radarr().rescan_movie(created["id"])
         else:
-            created = await target.sonarr().add_series(body)
+            created = await target.sonarr().add_series(body) or {}
             if created.get("id"):
                 await target.sonarr().rescan_series(created["id"])
     except (httpx.HTTPError, ValueError) as exc:
@@ -442,7 +461,7 @@ async def _restore_seer(
 ) -> bool:
     if not action.seer_payload:
         return True
-    from app.clients.seer import SeerClient
+    from app.clients.seer import SeerClient, SeerRequestError
     from app.services.seer import seer_configured
 
     if not seer_configured(settings):
@@ -459,7 +478,7 @@ async def _restore_seer(
             continue
         try:
             await client.create_request(body)
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, SeerRequestError) as exc:
             steps.append(DeleteStepResult(kind="seer", label=action.media_title, success=False, error=str(exc)))
             return False
     action.seer_payload = None
@@ -472,16 +491,30 @@ async def _restore_seer(
 def _seer_body(request: dict[str, Any]) -> dict[str, Any] | None:
     """Recrée la demande telle qu'elle était : même type, même média, mêmes
     saisons, même demandeur. Sans identifiant de média, il n'y a rien à
-    recréer."""
+    recréer.
+
+    `mediaId` est TOUJOURS le tmdbId, y compris pour une série : c'est
+    l'identifiant qu'attend `POST /api/v1/request` (bug réel : envoyer le
+    tvdbId faisait répondre 500 à Seer)."""
     media = request.get("media") or {}
     media_type = request.get("type") or media.get("mediaType")
-    media_id = media.get("tmdbId") if media_type == "movie" else media.get("tvdbId") or media.get("tmdbId")
+    media_id = media.get("tmdbId")
     if not media_id:
         return None
-    body: dict[str, Any] = {"mediaType": media_type, "mediaId": int(media_id), "is4k": bool(request.get("is4k"))}
-    seasons = [season.get("seasonNumber") for season in request.get("seasons") or [] if season.get("seasonNumber")]
-    if seasons:
-        body["seasons"] = seasons
+    body: dict[str, Any] = {
+        "mediaType": "movie" if media_type == "movie" else "tv",
+        "mediaId": int(media_id),
+        "is4k": bool(request.get("is4k")),
+    }
+    seasons = [
+        season.get("seasonNumber")
+        for season in request.get("seasons") or []
+        if isinstance(season.get("seasonNumber"), int)
+    ]
+    if body["mediaType"] == "tv":
+        # Une demande de série sans saison est refusée par Seer : à défaut de
+        # détail, on redemande la série entière, comme le ferait l'interface.
+        body["seasons"] = seasons or "all"
     requester = request.get("requestedBy") or {}
     if requester.get("id"):
         body["userId"] = requester["id"]

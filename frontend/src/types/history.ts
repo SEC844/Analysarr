@@ -1,4 +1,11 @@
-export type ActionKind = "delete_selection" | "cascade_delete" | "hardlink_repair" | "cross_seed_search"
+export type ActionKind =
+  | "delete_selection"
+  | "cascade_delete"
+  | "hardlink_repair"
+  | "cross_seed_search"
+  | "import_retry"
+  | "automation"
+  | "trash_restore"
 
 export interface ActionStep {
   label: string

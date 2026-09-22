@@ -7,6 +7,10 @@ _MAX_REQUESTS = 50_000
 _PAGE_SIZE = 100
 
 
+class SeerRequestError(RuntimeError):
+    """Seer a refusé la demande : message lisible plutôt qu'un code HTTP seul."""
+
+
 class SeerClient:
     """Client API Seer (Overseerr, Jellyseerr, Seerr : même API v1), authentifié
     par clé API (`X-Api-Key`, compte administrateur)."""
@@ -50,10 +54,16 @@ class SeerClient:
     async def create_request(self, body: dict[str, Any]) -> dict[str, Any]:
         """Recrée une demande au nom de son demandeur d'origine (`userId`,
         réservé aux comptes administrateurs — c'est déjà ce que la clé API
-        exige côté Analysarr)."""
+        exige côté Analysarr).
+
+        Seer répond 500 sur une demande qu'il juge invalide sans rien dire de
+        plus dans le code HTTP : le corps de la réponse est donc remonté
+        (tronqué), sinon l'utilisateur ne voit qu'un « 500 » opaque."""
         async with self._client() as client:
             resp = await client.post("/api/v1/request", json=body)
-            resp.raise_for_status()
+            if resp.is_error:
+                detail = " ".join((resp.text or "").split())[:200]
+                raise SeerRequestError(f"HTTP {resp.status_code}{' — ' + detail if detail else ''}")
             return resp.json()
 
     async def _delete(self, path: str) -> None:

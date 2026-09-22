@@ -33,6 +33,12 @@ class UiPreferences(BaseModel):
     media_sections_expanded: bool = False
     delete_remove_from_arr_default: bool = False
     absolute_dates: bool = False
+    # Invitation à mettre une étoile sur GitHub : "pending" (jamais montrée),
+    # "later" (reportée) ou "done" (l'utilisateur a suivi le lien, plus jamais
+    # d'invitation). `star_prompt_at` date la première ouverture puis chaque
+    # report, pour espacer l'invitation sans jamais l'afficher à l'arrivée.
+    star_prompt_state: Literal["pending", "later", "done"] = "pending"
+    star_prompt_at: Optional[str] = None
 
 
 class AppInfo(BaseModel):

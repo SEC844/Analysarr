@@ -1,6 +1,7 @@
 import asyncio
 
 from app.routers import scan as scan_router
+from app.services import scan as scan_service
 from app.services.events import scan_events
 
 
@@ -30,21 +31,21 @@ def test_stream_opens_immediately_and_is_never_buffered_by_a_proxy(monkeypatch):
 def test_started_scan_task_is_kept_until_it_finishes(monkeypatch):
     started = []
 
-    async def fake_run_scan(scope="full"):
+    async def fake_run_scan(trigger="manual", scope="full"):
         started.append(scope)
 
-    monkeypatch.setattr(scan_router, "run_scan", fake_run_scan)
-    monkeypatch.setattr(scan_router, "is_scan_running", lambda: False)
+    monkeypatch.setattr(scan_service, "run_scan", fake_run_scan)
+    monkeypatch.setattr(scan_service, "is_scan_running", lambda: False)
 
     async def run():
         result = await scan_router.start_scan(scope="full")
-        assert len(scan_router._running_tasks) == 1
-        await asyncio.gather(*scan_router._running_tasks)
+        assert len(scan_service._background_scans) == 1
+        await asyncio.gather(*scan_service._background_scans)
         await asyncio.sleep(0)  # laisse passer le callback de fin de tâche
         return result
 
     assert asyncio.run(run()) == {"started": True}
-    assert started == ["full"] and not scan_router._running_tasks
+    assert started == ["full"] and not scan_service._background_scans
 
 
 def test_an_unknown_scope_is_refused(monkeypatch):
@@ -52,28 +53,28 @@ def test_an_unknown_scope_is_refused(monkeypatch):
     import pytest
     from fastapi import HTTPException
 
-    monkeypatch.setattr(scan_router, "is_scan_running", lambda: False)
+    monkeypatch.setattr(scan_service, "is_scan_running", lambda: False)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(scan_router.start_scan(scope="../etc/passwd"))
     assert exc.value.status_code == 400
-    assert not scan_router._running_tasks
+    assert not scan_service._background_scans
 
 
 def test_each_supported_scope_starts_a_scan(monkeypatch):
     started = []
 
-    async def fake_run_scan(scope="full"):
+    async def fake_run_scan(trigger="manual", scope="full"):
         started.append(scope)
 
-    monkeypatch.setattr(scan_router, "run_scan", fake_run_scan)
-    monkeypatch.setattr(scan_router, "is_scan_running", lambda: False)
+    monkeypatch.setattr(scan_service, "run_scan", fake_run_scan)
+    monkeypatch.setattr(scan_service, "is_scan_running", lambda: False)
 
     from app.services.scan_scopes import SCAN_SCOPES
 
     async def run():
         for scope in SCAN_SCOPES:
             await scan_router.start_scan(scope=scope)
-        await asyncio.gather(*scan_router._running_tasks)
+        await asyncio.gather(*scan_service._background_scans)
 
     asyncio.run(run())
     assert started == list(SCAN_SCOPES)

@@ -33,6 +33,8 @@ export interface TrashStep {
 export interface TrashRestoreResult {
   steps: TrashStep[]
   complete: boolean
+  /** Une analyse a été lancée pour faire réapparaître le média restauré. */
+  rescan_started: boolean
   actions: TrashAction[]
 }
 

@@ -53,6 +53,13 @@ export const fr = {
     otpLabel: "Code de vérification",
     otpHelp: "Code à 6 chiffres de votre application d'authentification, ou un code de secours.",
   },
+  star: {
+    title: "Vous appréciez Analysarr ?",
+    description:
+      "Analysarr est open source. Si l'application vous rend service, une étoile sur GitHub aide d'autres utilisateurs à la découvrir.",
+    action: "Mettre une étoile sur GitHub",
+    later: "Plus tard",
+  },
   trash: {
     title: "Corbeille",
     description:
@@ -73,6 +80,7 @@ export const fr = {
     emptied: "Corbeille vidée.",
     restore: "Restaurer",
     restored: "Suppression annulée : tout a été remis en place.",
+    restoredWithScan: "Suppression annulée : tout a été remis en place, analyse en cours pour remettre le média dans la bibliothèque.",
     restoreFailed: "Restauration incomplète : rien n'a été retiré de la corbeille.",
     incomplete: "Des éléments manquent dans la corbeille : la restauration serait incomplète.",
     deleteNow: "Supprimer définitivement",
@@ -365,6 +373,7 @@ export const fr = {
       title: "Garde-fou des automatisations",
       description:
         "Protection contre la perte de toute une bibliothèque : un disque non monté, un partage injoignable ou un client torrent réinitialisé fait passer d'un coup des centaines de médias pour des orphelins ou des doublons — et une automatisation de nettoyage les supprimerait tous. Au-delà du seuil, les règles se coupent et attendent votre feu vert.",
+      how: "Comment ça marche",
       threshold: "Part de la bibliothèque tolérée",
       thresholdHelp:
         "Analysarr compare le dernier scan complet au précédent. Si le nombre de médias en orphelin, doublon ou non hardlink augmente de plus de ce pourcentage de la bibliothèque sans action de votre part (exemple : 1 000 médias, 10 orphelins qui passent à 210, soit 20 %), les automatisations se mettent en pause. Minimum {min} %.",
@@ -474,6 +483,8 @@ export const fr = {
       hardlink_repair: "Réparation",
       cross_seed_search: "Cross-seed",
       import_retry: "Import relancé",
+      automation: "Automatisation",
+      trash_restore: "Restauration",
     },
     succeeded: { one: "{count} réussite", other: "{count} réussites" },
     failures: { one: "{count} échec", other: "{count} échecs" },

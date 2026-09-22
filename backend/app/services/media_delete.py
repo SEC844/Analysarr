@@ -14,7 +14,7 @@ from sqlmodel import Session, delete, select
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_configured
 from app.models.media import Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent, TorrentFile
 from app.models.settings import Settings
-from app.models.trash import TrashAction
+from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import (
     DeleteFootprintItem,
     DeleteStepResult,
@@ -25,7 +25,15 @@ from app.schemas.media import (
 )
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.path_guard import ensure_paths_available
-from app.services.trash import capture_arr, capture_seer, close_action, delete_or_trash, open_action, trash_torrent
+from app.services.trash import (
+    capture_arr,
+    capture_seer,
+    close_action,
+    delete_or_trash,
+    open_action,
+    trash_torrent,
+    undo_items,
+)
 from app.services.hardlink import resolve_torrent_files
 from app.services.scan import compute_statuses, current_files_size
 from app.services.seer import remove_seer_requests
@@ -154,13 +162,17 @@ async def _delete_movie_files(
         # Libellés lus AVANT la suppression : une fois la ligne retirée de la
         # session, ses attributs ne sont plus lisibles.
         label = f.path
+        # Corbeille active : Analysarr déplace le fichier LUI-MÊME, puis
+        # demande à Radarr d'oublier son enregistrement. Laisser Radarr
+        # supprimer effacerait le fichier pour de bon, sans rien à restaurer.
+        trashed = delete_or_trash(session, settings, label, action=action, label=label)
         try:
             if f.arr_file_id and radarr is not None:
                 await radarr.delete_movie_file(f.arr_file_id)
-            else:
+            elif action is None:
                 # Fichier en trop jamais suivi par Radarr (doublon) : rien à
                 # supprimer côté Radarr, juste le fichier lui-même.
-                delete_or_trash(session, settings, label, action=action, label=label)
+                delete_or_trash(session, settings, label, action=None, label=label)
             session.delete(f)
             steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
         except (httpx.HTTPError, OSError) as exc:
@@ -168,6 +180,7 @@ async def _delete_movie_files(
                 session.delete(f)
                 steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
                 continue
+            undo_items(session, [trashed] if trashed else [])
             steps.append(DeleteStepResult(kind="library_file", label=label, success=False, error=str(exc)))
 
 
@@ -194,30 +207,58 @@ async def _remove_media_from_arr(
     média lui est inconnu (repli sur la suppression fichier par fichier)."""
     if target is None:
         return False
-    if media.media_type == MediaType.movie:
-        if not media.radarr_id:
-            return False
-        remove = target.radarr().delete_movie(media.radarr_id)
-    else:
-        if not media.sonarr_id:
-            return False
-        remove = target.sonarr().delete_series(media.sonarr_id)
+    if media.media_type == MediaType.movie and not media.radarr_id:
+        return False
+    if media.media_type != MediaType.movie and not media.sonarr_id:
+        return False
     service = target.name
 
+    # Corbeille active : les fichiers sont mis de côté par Analysarr AVANT le
+    # retrait, et Sonarr/Radarr reçoit `deleteFiles=false`. Sans ça, c'est
+    # Sonarr/Radarr qui efface les fichiers et la corbeille ne récupère que les
+    # rares fichiers qu'il n'a pas su supprimer (bug réel : une série restaurée
+    # ne revenait qu'avec deux épisodes).
+    trashed: list[TrashItem] = []
+    failures: list[tuple[str, str]] = []
+    if action is not None:
+        for f in files:
+            label = f.episode_label or f.path
+            try:
+                item = delete_or_trash(session, settings, f.path, action=action, label=label)
+            except OSError as exc:
+                failures.append((label, str(exc)))
+                continue
+            if item is not None:
+                trashed.append(item)
+    if failures:
+        # Un fichier n'a pas pu être mis de côté : on ne retire rien de
+        # Sonarr/Radarr, et ce qui a bougé retourne à sa place.
+        undo_items(session, trashed)
+        for label, error in failures:
+            steps.append(DeleteStepResult(kind="library_file", label=label, success=False, error=error))
+        return True
+
     try:
-        await remove
+        if media.media_type == MediaType.movie:
+            await target.radarr().delete_movie(media.radarr_id, delete_files=action is None)
+        else:
+            await target.sonarr().delete_series(media.sonarr_id, delete_files=action is None)
     except httpx.HTTPError as exc:
         # Rien n'est supprimé du disque si Sonarr/Radarr refuse : l'utilisateur
         # voit l'erreur et peut réessayer sans avoir perdu ses fichiers.
+        undo_items(session, trashed)
         steps.append(DeleteStepResult(kind="arr_media", label=media.title, success=False, error=str(exc)))
         return True
+
     steps.append(DeleteStepResult(kind="arr_media", label=f"{media.title} retiré de {service}", success=True))
     for f in files:
         label = f.episode_label or f.path
         path = f.path
         try:
-            if os.path.lexists(path):
-                delete_or_trash(session, settings, path, action=action, label=label)
+            if action is None and os.path.lexists(path):
+                # Sans corbeille, Sonarr/Radarr a déjà supprimé ses fichiers :
+                # il ne reste que ceux qu'il ne connaissait pas.
+                delete_or_trash(session, settings, path, action=None, label=label)
             session.delete(f)
             steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
         except OSError as exc:
@@ -239,13 +280,16 @@ async def _delete_episode_files(
     for f in files:
         label = f.episode_label or f.path
         path, episode_id, file_id = f.path, f.sonarr_episode_id, f.arr_file_id
+        # Voir `_delete_movie_files` : avec la corbeille, le fichier est mis de
+        # côté par Analysarr avant que Sonarr n'oublie son enregistrement.
+        trashed = delete_or_trash(session, settings, path, action=action, label=label)
         try:
             if file_id and sonarr is not None:
                 await sonarr.delete_episode_file(file_id)
                 if remove_from_arr and episode_id:
                     episodes_to_unmonitor.append(episode_id)
-            else:
-                delete_or_trash(session, settings, path, action=action, label=label)
+            elif action is None:
+                delete_or_trash(session, settings, path, action=None, label=label)
             session.delete(f)
             steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
         except (httpx.HTTPError, OSError) as exc:
@@ -253,6 +297,7 @@ async def _delete_episode_files(
                 session.delete(f)
                 steps.append(DeleteStepResult(kind="library_file", label=label, success=True))
                 continue
+            undo_items(session, [trashed] if trashed else [])
             steps.append(DeleteStepResult(kind="library_file", label=label, success=False, error=str(exc)))
 
     if episodes_to_unmonitor and sonarr is not None:

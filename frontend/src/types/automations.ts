@@ -13,6 +13,18 @@ export const AUTOMATION_ACTIONS = [
   "notify_only",
 ] as const
 
+/** Conditions qui ont un sens pour chaque déclencheur : un import bloqué n'a
+ * ni temps de seed ni ratio, un doublon n'a pas de torrent. Même table côté
+ * backend (`services/automations.py::TRIGGER_CONDITIONS`), qui efface les
+ * autres à l'enregistrement. */
+export const CONDITIONS_BY_TRIGGER = {
+  orphan_detected: ["min_seed_days", "min_ratio", "min_reclaimable_bytes"],
+  duplicate_detected: ["min_reclaimable_bytes"],
+  non_hardlink_detected: ["min_seed_days", "min_ratio"],
+  import_failed_detected: [],
+  stalled_download_detected: [],
+} as const satisfies Record<(typeof AUTOMATION_TRIGGERS)[number], readonly string[]>
+
 export type AutomationTrigger = (typeof AUTOMATION_TRIGGERS)[number]
 export type AutomationAction = (typeof AUTOMATION_ACTIONS)[number]
 

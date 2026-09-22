@@ -14,6 +14,8 @@ from app.schemas.trash import (
     TrashSettings,
     TrashSettingsWrite,
 )
+from app.services.action_log import MediaRef, record_action
+from app.services.scan import launch_scan
 from app.services.trash import (
     MAX_RETENTION_DAYS,
     MIN_RETENTION_DAYS,
@@ -102,8 +104,24 @@ async def restore(action_id: int, session: Session = Depends(get_session)) -> Tr
     """Restauration d'un bloc : fichiers, torrents, suivi Sonarr/Radarr et
     demande Seer. Une action dont une étape échoue reste dans la corbeille."""
     action = _get(action_id, session)
+    # Copiés avant : l'action disparaît de la corbeille dès que tout est rendu.
+    ref = MediaRef(id=None, title=action.media_title, media_type=action.media_type or "movie")
+    restores_arr = bool(action.arr_payload)
+
     steps, complete = await restore_action(session, session.get(Settings, 1), action)
-    return TrashRestoreResult(steps=steps, complete=complete, actions=_list(session))
+    record_action(session, "trash_restore", ref, steps)
+
+    # Le média restauré doit réapparaître sans que l'utilisateur relance un
+    # scan complet : une analyse du service concerné suffit (elle seule peut
+    # recréer une fiche média retirée de la bibliothèque).
+    rescan = complete and launch_scan(scope=_rescan_scope(ref.media_type, restores_arr))
+    return TrashRestoreResult(steps=steps, complete=complete, rescan_started=rescan, actions=_list(session))
+
+
+def _rescan_scope(media_type: str | None, restores_arr: bool) -> str:
+    if not restores_arr:
+        return "torrents"  # seuls des torrents sont revenus : rien à redemander à Sonarr/Radarr
+    return "radarr" if media_type == "movie" else "sonarr"
 
 
 @router.delete("/{action_id}", status_code=204)

@@ -110,12 +110,20 @@ class RadarrClient(ArrClient):
     async def delete_movie_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/moviefile/{file_id}")
 
-    async def delete_movie(self, movie_id: int) -> None:
-        """Retire le film de Radarr (arrête le suivi/monitoring) ET supprime
-        son fichier — équivalent de "Supprimer" depuis l'UI Radarr elle-même.
-        `addImportExclusion=false` : on ne bloque pas un futur ré-ajout
-        volontaire du film, on arrête juste de le suivre maintenant."""
-        await self._delete(f"/api/v3/movie/{movie_id}", params={"deleteFiles": "true", "addImportExclusion": "false"})
+    async def delete_movie(self, movie_id: int, delete_files: bool = True) -> None:
+        """Retire le film de Radarr (arrête le suivi/monitoring) et, par
+        défaut, supprime son fichier — équivalent de "Supprimer" depuis l'UI
+        Radarr elle-même. `addImportExclusion=false` : on ne bloque pas un
+        futur ré-ajout volontaire du film, on arrête juste de le suivre
+        maintenant.
+
+        `delete_files=False` quand la corbeille est active : c'est Analysarr
+        qui met alors les fichiers de côté, sinon Radarr les effacerait pour de
+        bon et il n'y aurait plus rien à restaurer."""
+        await self._delete(
+            f"/api/v3/movie/{movie_id}",
+            params={"deleteFiles": str(delete_files).lower(), "addImportExclusion": "false"},
+        )
 
 
     async def add_movie(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -167,13 +175,16 @@ class SonarrClient(ArrClient):
         # filtrée par série.
         return await self._get("/api/v3/history/series", params={"seriesId": series_id})
 
-    async def delete_series(self, series_id: int) -> None:
-        """Retire la série de Sonarr ET supprime son dossier — équivalent de
-        "Supprimer" depuis l'UI Sonarr, seul cas où la granularité série
-        s'applique (tous les fichiers de la série sélectionnés). Même choix
-        que `RadarrClient.delete_movie` : pas d'exclusion d'import."""
+    async def delete_series(self, series_id: int, delete_files: bool = True) -> None:
+        """Retire la série de Sonarr et, par défaut, supprime son dossier —
+        équivalent de "Supprimer" depuis l'UI Sonarr, seul cas où la
+        granularité série s'applique (tous les fichiers de la série
+        sélectionnés). Même choix que `RadarrClient.delete_movie` : pas
+        d'exclusion d'import, et `delete_files=False` quand la corbeille est
+        active."""
         await self._delete(
-            f"/api/v3/series/{series_id}", params={"deleteFiles": "true", "addImportListExclusion": "false"}
+            f"/api/v3/series/{series_id}",
+            params={"deleteFiles": str(delete_files).lower(), "addImportListExclusion": "false"},
         )
 
     async def add_series(self, body: dict[str, Any]) -> dict[str, Any]:

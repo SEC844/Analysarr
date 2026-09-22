@@ -20,12 +20,11 @@ from app.services.diagnostics import (
     run_diagnostics,
 )
 from app.services.events import scan_events
-from app.services.scan import is_scan_running, run_scan
+from app.services.scan import is_scan_running, launch_scan
 from app.services.scan_scopes import SCAN_SCOPES
 
 router = APIRouter()
 
-_running_tasks: set[asyncio.Task] = set()
 
 # Ping SSE (commentaire ignoré par EventSource) : garde la connexion vivante
 # derrière un reverse-proxy qui coupe les connexions inactives.
@@ -58,12 +57,7 @@ async def start_scan(scope: str = Query("full", description=" | ".join(SCAN_SCOP
         raise HTTPException(400, f"Périmètre inconnu : {', '.join(SCAN_SCOPES)}.")
     if is_scan_running():
         return {"started": False, "message": "Un scan est déjà en cours."}
-    # Référence forte : asyncio ne garde qu'une référence faible sur les tâches,
-    # un scan pourrait sinon être collecté par le ramasse-miettes en cours de route.
-    task = asyncio.create_task(run_scan(scope=scope))
-    _running_tasks.add(task)
-    task.add_done_callback(_running_tasks.discard)
-    return {"started": True}
+    return {"started": launch_scan(scope=scope)}
 
 
 @router.get("/status", response_model=Optional[ScanRunRead])

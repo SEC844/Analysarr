@@ -53,6 +53,13 @@ export const en: Dictionary = {
     otpLabel: "Verification code",
     otpHelp: "6-digit code from your authenticator app, or a recovery code.",
   },
+  star: {
+    title: "Enjoying Analysarr?",
+    description:
+      "Analysarr is open source. If the app helps you, a star on GitHub helps other people discover it.",
+    action: "Star on GitHub",
+    later: "Later",
+  },
   trash: {
     title: "Trash",
     description:
@@ -73,6 +80,7 @@ export const en: Dictionary = {
     emptied: "Trash emptied.",
     restore: "Restore",
     restored: "Deletion undone: everything is back in place.",
+    restoredWithScan: "Deletion undone: everything is back in place, a scan is running to bring the media back into the library.",
     restoreFailed: "Incomplete restore: nothing was removed from the trash.",
     incomplete: "Items are missing from the trash: the restore would be incomplete.",
     deleteNow: "Delete permanently",
@@ -363,6 +371,7 @@ export const en: Dictionary = {
       title: "Automation safety net",
       description:
         "Protection against losing a whole library: an unmounted disk, an unreachable share or a reset torrent client makes hundreds of media look like orphans or duplicates at once — and a cleanup automation would delete them all. Above the threshold, rules stop and wait for your go-ahead.",
+      how: "How it works",
       threshold: "Share of the library tolerated",
       thresholdHelp:
         "Analysarr compares the last full scan with the previous one. If the number of media flagged orphan, duplicate or not hardlinked grows by more than this share of the library without any action from you (example: 1,000 media, 10 orphans becoming 210, that is 20%), automations are paused. Minimum {min}%.",
@@ -472,6 +481,8 @@ export const en: Dictionary = {
       hardlink_repair: "Repair",
       cross_seed_search: "Cross-seed",
       import_retry: "Import retried",
+      automation: "Automation",
+      trash_restore: "Restore",
     },
     succeeded: { one: "{count} succeeded", other: "{count} succeeded" },
     failures: { one: "{count} failure", other: "{count} failures" },

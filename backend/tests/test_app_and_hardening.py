@@ -125,3 +125,18 @@ def test_disabled_update_check_makes_no_outbound_request(fake_http, admin_client
     fake_http["https://api.github.com"] = forbidden
     assert admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code == 200
     assert admin_client.get("/api/app/info").json()["update"] is None
+
+
+def test_star_prompt_state_is_stored_and_bounded(admin_client):
+    """Invitation à mettre une étoile : l'état vit dans les préférences, donc
+    le rappel ne revient pas à chaque navigateur ni à chaque redémarrage."""
+    info = admin_client.get("/api/app/info").json()
+    assert info["ui"]["star_prompt_state"] == "pending" and info["ui"]["star_prompt_at"] is None
+
+    ui = info["ui"] | {"star_prompt_state": "done", "star_prompt_at": "2026-09-22T06:00:00Z"}
+    saved = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": ui})
+    assert saved.json()["ui"]["star_prompt_state"] == "done"
+
+    bad = info["ui"] | {"star_prompt_state": "whatever"}
+    refused = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": bad})
+    assert refused.status_code == 422

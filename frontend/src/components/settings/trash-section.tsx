@@ -64,8 +64,13 @@ function ActionRow({ action }: { action: TrashAction }) {
             onClick={() =>
               restoreMutation.mutate(action.id, {
                 onSuccess: (result) => {
-                  if (result.complete) toast.success(t("trash.restored"))
-                  else toast.error(result.steps.find((step) => !step.success)?.error ?? t("trash.restoreFailed"))
+                  if (!result.complete) {
+                    toast.error(result.steps.find((step) => !step.success)?.error ?? t("trash.restoreFailed"))
+                    return
+                  }
+                  // Une analyse suit la restauration : le média revient sur
+                  // l'accueil sans scan manuel.
+                  toast.success(result.rescan_started ? t("trash.restoredWithScan") : t("trash.restored"))
                 },
                 onError: (err) => toast.error(err instanceof Error ? err.message : t("trash.restoreFailed")),
               })

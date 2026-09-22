@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom"
 import { toast } from "sonner"
 
 import { AppShell } from "@/components/layout/app-shell"
+import { StarPrompt } from "@/components/star-prompt"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useAuthStatusQuery } from "@/hooks/use-auth"
@@ -114,6 +115,9 @@ function App() {
         <Route path="/media/:id" element={<MediaDetailPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
+      {/* Invitation à mettre une étoile : jamais à l'arrivée, jamais deux fois
+          (voir components/star-prompt.tsx). */}
+      <StarPrompt />
     </AppShell>
   )
 }

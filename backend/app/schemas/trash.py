@@ -39,6 +39,8 @@ class TrashRestoreResult(BaseModel):
     steps: list[DeleteStepResult]
     # Vrai si tout a été remis en place (l'action quitte alors la corbeille).
     complete: bool
+    # Vrai si une analyse a été lancée pour faire réapparaître le média.
+    rescan_started: bool = False
     actions: list[TrashActionRead]
 
 

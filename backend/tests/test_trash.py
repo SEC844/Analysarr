@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from sqlmodel import select
 
-from app.models.media import Media, MediaFile, MediaType, Torrent
+from app.models.media import Media, MediaFile, MediaRequest, MediaType, Torrent
 from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import MediaDeleteSelection
 from app.services.cascade_delete import execute_delete
@@ -304,3 +304,160 @@ def test_settings_are_bounded(admin_client, settings, session):
     assert admin_client.put("/api/trash/settings", json={"enabled": True, "retention_days": 400}).status_code == 422
     session.expire_all()
     assert session.get(Settings, 1).trash_retention_days == 30
+
+
+def test_sonarr_never_deletes_the_files_when_the_trash_is_on(session, settings, tmp_path, fake_http, monkeypatch):
+    """Bug réel : Sonarr supprimait la série avec ses fichiers, la corbeille ne
+    récupérait que les rares fichiers qu'il n'avait pas su effacer — la
+    restauration ne rendait que deux épisodes sur seize."""
+    enable_trash(session, settings, tmp_path)
+    client = FakeTorrentClient()
+    patch_client(monkeypatch, client)
+    calls = []
+
+    def sonarr(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, dict(request.url.params)))
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": 7, "tvdbId": 99, "title": "Titre"})
+        return httpx.Response(200)
+
+    fake_http["http://sonarr"] = sonarr
+    media = Media(media_type=MediaType.series, title="Titre", sonarr_id=7)
+    session.add(media)
+    session.commit()
+    files = []
+    for index in range(3):
+        path = tmp_path / f"S01E0{index + 1}.mkv"
+        path.write_bytes(b"episode")
+        row = MediaFile(media_id=media.id, path=str(path), size=7, episode_label=f"S01E0{index + 1}")
+        session.add(row)
+        files.append(row)
+    session.commit()
+    paths = [f.path for f in files]
+
+    asyncio.run(
+        execute_media_delete(
+            session,
+            media,
+            settings,
+            MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True),
+        )
+    )
+
+    delete_call = next(call for call in calls if call[0] == "DELETE")
+    assert delete_call[2]["deleteFiles"] == "false"  # c'est Analysarr qui met de côté
+    assert not any(os.path.exists(path) for path in paths)
+    action = session.exec(select(TrashAction)).one()
+    items = session.exec(select(TrashItem).where(TrashItem.action_id == action.id)).all()
+    assert len(items) == 3 and all(os.path.exists(item.trashed_path) for item in items)
+
+    steps, complete = asyncio.run(restore_action(session, settings, action))
+    assert complete, [step.error for step in steps]
+    assert all(os.path.exists(path) for path in paths)
+
+
+def test_nothing_leaves_the_disk_if_sonarr_refuses(session, settings, tmp_path, fake_http, monkeypatch):
+    """Promesse inchangée avec la corbeille : Sonarr refuse, les fichiers
+    retournent à leur place."""
+    enable_trash(session, settings, tmp_path)
+    client = FakeTorrentClient()
+    patch_client(monkeypatch, client)
+
+    def sonarr(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": 7, "tvdbId": 99})
+        return httpx.Response(500)
+
+    fake_http["http://sonarr"] = sonarr
+    media = Media(media_type=MediaType.series, title="Titre", sonarr_id=7)
+    session.add(media)
+    session.commit()
+    path = tmp_path / "S01E01.mkv"
+    path.write_bytes(b"episode")
+    row = MediaFile(media_id=media.id, path=str(path), size=7, episode_label="S01E01")
+    session.add(row)
+    session.commit()
+
+    result = asyncio.run(
+        execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True))
+    )
+
+    assert any(not step.success for step in result.steps)
+    assert os.path.exists(path)
+    assert session.exec(select(TrashItem)).all() == []
+
+
+def test_a_seer_request_is_recreated_with_its_tmdb_id(session, settings, tmp_path, fake_http, monkeypatch):
+    """Seer attend le tmdbId, même pour une série : envoyer le tvdbId lui
+    faisait répondre 500."""
+    enable_trash(session, settings, tmp_path)
+    client = FakeTorrentClient()
+    patch_client(monkeypatch, client)
+    settings.seer_enabled, settings.seer_url, settings.seer_api_key = True, "http://seer", "k"
+    session.add(settings)
+    session.commit()
+    bodies = []
+
+    def seer(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "id": 5,
+                    "type": "tv",
+                    "is4k": False,
+                    "media": {"tmdbId": 1399, "tvdbId": 121361, "mediaType": "tv"},
+                    "seasons": [{"seasonNumber": 1}, {"seasonNumber": 2}],
+                    "requestedBy": {"id": 3},
+                },
+            )
+        if request.method == "POST":
+            bodies.append(json.loads(request.content))
+            return httpx.Response(201, json={"id": 9})
+        return httpx.Response(204)
+
+    fake_http["http://seer"] = seer
+    media = Media(media_type=MediaType.series, title="Titre", sonarr_id=7)
+    session.add(media)
+    session.commit()
+    session.add(MediaRequest(media_id=media.id, seer_request_id=5, seer_media_id=100, status="approved"))
+    path = tmp_path / "S01E01.mkv"
+    path.write_bytes(b"episode")
+    row = MediaFile(media_id=media.id, path=str(path), size=7, episode_label="S01E01")
+    session.add(row)
+    session.commit()
+
+    asyncio.run(
+        execute_media_delete(
+            session,
+            media,
+            settings,
+            MediaDeleteSelection(media_file_ids=[row.id], remove_from_seer=True),
+        )
+    )
+    action = session.exec(select(TrashAction)).one()
+    steps, complete = asyncio.run(restore_action(session, settings, action))
+
+    assert complete, [step.error for step in steps]
+    assert bodies == [{"mediaType": "tv", "mediaId": 1399, "is4k": False, "seasons": [1, 2], "userId": 3}]
+
+
+def test_a_restore_is_recorded_and_triggers_a_scan(admin_client, session, settings, tmp_path, monkeypatch):
+    from app.models.activity import ActionLog
+
+    enable_trash(session, settings, tmp_path)
+    client = FakeTorrentClient()
+    patch_client(monkeypatch, client)
+    scans = []
+    monkeypatch.setattr("app.routers.trash.launch_scan", lambda scope="full": scans.append(scope) or True)
+    media, row = add_movie(session, tmp_path)
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    action_id = session.exec(select(TrashAction)).one().id
+
+    result = admin_client.post(f"/api/trash/{action_id}/restore").json()
+
+    assert result["complete"] and result["rescan_started"]
+    assert scans == ["torrents"]  # aucun retrait Sonarr/Radarr à refaire
+    session.expire_all()
+    entry = session.exec(select(ActionLog)).one()
+    assert entry.action == "trash_restore" and entry.media_title == "Titre"

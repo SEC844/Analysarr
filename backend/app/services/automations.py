@@ -35,6 +35,23 @@ TRIGGER_STATUSES = {
 }
 MAX_ACTIONS_LIMIT = 50
 
+# Conditions qui ont un sens pour chaque déclencheur. Une condition de seed ou
+# de ratio ne veut rien dire pour un import bloqué, et un espace récupérable ne
+# veut rien dire là où il n'y a rien à supprimer : elles sont effacées à
+# l'enregistrement plutôt que gardées sans effet, et l'interface ne les affiche
+# pas (même table dans `frontend/src/types/automations.ts`).
+TRIGGER_CONDITIONS: dict[str, tuple[str, ...]] = {
+    "orphan_detected": ("min_seed_days", "min_ratio", "min_reclaimable_bytes"),
+    "duplicate_detected": ("min_reclaimable_bytes",),
+    "non_hardlink_detected": ("min_seed_days", "min_ratio"),
+    "import_failed_detected": (),
+    "stalled_download_detected": (),
+}
+
+
+def applicable_conditions(trigger: str) -> tuple[str, ...]:
+    return TRIGGER_CONDITIONS.get(trigger, ())
+
 
 @dataclass(frozen=True)
 class AutomationRule:

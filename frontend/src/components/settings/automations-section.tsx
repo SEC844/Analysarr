@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronRight, Loader2, Play, Plus, Trash2, Wand2 } from "lucide-react"
+import { ChevronRight, Info, Loader2, Play, Plus, Trash2, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AutomationsPausedBanner } from "@/components/automations/automations-paused-banner"
@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
@@ -28,6 +29,7 @@ import { formatBytes, formatDateTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   AUTOMATION_TRIGGERS,
+  CONDITIONS_BY_TRIGGER,
   type Automation,
   type AutomationAction,
   type AutomationRunResult,
@@ -133,6 +135,7 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
   ) => setRule((current) => ({ ...current, conditions: { ...current.conditions, [key]: value } }))
 
   const actions = ACTIONS_BY_TRIGGER[rule.trigger]
+  const available: readonly string[] = CONDITIONS_BY_TRIGGER[rule.trigger]
   const saving = create.isPending || update.isPending
 
   function handleSave() {
@@ -235,10 +238,21 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
               onValueChange={(value) => {
                 const trigger = value as AutomationTrigger
                 const allowed = ACTIONS_BY_TRIGGER[trigger]
+                const keep: readonly string[] = CONDITIONS_BY_TRIGGER[trigger]
                 setRule((current) => ({
                   ...current,
                   trigger,
                   action: allowed.includes(current.action) ? current.action : allowed[0],
+                  // Conditions sans objet pour le nouveau déclencheur : effacées
+                  // tout de suite, comme le fait le backend à l'enregistrement.
+                  conditions: {
+                    media_types: current.conditions.media_types,
+                    min_seed_days: keep.includes("min_seed_days") ? current.conditions.min_seed_days : null,
+                    min_ratio: keep.includes("min_ratio") ? current.conditions.min_ratio : null,
+                    min_reclaimable_bytes: keep.includes("min_reclaimable_bytes")
+                      ? current.conditions.min_reclaimable_bytes
+                      : null,
+                  },
                 }))
               }}
             >
@@ -274,46 +288,62 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
 
         <div className="space-y-3 border-t pt-4">
           <p className="text-sm font-medium">{t("automations.conditions")}</p>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <Label htmlFor={`rule-seed-${automation?.id ?? "new"}`}>{t("automations.minSeedDays")}</Label>
-              <Input
-                id={`rule-seed-${automation?.id ?? "new"}`}
-                type="number"
-                min={0}
-                placeholder={t("automations.noCondition")}
-                value={rule.conditions.min_seed_days ?? ""}
-                onChange={(e) => setCondition("min_seed_days", numberOrNull(e.target.value))}
-              />
+          {/* Seules les conditions qui ont un sens pour ce déclencheur : parler
+              de temps de seed ou de ratio sur un import bloqué n'aurait aucun
+              effet et laisserait croire le contraire. */}
+          {available.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-3">
+              {available.includes("min_seed_days") && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`rule-seed-${automation?.id ?? "new"}`}>{t("automations.minSeedDays")}</Label>
+                  <Input
+                    id={`rule-seed-${automation?.id ?? "new"}`}
+                    type="number"
+                    min={0}
+                    placeholder={t("automations.noCondition")}
+                    value={rule.conditions.min_seed_days ?? ""}
+                    onChange={(e) => setCondition("min_seed_days", numberOrNull(e.target.value))}
+                  />
+                </div>
+              )}
+              {available.includes("min_ratio") && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`rule-ratio-${automation?.id ?? "new"}`}>{t("automations.minRatio")}</Label>
+                  <Input
+                    id={`rule-ratio-${automation?.id ?? "new"}`}
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    placeholder={t("automations.noCondition")}
+                    value={rule.conditions.min_ratio ?? ""}
+                    onChange={(e) => setCondition("min_ratio", numberOrNull(e.target.value))}
+                  />
+                </div>
+              )}
+              {available.includes("min_reclaimable_bytes") && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`rule-size-${automation?.id ?? "new"}`}>{t("automations.minSize")}</Label>
+                  <Input
+                    id={`rule-size-${automation?.id ?? "new"}`}
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    placeholder={t("automations.noCondition")}
+                    value={
+                      rule.conditions.min_reclaimable_bytes ? rule.conditions.min_reclaimable_bytes / GIGABYTE : ""
+                    }
+                    onChange={(e) => {
+                      const gigabytes = numberOrNull(e.target.value)
+                      setCondition(
+                        "min_reclaimable_bytes",
+                        gigabytes === null ? null : Math.round(gigabytes * GIGABYTE),
+                      )
+                    }}
+                  />
+                </div>
+              )}
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`rule-ratio-${automation?.id ?? "new"}`}>{t("automations.minRatio")}</Label>
-              <Input
-                id={`rule-ratio-${automation?.id ?? "new"}`}
-                type="number"
-                min={0}
-                step="0.1"
-                placeholder={t("automations.noCondition")}
-                value={rule.conditions.min_ratio ?? ""}
-                onChange={(e) => setCondition("min_ratio", numberOrNull(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`rule-size-${automation?.id ?? "new"}`}>{t("automations.minSize")}</Label>
-              <Input
-                id={`rule-size-${automation?.id ?? "new"}`}
-                type="number"
-                min={0}
-                step="0.5"
-                placeholder={t("automations.noCondition")}
-                value={rule.conditions.min_reclaimable_bytes ? rule.conditions.min_reclaimable_bytes / GIGABYTE : ""}
-                onChange={(e) => {
-                  const gigabytes = numberOrNull(e.target.value)
-                  setCondition("min_reclaimable_bytes", gigabytes === null ? null : Math.round(gigabytes * GIGABYTE))
-                }}
-              />
-            </div>
-          </div>
+          )}
           <div className="flex flex-wrap items-center gap-4">
             {(["movie", "series"] as const).map((mediaType) => (
               <label key={mediaType} className="flex items-center gap-2 text-sm">
@@ -419,7 +449,32 @@ function AutomationGuardCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("automations.guard.title")}</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">
+          {t("automations.guard.title")}
+          {/* Le détail du calcul tient dans une bulle : il est utile une fois,
+              mais alourdirait la page à chaque visite. */}
+          <Popover>
+            <PopoverTrigger
+              openOnHover
+              delay={150}
+              render={
+                <button
+                  type="button"
+                  aria-label={t("automations.guard.how")}
+                  className="text-muted-foreground hover:text-foreground"
+                />
+              }
+            >
+              <Info className="size-4" />
+            </PopoverTrigger>
+            <PopoverContent className="max-w-sm">
+              <p className="text-sm font-medium">{t("automations.guard.how")}</p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {t("automations.guard.thresholdHelp", { min: guard.min_percent })}
+              </p>
+            </PopoverContent>
+          </Popover>
+        </CardTitle>
         <CardDescription>{t("automations.guard.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -449,9 +504,6 @@ function AutomationGuardCard() {
             <span className="text-muted-foreground text-sm">%</span>
             {saveMutation.isPending && <Loader2 className="text-muted-foreground size-4 animate-spin" />}
           </div>
-          <p className="text-muted-foreground text-xs">
-            {t("automations.guard.thresholdHelp", { min: guard.min_percent })}
-          </p>
         </div>
       </CardContent>
     </Card>
