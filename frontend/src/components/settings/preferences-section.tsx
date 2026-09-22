@@ -14,6 +14,18 @@ import type { MediaSort } from "@/types/media"
 
 const THEMES = ["dark", "light", "system"] as const
 
+/** Fuseaux proposés : ceux que connaît le navigateur, sinon une courte liste
+ * de repli (navigateurs sans `supportedValuesOf`). "" = celui du navigateur. */
+function timeZones(): string[] {
+  try {
+    const supported = Intl.supportedValuesOf?.("timeZone")
+    if (supported?.length) return [...supported]
+  } catch {
+    // Navigateur trop ancien : repli ci-dessous.
+  }
+  return ["Europe/Paris", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"]
+}
+
 const SORT_OPTIONS: [MediaSort, MessageKey][] = [
   ["title", "filters.sortTitle"],
   ["year", "filters.sortYear"],
@@ -184,6 +196,23 @@ export function PreferencesSection({ seerEnabled }: { seerEnabled: boolean }) {
           {toggle("media_sections_expanded", "preferences.sectionsExpanded", "preferences.sectionsExpandedHelp")}
           {toggle("delete_remove_from_arr_default", "preferences.removeArrDefault", "preferences.removeArrDefaultHelp")}
           {toggle("absolute_dates", "preferences.absoluteDates", "preferences.absoluteDatesHelp")}
+          <SettingRow id="pref-timezone" label={t("preferences.timezone")} help={t("preferences.timezoneHelp")}>
+            {/* Liste longue : un <select> natif reste le plus rapide à
+                parcourir au clavier, et évite une liste virtualisée. */}
+            <select
+              id="pref-timezone"
+              className="border-input bg-background h-9 w-52 shrink-0 rounded-md border px-3 text-sm"
+              value={info.ui.timezone}
+              onChange={(e) => update("timezone", e.target.value)}
+            >
+              <option value="">{t("preferences.timezoneAuto")}</option>
+              {timeZones().map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+          </SettingRow>
         </CardContent>
       </Card>
     </div>

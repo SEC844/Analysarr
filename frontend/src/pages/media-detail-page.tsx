@@ -19,6 +19,7 @@ import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { ImportIssues } from "@/components/media/import-issues"
 import { MediaRequests } from "@/components/media/media-requests"
+import { LinkToArrDialog } from "@/components/media/link-to-arr-dialog"
 import { RescanMediaButton } from "@/components/media/rescan-media-button"
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { WatchSummary } from "@/components/media/watch-stats"
@@ -204,28 +205,6 @@ export function MediaDetailPage() {
           <WatchSummary mediaId={media.id} />
           <MediaRequests requests={media.requests} />
           <ImportIssues mediaId={media.id} issues={media.import_issues} />
-          {media.statuses.includes("manquant_arr") && (
-            // Média présent dans la bibliothèque et suivi par personne : on
-            // donne les identifiants qui permettent de l'ajouter côté
-            // Sonarr/Radarr, plutôt qu'un simple badge sans suite.
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-              <p className="font-medium">{t("media.untrackedTitle")}</p>
-              <p className="mt-1 text-amber-700/90 dark:text-amber-300/90">
-                {t(media.media_type === "movie" ? "media.untrackedMovie" : "media.untrackedSeries")}
-              </p>
-              {(media.imdb_id || media.tmdb_id || media.tvdb_id) && (
-                <p className="mt-1 font-mono text-xs">
-                  {[
-                    media.imdb_id ? `IMDb ${media.imdb_id}` : null,
-                    media.tmdb_id ? `TMDB ${media.tmdb_id}` : null,
-                    media.tvdb_id ? `TVDB ${media.tvdb_id}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              )}
-            </div>
-          )}
           {media.missing_emby_episodes.length > 0 && (
             <p className="text-muted-foreground text-sm">
               {t("media.missingEmby", { list: media.missing_emby_episodes.join(", ") })}
@@ -241,6 +220,9 @@ export function MediaDetailPage() {
 
           <div className="flex flex-wrap gap-2 pt-2">
             <RescanMediaButton mediaId={media.id} onMediaDeleted={() => navigate(-1)} />
+            {/* Média suivi par personne : le rattacher se fait dans
+                Sonarr/Radarr, le bouton explique comment. */}
+            {media.statuses.includes("manquant_arr") && <LinkToArrDialog media={media} />}
             {settings?.cross_seed.enabled &&
               (media.torrents.length > 0 || media.files.length > 0) &&
               (media.media_type === "series" ? (

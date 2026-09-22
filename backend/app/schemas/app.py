@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Language = Literal["fr", "en"]
 
@@ -33,6 +33,13 @@ class UiPreferences(BaseModel):
     media_sections_expanded: bool = False
     delete_remove_from_arr_default: bool = False
     absolute_dates: bool = False
+    # Fuseau horaire d'affichage (nom IANA, ex : "Europe/Paris"). Vide = celui
+    # du navigateur. Les dates sont stockées en UTC (l'heure d'un conteneur
+    # Docker l'est presque toujours) : sans ce réglage, un accès depuis un
+    # autre fuseau afficherait l'heure de ce navigateur, pas celle voulue.
+    # Valeur passée telle quelle à `Intl.DateTimeFormat` côté navigateur :
+    # format contraint ici, et une valeur inconnue est ignorée à l'affichage.
+    timezone: str = Field(default="", max_length=64, pattern=r"^$|^[A-Za-z][A-Za-z0-9_+/-]{0,63}$")
     # Invitation à mettre une étoile sur GitHub : "pending" (jamais montrée),
     # "later" (reportée) ou "done" (l'utilisateur a suivi le lien, plus jamais
     # d'invitation). `star_prompt_at` date la première ouverture puis chaque

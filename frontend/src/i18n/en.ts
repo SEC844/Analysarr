@@ -60,6 +60,23 @@ export const en: Dictionary = {
     action: "Star on GitHub",
     later: "Later",
   },
+  untracked: {
+    buttonMovie: "Link to Radarr",
+    buttonSeries: "Link to Sonarr",
+    whyMovie:
+      "This movie is in the library but no Radarr tracks it: no quality upgrade, no renaming, and Analysarr can only act on its files. Linking it is done in Radarr, in four steps.",
+    whySeries:
+      "This series is in the library but no Sonarr tracks it: no new episode grabbed, no quality upgrade, and Analysarr can only act on its files. Linking it is done in Sonarr, in four steps.",
+    step1Movie: "In Radarr, open Movies then Add New Movie.",
+    step1Series: "In Sonarr, open Series then Add New Series.",
+    step2: "Search for {query} (the id avoids same-name matches).",
+    step3: "Pick the SAME root folder as the files already in place.",
+    step4: "Confirm: existing files are picked up as they are, nothing is downloaded again. Then run a scan in Analysarr.",
+    folder: "Current file: {path}",
+    copy: "Copy the id",
+    copied: "Id copied.",
+    copyFailed: "Copy failed: select the text by hand.",
+  },
   trash: {
     title: "Trash",
     description:
@@ -406,6 +423,7 @@ export const en: Dictionary = {
       non_hardlink_detected: "Non-hardlinked torrent detected",
       import_failed_detected: "Blocked import detected",
       stalled_download_detected: "Stalled download",
+      untracked_detected: "Untracked media detected",
     },
     action: "Action",
     actions: {
@@ -591,6 +609,10 @@ export const en: Dictionary = {
     removeArrDefault: "Removal checked by default",
     removeArrDefaultHelp:
       "When deleting, “Also remove from Sonarr/Radarr” and “Also delete the request in Seer” are checked by default.",
+    timezone: "Time zone",
+    timezoneHelp:
+      "Time zone used to display every date. Defaults to the browser one — useful when the container runs in UTC or when you open Analysarr from another country.",
+    timezoneAuto: "Automatic (browser)",
     absoluteDates: "Exact dates",
     absoluteDatesHelp: "Show “on 03/12/2026” instead of “6 months ago”.",
   },
@@ -750,11 +772,6 @@ export const en: Dictionary = {
     currentFile: "Current file",
     season: "Season {number}",
     otherFiles: "Other files",
-    untrackedTitle: "Not tracked by Sonarr/Radarr",
-    untrackedMovie:
-      "This movie is in the library but no Radarr tracks it: no quality upgrade, no renaming, and deleting it from Analysarr only touches the files. Add it to Radarr with the id below to take back control.",
-    untrackedSeries:
-      "This series is in the library but no Sonarr tracks it: no new episode grabbed, no quality upgrade, and deleting it from Analysarr only touches the files. Add it to Sonarr with the id below to take back control.",
     missingEmby: "Downloaded but missing {deServer}: {list}",
     reclaimable: "{size} potentially reclaimable",
     crossSeedSearch: "Search cross-seed",

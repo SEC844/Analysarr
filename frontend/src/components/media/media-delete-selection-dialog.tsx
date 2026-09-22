@@ -203,7 +203,9 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const wholeLibrary = isEmpty || (hasSelection && selectedFiles.length === media.files.length)
   const arrId = isSeries ? media.sonarr_id : media.radarr_id
   const canRemoveMedia = wholeLibrary && arrId !== null
-  const showArrOption = canRemoveMedia || (isSeries && selectedFiles.length > 0)
+  // Média suivi par aucun Sonarr/Radarr : ni retrait ni démonitoring à
+  // proposer, il n'y a rien à retirer de leur côté.
+  const showArrOption = arrId !== null && (canRemoveMedia || (isSeries && selectedFiles.length > 0))
   // Seer : même règle que le retrait du média entier de Sonarr/Radarr.
 
   // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.

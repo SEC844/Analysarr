@@ -60,6 +60,23 @@ export const fr = {
     action: "Mettre une étoile sur GitHub",
     later: "Plus tard",
   },
+  untracked: {
+    buttonMovie: "Lier à Radarr",
+    buttonSeries: "Lier à Sonarr",
+    whyMovie:
+      "Ce film est dans la bibliothèque mais aucun Radarr ne le suit : pas de mise à jour de qualité ni de renommage, et Analysarr ne peut agir que sur ses fichiers. Le rattachement se fait dans Radarr, en quatre étapes.",
+    whySeries:
+      "Cette série est dans la bibliothèque mais aucun Sonarr ne la suit : aucun nouvel épisode récupéré, pas de mise à jour de qualité, et Analysarr ne peut agir que sur ses fichiers. Le rattachement se fait dans Sonarr, en quatre étapes.",
+    step1Movie: "Dans Radarr, ouvrez Films puis Ajouter un film.",
+    step1Series: "Dans Sonarr, ouvrez Séries puis Ajouter une série.",
+    step2: "Cherchez {query} (l'identifiant évite les homonymes).",
+    step3: "Choisissez le MÊME dossier racine que celui des fichiers déjà en place.",
+    step4: "Validez : les fichiers existants sont repris tels quels, rien n'est retéléchargé. Relancez ensuite une analyse dans Analysarr.",
+    folder: "Fichier actuel : {path}",
+    copy: "Copier l'identifiant",
+    copied: "Identifiant copié.",
+    copyFailed: "Copie impossible : sélectionnez le texte à la main.",
+  },
   trash: {
     title: "Corbeille",
     description:
@@ -408,6 +425,7 @@ export const fr = {
       non_hardlink_detected: "Torrent non hardlinké détecté",
       import_failed_detected: "Import bloqué détecté",
       stalled_download_detected: "Téléchargement en souffrance",
+      untracked_detected: "Média non suivi détecté",
     },
     action: "Action",
     actions: {
@@ -593,6 +611,10 @@ export const fr = {
     removeArrDefault: "Retrait coché par défaut",
     removeArrDefaultHelp:
       "À la suppression, « Retirer aussi de Sonarr/Radarr » et « Supprimer aussi la demande dans Seer » sont cochés d'office.",
+    timezone: "Fuseau horaire",
+    timezoneHelp:
+      "Fuseau utilisé pour afficher toutes les dates. Par défaut celui du navigateur — utile quand le conteneur est en UTC ou que vous consultez Analysarr depuis un autre pays.",
+    timezoneAuto: "Automatique (navigateur)",
     absoluteDates: "Dates précises",
     absoluteDatesHelp: "Afficher « le 12/03/2026 » au lieu de « il y a 6 mois ».",
   },
@@ -756,11 +778,6 @@ export const fr = {
     currentFile: "Fichier actuel",
     season: "Saison {number}",
     otherFiles: "Autres fichiers",
-    untrackedTitle: "Non suivi par Sonarr/Radarr",
-    untrackedMovie:
-      "Ce film est dans la bibliothèque mais aucun Radarr ne le suit : pas de mise à jour de qualité, pas de renommage, et sa suppression depuis Analysarr ne touchera que les fichiers. Ajoutez-le dans Radarr avec l'identifiant ci-dessous pour reprendre la main.",
-    untrackedSeries:
-      "Cette série est dans la bibliothèque mais aucun Sonarr ne la suit : pas de nouvel épisode récupéré, pas de mise à jour de qualité, et sa suppression depuis Analysarr ne touchera que les fichiers. Ajoutez-la dans Sonarr avec l'identifiant ci-dessous pour reprendre la main.",
     missingEmby: "Téléchargés mais absents {deServer} : {list}",
     reclaimable: "{size} potentiellement récupérables",
     crossSeedSearch: "Chercher un cross-seed",

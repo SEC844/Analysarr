@@ -140,3 +140,21 @@ def test_star_prompt_state_is_stored_and_bounded(admin_client):
     bad = info["ui"] | {"star_prompt_state": "whatever"}
     refused = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": bad})
     assert refused.status_code == 422
+
+
+def test_the_display_timezone_is_stored_and_validated(admin_client):
+    """Fuseau d'affichage : passé tel quel à Intl côté navigateur, donc
+    contraint côté serveur."""
+    info = admin_client.get("/api/app/info").json()
+    assert info["ui"]["timezone"] == ""  # défaut : celui du navigateur
+
+    ui = info["ui"] | {"timezone": "Europe/Paris"}
+    saved = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": ui})
+    assert saved.json()["ui"]["timezone"] == "Europe/Paris"
+
+    for bad in ("<script>", "Europe/Paris; rm -rf /", "x" * 80):
+        refused = admin_client.put(
+            "/api/app/preferences",
+            json={"language": "fr", "update_check_enabled": False, "ui": info["ui"] | {"timezone": bad}},
+        )
+        assert refused.status_code == 422, bad
