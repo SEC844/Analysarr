@@ -181,7 +181,6 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
                 settings,
                 media,
                 candidate_key=candidate.key,
-                root_folder=preview.suggested_root,
                 quality_profile_id=preview.suggested_profile,
             )
             return [AutomationStep(label=f"{media.title} — {title}", success=True)], 0

@@ -161,13 +161,14 @@ class RadarrClient(ArrClient):
         return [movie for movie in results or [] if isinstance(movie, dict)]
 
     async def add_movie(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Ré-ajoute un film retiré (restauration depuis la corbeille) à partir
-        de la fiche capturée AVANT la suppression : mêmes profil, dossier
-        racine, tags et monitoring qu'avant. `id` est retiré (Radarr en
-        attribue un nouveau) et les fichiers déjà sur le disque sont
-        redécouverts par `rescan_movie`."""
+        """Ajoute un film : restauration depuis la corbeille (fiche capturée
+        avant suppression) ou rattachement d'un média de la bibliothèque (fiche
+        de `movie/lookup`). `id` et les champs de fichier sont retirés — Radarr
+        en attribue de nouveaux et redécouvre les fichiers au rescan. Les
+        options d'ajout (`addOptions`, `path`, profil) viennent de l'appelant,
+        qui sait s'il ré-ajoute ou s'il importe un dossier existant."""
         payload = {key: value for key, value in body.items() if key not in ("id", "movieFile", "movieFileId")}
-        payload["addOptions"] = {"searchForMovie": False}
+        payload.setdefault("addOptions", {"searchForMovie": False})
         return await self._post("/api/v3/movie", payload)
 
     async def rescan_movie(self, movie_id: int) -> None:
@@ -233,14 +234,13 @@ class SonarrClient(ArrClient):
         return [series for series in results or [] if isinstance(series, dict)]
 
     async def add_series(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Ré-ajoute une série retirée (voir `RadarrClient.add_movie`). Les
-        saisons et leur monitoring sont ceux capturés avant la suppression."""
+        """Ajoute une série (voir `RadarrClient.add_movie`) : restauration ou
+        rattachement d'un dossier existant, selon les `addOptions` fournies."""
         payload = {key: value for key, value in body.items() if key not in ("id", "episodeFileCount", "statistics")}
-        payload["addOptions"] = {
-            "searchForMissingEpisodes": False,
-            "searchForCutoffUnmetEpisodes": False,
-            "monitor": "none",
-        }
+        payload.setdefault(
+            "addOptions",
+            {"searchForMissingEpisodes": False, "searchForCutoffUnmetEpisodes": False, "monitor": "none"},
+        )
         return await self._post("/api/v3/series", payload)
 
     async def rescan_series(self, series_id: int) -> None:

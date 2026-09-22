@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -168,8 +168,12 @@ class ArrLinkPreview(BaseModel):
     service: str
     instance_name: str
     candidates: list[ArrCandidateRead]
-    root_folders: list[str]
-    suggested_root: Optional[str] = None
+    # Dossier du média sur le disque : c'est lui qui est importé, comme dans
+    # l'écran « Import Existing » de Sonarr/Radarr.
+    folder: Optional[str] = None
+    root_folder: Optional[str] = None
+    # Sonarr/Radarr voit encore ce dossier comme non rattaché : bon signe.
+    folder_unmapped: bool = False
     quality_profiles: list["ArrQualityProfile"]
     suggested_profile: Optional[int] = None
 
@@ -180,13 +184,15 @@ class ArrQualityProfile(BaseModel):
 
 
 class ArrLinkRequest(BaseModel):
-    """Choix de l'utilisateur. Tout est revérifié côté serveur contre ce que
-    Sonarr/Radarr déclare (voir services/arr_link.py)."""
+    """Choix de l'utilisateur. Le dossier importé n'en fait PAS partie : il est
+    recalculé côté serveur à partir des fichiers connus, donc aucun chemin
+    arbitraire ne peut être envoyé à Sonarr/Radarr (voir services/arr_link.py)."""
 
     candidate_key: str = Field(max_length=64)
-    root_folder: str = Field(max_length=512)
     quality_profile_id: int = Field(ge=1)
-    monitored: bool = True
+    # all : tout surveiller · existing : les épisodes présents · future : les
+    # prochains · none : ajouter sans surveiller.
+    monitor: Literal["all", "existing", "future", "none"] = "existing"
 
 
 class ArrLinkResult(BaseModel):

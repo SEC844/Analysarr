@@ -340,8 +340,9 @@ async def arr_link_preview(media_id: int, session: Session = Depends(get_session
             )
             for candidate in preview.candidates
         ],
-        root_folders=preview.root_folders,
-        suggested_root=preview.suggested_root,
+        folder=preview.folder,
+        root_folder=preview.root_folder,
+        folder_unmapped=preview.folder_unmapped,
         quality_profiles=[ArrQualityProfile(id=profile_id, name=name) for profile_id, name in preview.quality_profiles],
         suggested_profile=preview.suggested_profile,
     )
@@ -359,9 +360,8 @@ async def arr_link(media_id: int, payload: ArrLinkRequest, session: Session = De
             settings,
             media,
             candidate_key=payload.candidate_key,
-            root_folder=payload.root_folder,
             quality_profile_id=payload.quality_profile_id,
-            monitored=payload.monitored,
+            monitor=payload.monitor,
         )
     except ArrLinkError as exc:
         raise HTTPException(400, str(exc)) from exc

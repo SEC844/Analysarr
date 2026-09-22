@@ -188,21 +188,24 @@ export interface ArrCandidate {
   confidence: "certain" | "probable"
 }
 
+export type ArrMonitor = "all" | "existing" | "future" | "none"
+
 export interface ArrLinkPreview {
   service: "radarr" | "sonarr"
   instance_name: string
   candidates: ArrCandidate[]
-  root_folders: string[]
-  suggested_root: string | null
+  /** Dossier du média sur le disque : c'est lui qui sera importé. */
+  folder: string | null
+  root_folder: string | null
+  folder_unmapped: boolean
   quality_profiles: { id: number; name: string }[]
   suggested_profile: number | null
 }
 
 export interface ArrLinkRequest {
   candidate_key: string
-  root_folder: string
   quality_profile_id: number
-  monitored?: boolean
+  monitor: ArrMonitor
 }
 
 export interface ArrLinkResult {

@@ -67,6 +67,7 @@ NOTIFICATION_EVENTS = (
     "cascade_delete",
     "hardlink_repair",
     "cross_seed_search",
+    "arr_link",
     "automation",
     "update_available",
     "automations_paused",
@@ -108,6 +109,7 @@ _TEXT = {
         "cascade_delete": "Nettoyage effectué",
         "hardlink_repair": "Hardlinks réparés",
         "cross_seed_search": "Recherche cross-seed",
+        "arr_link": "Média rattaché à Sonarr/Radarr",
         "automation": "Automatisation exécutée",
         "type": "Type",
         "freed": "Espace libéré",
@@ -166,6 +168,7 @@ _TEXT = {
         "cascade_delete": "Cleanup completed",
         "hardlink_repair": "Hardlinks repaired",
         "cross_seed_search": "Cross-seed search",
+        "arr_link": "Media linked to Sonarr/Radarr",
         "automation": "Automation ran",
         "type": "Type",
         "freed": "Space freed",
@@ -351,7 +354,9 @@ def action_notification(
     if failures:
         fields.append((text["failed"], str(failures)))
     return Notification(
-        title=text[action],
+        # `get` et non `text[action]` : une action sans libellé doit rester une
+        # notification fade, jamais une erreur 500 (bug réel sur `arr_link`).
+        title=text.get(action, action),
         description=f"{media.title} ({media.year})" if media.year else media.title,
         level="success" if not failures else "warning" if success else "error",
         fields=fields,

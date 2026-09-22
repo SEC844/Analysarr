@@ -15,6 +15,7 @@ export const NOTIFICATION_EVENTS = [
   "cascade_delete",
   "hardlink_repair",
   "cross_seed_search",
+  "arr_link",
   "automation",
   "update_available",
   "automations_paused",

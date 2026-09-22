@@ -6,15 +6,26 @@ identifiant est donc résolu par Sonarr/Radarr, puis confronté au titre et à
 l'année du média avant d'être proposé."""
 
 import asyncio
+import json
 
 import httpx
 import pytest
 from sqlmodel import select
 
 from app.models.media import Media, MediaFile, MediaType
-from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic, suggest_root
+from app.services.arr_link import (
+    ArrLinkError,
+    build_link_preview,
+    link_media,
+    media_folder,
+    pick_automatic,
+    suggest_root,
+)
 
-ROOT_FOLDERS = [{"path": "/data/media/films"}, {"path": "/data/media/series"}]
+ROOT_FOLDERS = [
+    {"path": "/data/media/films", "unmappedFolders": [{"path": "/data/media/films/Matrix (1999)"}]},
+    {"path": "/data/media/series", "unmappedFolders": []},
+]
 PROFILES = [{"id": 4, "name": "HD-1080p"}, {"id": 7, "name": "Ultra-HD"}]
 
 
@@ -26,10 +37,19 @@ def add_media(session, media_type, **fields):
     return media
 
 
-def radarr_server(calls: list[tuple[str, str]], *, tmdb: dict | None = None, imdb: dict | None = None, search=()):
+def radarr_server(
+    calls: list[tuple[str, str]],
+    *,
+    tmdb: dict | None = None,
+    imdb: dict | None = None,
+    search=(),
+    bodies: list[dict] | None = None,
+):
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         calls.append((request.method, path))
+        if path == "/api/v3/movie" and request.method == "POST" and bodies is not None:
+            bodies.append(json.loads(request.content))
         if path == "/api/v3/movie/lookup/tmdb":
             return httpx.Response(200, json=tmdb) if tmdb else httpx.Response(404, json={})
         if path == "/api/v3/movie/lookup/imdb":
@@ -120,7 +140,9 @@ def test_the_series_lookup_uses_the_only_prefix_sonarr_understands(session, sett
     assert preview.candidates[0].confidence == "certain"
 
 
-def test_the_root_folder_is_the_one_holding_the_files(session, settings, fake_http):
+def test_the_imported_folder_is_the_one_holding_the_files(session, settings, fake_http):
+    """Comme l'écran « Import Existing » : on importe le dossier du média, pas
+    un dossier racine — sinon Radarr crée un dossier à côté des fichiers."""
     calls: list[tuple[str, str]] = []
     fake_http["http://radarr"] = radarr_server(
         calls, tmdb={"title": "Matrix", "year": 1999, "tmdbId": 603, "imdbId": "tt0133093"}
@@ -131,9 +153,26 @@ def test_the_root_folder_is_the_one_holding_the_files(session, settings, fake_ht
 
     preview = asyncio.run(build_link_preview(session, settings, media))
 
-    assert preview.suggested_root == "/data/media/films"
-    # Candidat certain + dossier déduit + profil : une automatisation peut agir.
+    assert preview.folder == "/data/media/films/Matrix (1999)"
+    assert preview.root_folder == "/data/media/films"
+    # Radarr voit encore ce dossier comme non rattaché : bon signe.
+    assert preview.folder_unmapped
     assert pick_automatic(preview) is not None
+
+
+def test_media_folder_never_returns_a_root_folder():
+    """Un film posé à plat dans le dossier racine n'a pas de dossier à lui :
+    l'importer ferait entrer toute la bibliothèque."""
+    assert media_folder(["/data/media/films/Matrix (1999)/Matrix.mkv"], None, "/data/media/films") == (
+        "/data/media/films/Matrix (1999)"
+    )
+    assert media_folder(["/data/media/films/Matrix.mkv"], None, "/data/media/films") is None
+    # Série rangée en saisons : on remonte au dossier de la série.
+    assert media_folder(
+        ["/data/media/series/Dark/Season 01/S01E01.mkv"], None, "/data/media/series"
+    ) == "/data/media/series/Dark"
+    # Dossier hors de tout dossier racine : rien à proposer.
+    assert media_folder(["/autre/Film/Film.mkv"], None, "/data/media/films") is None
 
 
 def test_suggest_root_keeps_the_deepest_match():
@@ -143,50 +182,63 @@ def test_suggest_root_keeps_the_deepest_match():
     assert suggest_root(roots, ["/autre/chemin/Film.mkv"], None) is None
 
 
-def test_linking_refuses_a_root_folder_sonarr_does_not_know(session, settings, fake_http):
-    """Le choix de l'interface est revérifié côté serveur : jamais de chemin
-    arbitraire transmis à Sonarr/Radarr."""
+def test_linking_refuses_what_sonarr_does_not_declare(session, settings, fake_http):
+    """Le choix de l'interface est revérifié côté serveur, et le dossier n'est
+    même pas fourni par elle : il est recalculé ici."""
     calls: list[tuple[str, str]] = []
     fake_http["http://radarr"] = radarr_server(
         calls, tmdb={"title": "Matrix", "year": 1999, "tmdbId": 603, "imdbId": "tt0133093"}
     )
     media = add_media(session, MediaType.movie, title="Matrix", year=1999, tmdb_id=603)
+    session.add(MediaFile(media_id=media.id, path="/data/media/films/Matrix (1999)/Matrix.mkv", size=1))
+    session.commit()
 
-    with pytest.raises(ArrLinkError):
+    with pytest.raises(ArrLinkError):  # profil inconnu
+        asyncio.run(link_media(session, settings, media, candidate_key="tmdb:603", quality_profile_id=999))
+    with pytest.raises(ArrLinkError):  # fiche inconnue
+        asyncio.run(link_media(session, settings, media, candidate_key="tmdb:1", quality_profile_id=4))
+    with pytest.raises(ArrLinkError):  # état de surveillance inconnu
         asyncio.run(
-            link_media(
-                session, settings, media, candidate_key="tmdb:603", root_folder="/etc", quality_profile_id=4
-            )
-        )
-    with pytest.raises(ArrLinkError):
-        asyncio.run(
-            link_media(
-                session,
-                settings,
-                media,
-                candidate_key="tmdb:603",
-                root_folder="/data/media/films",
-                quality_profile_id=999,
-            )
+            link_media(session, settings, media, candidate_key="tmdb:603", quality_profile_id=4, monitor="rm -rf")
         )
     assert ("POST", "/api/v3/movie") not in calls
 
 
-def test_linking_adds_the_movie_and_asks_for_a_rescan(session, settings, fake_http):
+def test_linking_refuses_a_media_without_its_own_folder(session, settings, fake_http):
     calls: list[tuple[str, str]] = []
     fake_http["http://radarr"] = radarr_server(
         calls, tmdb={"title": "Matrix", "year": 1999, "tmdbId": 603, "imdbId": "tt0133093"}
     )
     media = add_media(session, MediaType.movie, title="Matrix", year=1999, tmdb_id=603)
+    session.add(MediaFile(media_id=media.id, path="/data/media/films/Matrix.mkv", size=1))
+    session.commit()
 
-    title = asyncio.run(
-        link_media(
-            session, settings, media, candidate_key="tmdb:603", root_folder="/data/media/films", quality_profile_id=4
-        )
+    with pytest.raises(ArrLinkError):
+        asyncio.run(link_media(session, settings, media, candidate_key="tmdb:603", quality_profile_id=4))
+    assert ("POST", "/api/v3/movie") not in calls
+
+
+def test_linking_imports_the_folder_and_asks_for_a_rescan(session, settings, fake_http):
+    calls: list[tuple[str, str]] = []
+    bodies: list[dict] = []
+    fake_http["http://radarr"] = radarr_server(
+        calls, tmdb={"title": "Matrix", "year": 1999, "tmdbId": 603, "imdbId": "tt0133093"}, bodies=bodies
     )
+    media = add_media(session, MediaType.movie, title="Matrix", year=1999, tmdb_id=603)
+    session.add(MediaFile(media_id=media.id, path="/data/media/films/Matrix (1999)/Matrix.mkv", size=1))
+    session.commit()
+
+    title = asyncio.run(link_media(session, settings, media, candidate_key="tmdb:603", quality_profile_id=4))
 
     assert title == "Matrix"
     assert ("POST", "/api/v3/movie") in calls and ("POST", "/api/v3/command") in calls
+    sent = bodies[0]
+    # Dossier du média, jamais le dossier racine, et aucune recherche lancée :
+    # les fichiers présents suffisent.
+    assert sent["path"] == "/data/media/films/Matrix (1999)"
+    assert "rootFolderPath" not in sent
+    assert sent["qualityProfileId"] == 4 and sent["monitored"] is True
+    assert sent["addOptions"] == {"searchForMovie": False}
 
 
 def test_an_already_tracked_media_is_refused(session, settings):
@@ -226,11 +278,9 @@ def test_media_rows_are_untouched_until_the_next_scan(session, settings, fake_ht
     )
     media = add_media(session, MediaType.movie, title="Matrix", year=1999, tmdb_id=603)
 
-    asyncio.run(
-        link_media(
-            session, settings, media, candidate_key="tmdb:603", root_folder="/data/media/films", quality_profile_id=4
-        )
-    )
+    session.add(MediaFile(media_id=media.id, path="/data/media/films/Matrix (1999)/Matrix.mkv", size=1))
+    session.commit()
+    asyncio.run(link_media(session, settings, media, candidate_key="tmdb:603", quality_profile_id=4))
 
     session.expire_all()
     assert session.exec(select(Media)).one().radarr_id is None

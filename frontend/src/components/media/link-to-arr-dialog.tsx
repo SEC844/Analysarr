@@ -17,8 +17,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useArrLinkMutation, useArrLinkPreviewQuery } from "@/hooks/use-media"
-import { useI18n } from "@/i18n"
-import type { ArrCandidate, ArrLinkPreview, MediaDetail } from "@/types/media"
+import { useI18n, type MessageKey } from "@/i18n"
+import type { ArrCandidate, ArrLinkPreview, ArrMonitor, MediaDetail } from "@/types/media"
 
 function candidateLabel(candidate: ArrCandidate): string {
   const ids = [
@@ -32,21 +32,23 @@ function candidateLabel(candidate: ArrCandidate): string {
 function LinkForm({
   preview,
   candidateKey,
-  rootFolder,
   profileId,
+  monitor,
   onCandidate,
-  onRootFolder,
   onProfile,
+  onMonitor,
 }: {
   preview: ArrLinkPreview
   candidateKey: string
-  rootFolder: string
   profileId: string
+  monitor: ArrMonitor
   onCandidate: (value: string) => void
-  onRootFolder: (value: string) => void
   onProfile: (value: string) => void
+  onMonitor: (value: ArrMonitor) => void
 }) {
   const { t } = useI18n()
+  const isSeries = preview.service === "sonarr"
+  const monitors: ArrMonitor[] = isSeries ? ["existing", "all", "future", "none"] : ["existing", "none"]
 
   if (preview.candidates.length === 0) {
     return <p className="text-sm break-words">{t("linkArr.noCandidate")}</p>
@@ -87,25 +89,6 @@ function LinkForm({
       </div>
 
       <div className="min-w-0 space-y-1.5">
-        <Label htmlFor="link-root">{t("linkArr.rootFolder")}</Label>
-        <Select value={rootFolder} onValueChange={(value) => onRootFolder(value ?? "")}>
-          <SelectTrigger id="link-root" className="w-full">
-            <SelectValue>
-              {(value: string) => <span className="truncate">{value || t("linkArr.noRootFolder")}</span>}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {preview.root_folders.map((folder) => (
-              <SelectItem key={folder} value={folder}>
-                <span className="truncate">{folder}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-muted-foreground text-xs">{t("linkArr.rootFolderHelp")}</p>
-      </div>
-
-      <div className="min-w-0 space-y-1.5">
         <Label htmlFor="link-profile">{t("linkArr.qualityProfile")}</Label>
         <Select value={profileId} onValueChange={(value) => onProfile(value ?? "")}>
           <SelectTrigger id="link-profile" className="w-full">
@@ -124,6 +107,32 @@ function LinkForm({
           </SelectContent>
         </Select>
       </div>
+
+      <div className="min-w-0 space-y-1.5">
+        <Label htmlFor="link-monitor">{t("linkArr.monitor")}</Label>
+        <Select value={monitor} onValueChange={(value) => onMonitor((value ?? "existing") as ArrMonitor)}>
+          <SelectTrigger id="link-monitor" className="w-full">
+            <SelectValue>{(value: string) => t(`linkArr.monitors.${value}` as MessageKey)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {monitors.map((value) => (
+              <SelectItem key={value} value={value}>
+                {t(`linkArr.monitors.${value}` as MessageKey)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Dossier importé : information, jamais un champ libre — il est
+          recalculé côté serveur à partir des fichiers connus. */}
+      {preview.folder ? (
+        <p className="text-muted-foreground min-w-0 text-xs break-all">
+          {t("linkArr.folder", { path: preview.folder })}
+        </p>
+      ) : (
+        <p className="text-destructive text-xs break-words">{t("linkArr.noFolder")}</p>
+      )}
     </div>
   )
 }
@@ -138,8 +147,8 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [candidateKey, setCandidateKey] = useState("")
-  const [rootFolder, setRootFolder] = useState("")
   const [profileId, setProfileId] = useState("")
+  const [monitor, setMonitor] = useState<ArrMonitor>("existing")
 
   // Recherche lancée à l'ouverture seulement : elle interroge Sonarr/Radarr.
   const preview = useArrLinkPreviewQuery(media.id, open)
@@ -149,17 +158,16 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
   useEffect(() => {
     if (!preview.data) return
     setCandidateKey(preview.data.candidates[0]?.key ?? "")
-    setRootFolder(preview.data.suggested_root ?? preview.data.root_folders[0] ?? "")
     setProfileId(String(preview.data.suggested_profile ?? preview.data.quality_profiles[0]?.id ?? ""))
   }, [preview.data])
 
-  const canLink = Boolean(candidateKey && rootFolder && profileId)
+  const canLink = Boolean(candidateKey && profileId && preview.data?.folder)
 
   const handleLink = () =>
     linkMutation.mutate(
       {
         id: media.id,
-        payload: { candidate_key: candidateKey, root_folder: rootFolder, quality_profile_id: Number(profileId) },
+        payload: { candidate_key: candidateKey, quality_profile_id: Number(profileId), monitor },
       },
       {
         onSuccess: (result) => {
@@ -199,11 +207,11 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
           <LinkForm
             preview={preview.data}
             candidateKey={candidateKey}
-            rootFolder={rootFolder}
             profileId={profileId}
+            monitor={monitor}
             onCandidate={setCandidateKey}
-            onRootFolder={setRootFolder}
             onProfile={setProfileId}
+            onMonitor={setMonitor}
           />
         )}
 
