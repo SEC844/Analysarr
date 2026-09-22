@@ -56,24 +56,34 @@ export const fr = {
   trash: {
     title: "Corbeille",
     description:
-      "Au lieu d'être supprimés, les fichiers sont déplacés dans un dossier .analysarr-trash et restent récupérables pendant la durée choisie.",
+      "Filet de sécurité des suppressions : au lieu d'être effacés, les fichiers et les torrents sont mis de côté et restent récupérables pendant la durée choisie. Indispensable face à une automatisation qui se serait trompée.",
     enabled: "Activer la corbeille",
     retention: "Durée de conservation",
     days: "jours",
     retentionHelp:
-      "Passé ce délai, les fichiers sont supprimés définitivement (vérification toutes les 6 heures). L'espace disque n'est donc libéré qu'à ce moment-là.",
+      "Passé ce délai, tout est supprimé définitivement (vérification toutes les 6 heures). L'espace disque n'est donc libéré qu'à ce moment-là.",
     scopeHelp:
-      "Ne concerne que les fichiers qu'Analysarr supprime lui-même : doublons, fichiers restants et nettoyage. Quand Sonarr ou Radarr supprime le fichier à notre demande, c'est leur propre corbeille qui s'applique ; les torrents, eux, sont supprimés par le client torrent.",
+      "Concerne les fichiers qu'Analysarr supprime lui-même et les torrents qu'il retire du client (leurs données sont mises de côté, jamais effacées). Quand Sonarr ou Radarr supprime un fichier à notre demande, c'est leur propre corbeille qui s'applique.",
+    ratioHelp:
+      "À la restauration : les fichiers retrouvent leur emplacement et leurs hardlinks, le torrent est remis dans le client avec ses données (aucun retéléchargement), et le média est recréé dans Sonarr/Radarr et Seer. Seules les statistiques de partage du torrent (ratio, quantité envoyée) repartent de zéro : aucun client torrent ne permet de les restaurer.",
     contentTitle: "Contenu de la corbeille",
     contentDescription: "{size} en attente de suppression définitive.",
     empty: "Vider la corbeille",
     empty0: "La corbeille est vide.",
     emptied: "Corbeille vidée.",
     restore: "Restaurer",
-    restored: "Fichier restauré.",
+    restored: "Suppression annulée : tout a été remis en place.",
+    restoreFailed: "Restauration incomplète : rien n'a été retiré de la corbeille.",
+    incomplete: "Des éléments manquent dans la corbeille : la restauration serait incomplète.",
     deleteNow: "Supprimer définitivement",
-    missing: "fichier absent",
-    notice: "Les fichiers supprimés iront dans la corbeille et resteront récupérables {days} jours.",
+    missing: "absent",
+    fileCount: { one: "{count} fichier", other: "{count} fichiers" },
+    torrentCount: { one: "{count} torrent", other: "{count} torrents" },
+    withArr: "suivi Sonarr/Radarr",
+    withSeer: "demande Seer",
+    withArrDetail: "Le film ou la série sera recréé dans Sonarr/Radarr, puis rescanné.",
+    withSeerDetail: "La demande Seer sera recréée au nom de son demandeur d'origine.",
+    notice: "Les fichiers et torrents supprimés iront dans la corbeille et resteront récupérables {days} jours.",
   },
   security: {
     title: "Sécurité et connexions",
@@ -354,15 +364,17 @@ export const fr = {
     guard: {
       title: "Garde-fou des automatisations",
       description:
-        "Suspend les règles quand un scan fait basculer une part anormale de la bibliothèque : partage injoignable, client torrent réinitialisé, bibliothèque déplacée…",
+        "Protection contre la perte de toute une bibliothèque : un disque non monté, un partage injoignable ou un client torrent réinitialisé fait passer d'un coup des centaines de médias pour des orphelins ou des doublons — et une automatisation de nettoyage les supprimerait tous. Au-delà du seuil, les règles se coupent et attendent votre feu vert.",
       threshold: "Part de la bibliothèque tolérée",
       thresholdHelp:
-        "Au-delà de ce pourcentage de médias qui changent d'état (doublon, orphelin, non hardlink) d'un scan complet à l'autre sans action de votre part, les automatisations se mettent en pause. Minimum {min} %.",
-      active: "Pause automatique au-delà de {percent} % de médias basculés entre deux scans complets.",
+        "Analysarr compare le dernier scan complet au précédent. Si le nombre de médias en orphelin, doublon ou non hardlink augmente de plus de ce pourcentage de la bibliothèque sans action de votre part (exemple : 1 000 médias, 10 orphelins qui passent à 210, soit 20 %), les automatisations se mettent en pause. Minimum {min} %.",
+      inactive:
+        "Aucune automatisation activée sur les orphelins, doublons ou torrents non hardlinkés : il n'y a rien à protéger pour l'instant.",
       pausedTitle: "Automatisations en pause",
       reason: "Dernier scan : {status} passé de {previous} à {current} média(s), soit {percent} % de la bibliothèque.",
       reasonUnknown: "Un scan a fait basculer une part anormale de la bibliothèque.",
-      pausedAdvice: "Vérifiez vos montages et vos services, relancez un scan, puis reprenez les automatisations.",
+      pausedAdvice:
+        "Vérifiez vos montages, vos disques et vos services, relancez un scan, puis reprenez les automatisations. Tant qu'elles sont en pause, aucune règle ne supprime quoi que ce soit.",
       resume: "Reprendre les automatisations",
       resumed: "Automatisations reprises.",
       open: "Voir les automatisations",
@@ -515,8 +527,7 @@ export const fr = {
     neverChecked: "Aucune vérification effectuée.",
     checkNow: "Vérifier maintenant",
     autoCheck: "Vérifier automatiquement les mises à jour",
-    autoCheckHelp:
-      "Interroge GitHub à l'ouverture de l'application, au plus une fois toutes les 10 minutes. Seul le numéro de version d'Analysarr est transmis, aucune autre donnée.",
+    autoCheckHelp: "Interroge GitHub à l'ouverture de l'application.",
     sourceCode: "Code source",
     reportIssue: "Signaler un problème",
     starTitle: "Analysarr vous est utile ?",

@@ -7,9 +7,27 @@ from datetime import datetime, timedelta, timezone
 from sqlmodel import select
 
 from app.models.activity import ActionLog
+from app.models.automation import Automation
 from app.models.media import Media, MediaType, ScanRun, ScanStatus
 from app.models.settings import Settings
 from app.services.automation_guard import detect_mass_change, is_paused, pause_automations
+
+
+def add_rule(session, *, trigger="orphan_detected", enabled=True) -> Automation:
+    """Le garde-fou ne s'applique que s'il protège quelque chose : une
+    automatisation activée sur les orphelins, doublons ou non hardlinkés."""
+    rule = Automation(
+        name="Nettoyage",
+        trigger=trigger,
+        action="cleanup",
+        conditions="{}",
+        max_actions=5,
+        dry_run=False,
+        enabled=enabled,
+    )
+    session.add(rule)
+    session.commit()
+    return rule
 
 
 def add_run(session, *, media=100, duplicates=0, orphans=0, non_hardlink=0, scope="full", minutes_ago=10):
@@ -31,6 +49,7 @@ def add_run(session, *, media=100, duplicates=0, orphans=0, non_hardlink=0, scop
 
 
 def test_a_massive_flip_is_detected(session, settings):
+    add_rule(session)
     add_run(session, orphans=3)
     latest = add_run(session, orphans=45, minutes_ago=0)
 
@@ -40,6 +59,7 @@ def test_a_massive_flip_is_detected(session, settings):
 
 
 def test_a_massive_drop_never_pauses_anything(session, settings):
+    add_rule(session)
     """Le montage revient, les orphelins disparaissent : rien à suspendre, les
     règles n'ont plus de cible."""
     add_run(session, orphans=60)
@@ -49,6 +69,7 @@ def test_a_massive_drop_never_pauses_anything(session, settings):
 
 
 def test_ordinary_variations_never_pause_anything(session, settings):
+    add_rule(session)
     add_run(session, orphans=3, duplicates=10, non_hardlink=4)
     latest = add_run(session, orphans=8, duplicates=14, non_hardlink=2, minutes_ago=0)
 
@@ -56,6 +77,7 @@ def test_ordinary_variations_never_pause_anything(session, settings):
 
 
 def test_a_user_action_explains_the_change(session, settings):
+    add_rule(session)
     previous = add_run(session, orphans=2)
     session.add(
         ActionLog(
@@ -72,6 +94,7 @@ def test_a_user_action_explains_the_change(session, settings):
 
 
 def test_a_service_scan_is_never_compared_with_a_full_scan(session, settings):
+    add_rule(session)
     add_run(session, media=100, orphans=2)
     partial = add_run(session, media=4, orphans=4, scope="radarr", minutes_ago=1)
     latest = add_run(session, media=100, orphans=3, minutes_ago=0)
@@ -83,6 +106,7 @@ def test_a_service_scan_is_never_compared_with_a_full_scan(session, settings):
 
 
 def test_the_threshold_is_configurable_with_a_floor(session, settings):
+    add_rule(session)
     add_run(session, orphans=0)
     latest = add_run(session, orphans=10, minutes_ago=0)  # 10 % de la bibliothèque
 
@@ -94,6 +118,7 @@ def test_the_threshold_is_configurable_with_a_floor(session, settings):
 
 
 def test_paused_automations_stop_running_and_resume_on_demand(admin_client, session, settings):
+    add_rule(session)
     add_run(session, orphans=1)
     latest = add_run(session, orphans=50, minutes_ago=0)
     change = detect_mass_change(session, latest, settings)
@@ -112,6 +137,7 @@ def test_the_scan_pauses_the_automations_and_notifies(session, settings, monkeyp
     """Le scan complet met en pause avant d'exécuter la moindre règle."""
     from app.services import scan
 
+    add_rule(session)
     add_run(session, orphans=1)
     latest = add_run(session, orphans=50, minutes_ago=0)
     ran = []
@@ -139,6 +165,7 @@ def test_a_guarded_percentage_is_stored_within_bounds(admin_client, settings, se
 
 
 def test_media_rows_are_untouched_by_the_guard(session, settings):
+    add_rule(session)
     session.add(Media(media_type=MediaType.movie, title="Titre", statuses="orphelin_qbit"))
     session.commit()
     add_run(session, orphans=1)
@@ -146,3 +173,37 @@ def test_media_rows_are_untouched_by_the_guard(session, settings):
     pause_automations(session, settings, detect_mass_change(session, latest, settings))
 
     assert session.exec(select(Media)).first().statuses == "orphelin_qbit"
+
+
+def test_without_a_concerned_automation_the_guard_does_nothing(session, settings):
+    """Aucune règle activée sur les orphelins, doublons ou non hardlinkés : le
+    garde-fou n'a rien à protéger, il ne se déclenche pas et l'interface ne
+    l'affiche pas."""
+    add_run(session, orphans=1)
+    latest = add_run(session, orphans=80, minutes_ago=0)
+    assert detect_mass_change(session, latest, settings) is None
+
+    add_rule(session, enabled=False)
+    assert detect_mass_change(session, latest, settings) is None
+
+    add_rule(session, trigger="import_failed_detected")  # hors périmètre du garde-fou
+    assert detect_mass_change(session, latest, settings) is None
+
+    add_rule(session)
+    assert detect_mass_change(session, latest, settings) is not None
+
+
+def test_only_the_watched_statuses_can_pause(session, settings):
+    """Une règle sur les doublons ne fait pas suspendre pour une hausse
+    d'orphelins : ce n'est pas cette règle qui agirait."""
+    add_rule(session, trigger="duplicate_detected")
+    add_run(session, orphans=1, duplicates=1)
+    latest = add_run(session, orphans=80, duplicates=2, minutes_ago=0)
+
+    assert detect_mass_change(session, latest, settings) is None
+
+
+def test_the_guard_is_reported_as_inactive_without_automations(admin_client, session, settings):
+    assert admin_client.get("/api/automations/guard").json()["active"] is False
+    add_rule(session)
+    assert admin_client.get("/api/automations/guard").json()["active"] is True

@@ -69,6 +69,51 @@ class QbittorrentClient(TorrentClient):
         resp.raise_for_status()
         return resp.json()
 
+    async def export_torrent(self, torrent_hash: str) -> bytes | None:
+        """`torrents/export` existe depuis qBittorrent 4.2 ; un client plus
+        ancien répond en erreur, auquel cas on repassera par un magnet."""
+        try:
+            resp = await self.client.get("/api/v2/torrents/export", params={"hash": torrent_hash})
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        return resp.content or None
+
+    async def add_torrent(
+        self,
+        *,
+        torrent: bytes | None = None,
+        magnet: str | None = None,
+        save_path: str | None = None,
+        category: str | None = None,
+        paused: bool = False,
+    ) -> None:
+        data: dict[str, str] = {
+            # `paused` jusqu'à qBittorrent 4, `stopped` depuis la 5 : les deux
+            # sont envoyés, un paramètre inconnu est ignoré.
+            "paused": str(paused).lower(),
+            "stopped": str(paused).lower(),
+            # Les fichiers sont déjà en place : on laisse la vérification se
+            # faire, sinon le torrent repart en téléchargement.
+            "skip_checking": "false",
+            "autoTMM": "false",
+        }
+        if save_path:
+            data["savepath"] = save_path
+        if category:
+            data["category"] = category
+        files = None
+        if torrent:
+            files = {"torrents": ("restore.torrent", torrent, "application/x-bittorrent")}
+        elif magnet:
+            data["urls"] = magnet
+        else:
+            raise ValueError("Ni fichier .torrent ni magnet fourni.")
+        resp = await self.client.post("/api/v2/torrents/add", data=data, files=files)
+        resp.raise_for_status()
+        if resp.text.strip().lower() == "fails.":
+            raise RuntimeError("qBittorrent a refusé le torrent.")
+
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:
             return

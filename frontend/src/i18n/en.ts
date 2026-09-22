@@ -56,24 +56,34 @@ export const en: Dictionary = {
   trash: {
     title: "Trash",
     description:
-      "Instead of being deleted, files are moved to a .analysarr-trash folder and stay recoverable for the chosen period.",
+      "Safety net for deletions: instead of being erased, files and torrents are set aside and stay recoverable for the chosen period. Essential when an automation gets it wrong.",
     enabled: "Enable the trash",
     retention: "Retention",
     days: "days",
     retentionHelp:
-      "After this delay, files are deleted for good (checked every 6 hours). Disk space is therefore only freed at that point.",
+      "After this delay everything is deleted for good (checked every 6 hours). Disk space is therefore only freed at that point.",
     scopeHelp:
-      "Only covers the files Analysarr deletes itself: duplicates, leftover files and cleanup. When Sonarr or Radarr deletes the file on our behalf, their own recycling bin applies; torrents are deleted by the torrent client.",
+      "Covers the files Analysarr deletes itself and the torrents it removes from the client (their data is set aside, never erased). When Sonarr or Radarr deletes a file on our behalf, their own recycling bin applies.",
+    ratioHelp:
+      "On restore: files return to their location with their hardlinks, the torrent goes back to the client with its data (no re-download), and the media is recreated in Sonarr/Radarr and Seer. Only the torrent sharing stats (ratio, uploaded) start over: no torrent client allows restoring them.",
     contentTitle: "Trash content",
     contentDescription: "{size} waiting for permanent deletion.",
     empty: "Empty the trash",
     empty0: "The trash is empty.",
     emptied: "Trash emptied.",
     restore: "Restore",
-    restored: "File restored.",
+    restored: "Deletion undone: everything is back in place.",
+    restoreFailed: "Incomplete restore: nothing was removed from the trash.",
+    incomplete: "Items are missing from the trash: the restore would be incomplete.",
     deleteNow: "Delete permanently",
-    missing: "file missing",
-    notice: "Deleted files go to the trash and stay recoverable for {days} days.",
+    missing: "missing",
+    fileCount: { one: "{count} file", other: "{count} files" },
+    torrentCount: { one: "{count} torrent", other: "{count} torrents" },
+    withArr: "Sonarr/Radarr tracking",
+    withSeer: "Seer request",
+    withArrDetail: "The movie or series will be recreated in Sonarr/Radarr, then rescanned.",
+    withSeerDetail: "The Seer request will be recreated on behalf of its original requester.",
+    notice: "Deleted files and torrents go to the trash and stay recoverable for {days} days.",
   },
   security: {
     title: "Security and sign-ins",
@@ -352,15 +362,17 @@ export const en: Dictionary = {
     guard: {
       title: "Automation safety net",
       description:
-        "Suspends the rules when a scan flips an unusual share of the library: unreachable share, torrent client reset, library moved…",
+        "Protection against losing a whole library: an unmounted disk, an unreachable share or a reset torrent client makes hundreds of media look like orphans or duplicates at once — and a cleanup automation would delete them all. Above the threshold, rules stop and wait for your go-ahead.",
       threshold: "Share of the library tolerated",
       thresholdHelp:
-        "Above this percentage of media changing state (duplicate, orphan, not hardlinked) from one full scan to the next without any action from you, automations are paused. Minimum {min}%.",
-      active: "Automatic pause above {percent}% of media flipped between two full scans.",
+        "Analysarr compares the last full scan with the previous one. If the number of media flagged orphan, duplicate or not hardlinked grows by more than this share of the library without any action from you (example: 1,000 media, 10 orphans becoming 210, that is 20%), automations are paused. Minimum {min}%.",
+      inactive:
+        "No automation enabled on orphans, duplicates or non-hardlinked torrents: there is nothing to protect right now.",
       pausedTitle: "Automations paused",
       reason: "Last scan: {status} went from {previous} to {current} media, that is {percent}% of the library.",
       reasonUnknown: "A scan flipped an unusual share of the library.",
-      pausedAdvice: "Check your mounts and services, run a scan, then resume the automations.",
+      pausedAdvice:
+        "Check your mounts, disks and services, run a scan, then resume the automations. While they are paused, no rule deletes anything.",
       resume: "Resume automations",
       resumed: "Automations resumed.",
       open: "Open automations",
@@ -513,8 +525,7 @@ export const en: Dictionary = {
     neverChecked: "No check performed yet.",
     checkNow: "Check now",
     autoCheck: "Automatically check for updates",
-    autoCheckHelp:
-      "Queries GitHub when the app is opened, at most once every 10 minutes. Only the Analysarr version number is sent, no other data.",
+    autoCheckHelp: "Queries GitHub when the app is opened.",
     sourceCode: "Source code",
     reportIssue: "Report an issue",
     starTitle: "Enjoying Analysarr?",

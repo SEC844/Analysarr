@@ -24,6 +24,7 @@ from app.services.automation_guard import (
     paused_reason,
     resume_automations,
     threshold_percent,
+    watched_statuses,
 )
 from app.services.automations import TRIGGER_STATUSES, eligible_medias, as_rule, rule_conditions, run_rule
 from app.services.notifications import channel_targets
@@ -48,11 +49,12 @@ def _to_read(automation: Automation) -> AutomationRead:
     )
 
 
-def _guard(settings: Settings | None) -> AutomationGuard:
+def _guard(session: Session, settings: Settings | None) -> AutomationGuard:
     reason = paused_reason(settings) or {}
     return AutomationGuard(
         percent=threshold_percent(settings),
         min_percent=MIN_THRESHOLD_PERCENT,
+        active=bool(watched_statuses(session)),
         paused=is_paused(settings),
         paused_at=settings.automations_paused_at if settings else None,
         status=reason.get("status"),
@@ -93,7 +95,7 @@ def _apply(automation: Automation, payload: AutomationWrite) -> None:
 
 @router.get("/guard", response_model=AutomationGuard)
 def read_guard(session: Session = Depends(get_session)) -> AutomationGuard:
-    return _guard(session.get(Settings, 1))
+    return _guard(session, session.get(Settings, 1))
 
 
 @router.put("/guard", response_model=AutomationGuard)
@@ -102,7 +104,7 @@ def update_guard(payload: AutomationGuardWrite, session: Session = Depends(get_s
     settings.automation_guard_percent = payload.percent
     session.add(settings)
     session.commit()
-    return _guard(settings)
+    return _guard(session, settings)
 
 
 @router.post("/guard/resume", response_model=AutomationGuard)
@@ -111,7 +113,7 @@ def resume_guard(session: Session = Depends(get_session)) -> AutomationGuard:
     confirme que le basculement était légitime (voir automation_guard.py)."""
     settings = _settings(session)
     resume_automations(session, settings)
-    return _guard(settings)
+    return _guard(session, settings)
 
 
 @router.get("", response_model=list[AutomationRead])

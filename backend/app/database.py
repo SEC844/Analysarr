@@ -195,13 +195,22 @@ def init_db() -> None:
         Torrent,
     )
     from app.models.settings import Settings  # noqa: F401
-    from app.models.trash import TrashEntry  # noqa: F401
+    from app.models.trash import TrashAction, TrashItem  # noqa: F401
 
     _reset_media_cache_if_stale()
+    _drop_legacy_trash()
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
     _ensure_columns("user", _USER_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
     _migrate_legacy_notifications()
+
+
+def _drop_legacy_trash() -> None:
+    """Première forme de la corbeille : une ligne par fichier, sans torrent ni
+    suivi Sonarr/Radarr (jamais publiée hors de la branche dev). Remplacée par
+    `trashaction` + `trashitem`, voir services/trash.py."""
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS trashentry"))
 
 
 def get_session() -> Iterator[Session]:

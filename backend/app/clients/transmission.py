@@ -6,6 +6,7 @@ première requête reçoit `409 Conflict` et l'en-tête
 statuts, fichiers et trackers de tous les torrents, mis en cache pour la durée
 de la session comme pour Deluge."""
 
+import base64
 from typing import Any
 
 import httpx
@@ -117,6 +118,28 @@ class TransmissionClient(TorrentClient):
     async def get_files(self, torrent_hash: str) -> list[dict[str, Any]]:
         torrent = await self._torrent(torrent_hash)
         return [{"name": f.get("name"), "size": f.get("length")} for f in torrent.get("files") or [] if f.get("name")]
+
+    async def add_torrent(
+        self,
+        *,
+        torrent: bytes | None = None,
+        magnet: str | None = None,
+        save_path: str | None = None,
+        category: str | None = None,
+        paused: bool = False,
+    ) -> None:
+        """Transmission n'a ni export .torrent ni catégorie : restauration par
+        magnet, dans le dossier d'origine."""
+        payload: dict[str, Any] = {"paused": paused}
+        if save_path:
+            payload["download-dir"] = save_path
+        if torrent:
+            payload["metainfo"] = base64.b64encode(torrent).decode("ascii")
+        elif magnet:
+            payload["filename"] = magnet
+        else:
+            raise ValueError("Ni fichier .torrent ni magnet fourni.")
+        await self._rpc("torrent-add", payload)
 
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:

@@ -1,25 +1,45 @@
-"""Corbeille : une suppression de fichier devient un déplacement, annulable
-pendant quelques jours.
+"""Corbeille : une suppression devient annulable pendant quelques jours.
 
-Portée volontairement limitée aux fichiers qu'Analysarr supprime LUI-MÊME
-(doublons jamais suivis, fichiers restants après un retrait Sonarr/Radarr,
-nettoyage cascade). Quand Sonarr ou Radarr supprime le fichier à notre
-demande, c'est LEUR corbeille qui s'applique, pas celle-ci — et les torrents
-sont supprimés par le client torrent, hors de portée.
+Une suppression n'est pas une liste de fichiers, c'est un ENSEMBLE : des
+fichiers de bibliothèque, des torrents, le suivi Sonarr/Radarr, la demande
+Seer. La corbeille garde donc une ligne par ACTION, et la restauration remet
+tout d'un coup — restaurer la moitié d'une suppression laisserait une
+bibliothèque incohérente (fichiers présents mais plus suivis, torrent sans
+données, média demandable deux fois).
 
-Le fichier est déplacé par `os.replace` : même inode, donc un hardlink encore
-présent ailleurs reste valide, et aucune copie n'est faite (indispensable pour
-des fichiers de plusieurs dizaines de Go). Le déplacement doit donc rester sur
-le même système de fichiers : la corbeille de la racine de la bibliothèque
-d'abord, sinon un dossier `.analysarr-trash` à côté du fichier."""
+Ce qui est réellement restauré :
+- fichiers de bibliothèque et données de torrent : déplacés (`os.replace`,
+  jamais copiés), donc mêmes inodes — les hardlinks survivent à l'aller comme
+  au retour ;
+- torrents : retirés du client SANS supprimer leurs fichiers, puis ré-ajoutés
+  au même emplacement (fichier .torrent quand le client sait l'exporter, sinon
+  lien magnet construit depuis les trackers), le client revérifie les données
+  en place et reprend le seed sans rien retélécharger ;
+- film/série : recréé dans Sonarr/Radarr à partir de la fiche capturée avant
+  suppression (profil, dossier racine, tags, monitoring), puis rescan pour
+  qu'il retrouve ses fichiers ;
+- demande Seer : recréée au nom de son demandeur d'origine.
 
+Ce qui ne peut PAS être restauré, aucune API de client torrent ne l'expose :
+les statistiques de seed (ratio, quantité envoyée) repartent de zéro. Le
+torrent reprend son seed avec ses données, mais son historique de partage est
+perdu — c'est dit tel quel dans l'interface."""
+
+import base64
+import json
 import os
+import shutil
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+import httpx
 from sqlmodel import Session, select
 
+from app.clients.torrent_base import TorrentAuthError, TorrentClient, magnet_for
+from app.models.media import Media, Torrent
 from app.models.settings import Settings
-from app.models.trash import TrashEntry
+from app.models.trash import TrashAction, TrashItem
+from app.schemas.media import DeleteStepResult
 
 TRASH_DIR_NAME = ".analysarr-trash"
 DEFAULT_RETENTION_DAYS = 7
@@ -36,6 +56,9 @@ def retention_days(settings: Settings | None) -> int:
     return max(MIN_RETENTION_DAYS, min(MAX_RETENTION_DAYS, value))
 
 
+# --- Déplacement des fichiers -------------------------------------------------
+
+
 def _unique_destination(directory: str, name: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     candidate = os.path.join(directory, f"{stamp}-{name}")
@@ -46,78 +69,420 @@ def _unique_destination(directory: str, name: str) -> str:
     return candidate
 
 
-def _move(path: str, trash_dir: str) -> str:
+def _move_into(path: str, trash_dir: str) -> str:
     os.makedirs(trash_dir, exist_ok=True)
-    destination = _unique_destination(trash_dir, os.path.basename(path))
+    destination = _unique_destination(trash_dir, os.path.basename(path.rstrip("/\\")))
     os.replace(path, destination)
     return destination
 
 
 def move_to_trash(settings: Settings | None, path: str) -> str:
-    """Déplace le fichier et renvoie son chemin dans la corbeille. Lève l'erreur
-    d'origine si le déplacement échoue : mieux vaut une suppression refusée
-    qu'un fichier supprimé alors que l'utilisateur comptait sur la corbeille."""
+    """Déplace un fichier ou un dossier vers la corbeille et renvoie son
+    nouveau chemin. La corbeille de la racine de la bibliothèque d'abord (même
+    système de fichiers, donc déplacement instantané et inodes conservés),
+    sinon un dossier `.analysarr-trash` à côté de l'élément — indispensable
+    pour les téléchargements, souvent sur un autre volume."""
     root = (settings.emby_library_path or "").strip() if settings else ""
     if root:
         try:
-            return _move(path, os.path.join(root, TRASH_DIR_NAME))
+            return _move_into(path, os.path.join(root, TRASH_DIR_NAME))
         except OSError as exc:
-            if exc.errno != 18:  # EXDEV : bibliothèque répartie sur plusieurs volumes
+            if exc.errno != 18:  # EXDEV : autre système de fichiers
                 raise
-    return _move(path, os.path.join(os.path.dirname(path), TRASH_DIR_NAME))
+    return _move_into(path, os.path.join(os.path.dirname(path.rstrip("/\\")), TRASH_DIR_NAME))
 
 
-def delete_or_trash(session: Session, settings: Settings | None, path: str, *, media_title: str, action: str) -> None:
-    """Supprime le fichier, ou le déplace en corbeille si elle est activée."""
-    if not is_enabled(settings):
-        os.remove(path)
-        return
-    size = 0
+def _restore_path(trashed_path: str, original_path: str) -> None:
+    if os.path.lexists(original_path):
+        raise FileExistsError(f"Un élément occupe déjà {original_path}.")
+    os.makedirs(os.path.dirname(original_path), exist_ok=True)
+    os.replace(trashed_path, original_path)
+
+
+def _remove(path: str) -> None:
     try:
-        size = os.stat(path).st_size
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+    except FileNotFoundError:
+        pass  # déjà retiré à la main : l'objectif est atteint
+
+
+def _size_of(path: str) -> int:
+    try:
+        if not os.path.isdir(path) or os.path.islink(path):
+            return os.stat(path).st_size
     except OSError:
-        pass
-    trashed_path = move_to_trash(settings, path)
+        return 0
+    total = 0
+    for directory, _dirs, names in os.walk(path):
+        for name in names:
+            try:
+                total += os.stat(os.path.join(directory, name)).st_size
+            except OSError:
+                continue
+    return total
+
+
+# --- Constitution d'une action ------------------------------------------------
+
+
+def open_action(session: Session, settings: Settings | None, media: Media, action: str) -> TrashAction | None:
+    """Ouvre une action de corbeille pour la suppression en cours. `None` quand
+    la corbeille est désactivée : les appelants suppriment alors normalement."""
+    if not is_enabled(settings):
+        return None
+    row = TrashAction(action=action, media_title=media.title, media_type=media.media_type.value)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def close_action(session: Session, action: TrashAction | None) -> None:
+    """Supprime l'action si elle n'a finalement rien recueilli (tout supprimé
+    par Sonarr/Radarr, ou échec avant le premier élément) : une ligne vide dans
+    la corbeille n'aiderait personne."""
+    if action is None:
+        return
+    if session.exec(select(TrashItem.id).where(TrashItem.action_id == action.id)).first() is not None:
+        return
+    if action.arr_payload or action.seer_payload:
+        return
+    session.delete(action)
+    session.commit()
+
+
+# Ni `delete_or_trash` ni `trash_torrent` ne committent : l'appelant le fait en
+# fin de suppression. Un commit au milieu d'une boucle vide les objets déjà
+# marqués supprimés et casse la lecture de leurs attributs (bug réel).
+def delete_or_trash(
+    session: Session,
+    settings: Settings | None,
+    path: str,
+    *,
+    action: TrashAction | None = None,
+    label: str = "",
+) -> None:
+    """Supprime le fichier, ou le déplace en corbeille quand une action est
+    ouverte. Un fichier déjà absent n'est jamais une erreur : c'est le résultat
+    voulu (Sonarr/Radarr peut l'avoir supprimé de son côté juste avant)."""
+    if action is None or not is_enabled(settings):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        return
+    size = _size_of(path)
+    try:
+        trashed_path = move_to_trash(settings, path)
+    except FileNotFoundError:
+        return
     session.add(
-        TrashEntry(
+        TrashItem(
+            action_id=action.id,
+            kind="library_file",
+            label=label or os.path.basename(path),
+            size=size,
             original_path=path,
             trashed_path=trashed_path,
-            size=size,
-            media_title=media_title,
-            action=action,
         )
     )
 
 
-def restore(session: Session, entry: TrashEntry) -> None:
-    """Remet le fichier à sa place. Refuse si un fichier occupe déjà le chemin
-    d'origine : on ne remplace jamais un fichier existant."""
-    if os.path.lexists(entry.original_path):
-        raise FileExistsError(f"Un fichier occupe déjà {entry.original_path}.")
-    os.makedirs(os.path.dirname(entry.original_path), exist_ok=True)
-    os.replace(entry.trashed_path, entry.original_path)
-    session.delete(entry)
+async def trash_torrent(
+    session: Session,
+    settings: Settings | None,
+    client: TorrentClient,
+    action: TrashAction,
+    torrent: Torrent,
+    paths: list[str],
+) -> None:
+    """Retire le torrent du client SANS supprimer ses données, puis déplace ces
+    données en corbeille. Capture d'abord de quoi le ré-ajouter : fichier
+    .torrent si le client sait l'exporter, sinon magnet reconstruit depuis ses
+    trackers."""
+    exported = await client.export_torrent(torrent.hash)
+    trackers = [tracker.get("url", "") for tracker in await client.get_trackers(torrent.hash)]
+    payload: dict[str, Any] = {
+        "hash": torrent.hash,
+        "name": torrent.name,
+        "save_path": torrent.save_path,
+        "category": torrent.category,
+        "magnet": magnet_for(torrent.hash, torrent.name, [url for url in trackers if url]),
+        "torrent_b64": base64.b64encode(exported).decode("ascii") if exported else None,
+    }
+
+    await client.delete_torrents([torrent.hash], delete_files=False)
+
+    moved: list[str] = []
+    originals: list[str] = []
+    size = 0
+    try:
+        for path in paths:
+            if not os.path.lexists(path):
+                continue
+            size += _size_of(path)
+            moved.append(move_to_trash(settings, path))
+            originals.append(path)
+    finally:
+        # Même si un déplacement échoue en cours de route, ce qui a bougé est
+        # enregistré : sans cette ligne, des données déjà déplacées seraient
+        # introuvables et donc irrécupérables.
+        payload["paths"] = originals
+        payload["trashed_paths"] = moved
+        session.add(
+            TrashItem(
+                action_id=action.id,
+                kind="torrent",
+                label=torrent.name,
+                size=size or (torrent.size or 0),
+                original_path=originals[0] if originals else None,
+                trashed_path=moved[0] if moved else None,
+                torrent_payload=json.dumps(payload),
+            )
+        )
+
+
+def capture_arr(
+    session: Session, action: TrashAction | None, service: str, instance_id: int | None, body: dict | None
+) -> None:
+    """Mémorise la fiche Sonarr/Radarr AVANT son retrait : sans elle, un
+    ré-ajout perdrait profil de qualité, dossier racine, tags et monitoring."""
+    if action is None or not body:
+        return
+    action.arr_payload = json.dumps({"service": service, "instance_id": instance_id, "body": body})
+    session.add(action)
     session.commit()
 
 
-def purge_entry(session: Session, entry: TrashEntry) -> None:
+def capture_seer(session: Session, action: TrashAction | None, requests: list[dict]) -> None:
+    if action is None or not requests:
+        return
+    action.seer_payload = json.dumps(requests)
+    session.add(action)
+    session.commit()
+
+
+# --- Lecture, purge -----------------------------------------------------------
+
+
+def actions(session: Session) -> list[TrashAction]:
+    return list(session.exec(select(TrashAction).order_by(TrashAction.id.desc())).all())
+
+
+def items_of(session: Session, action: TrashAction) -> list[TrashItem]:
+    return list(session.exec(select(TrashItem).where(TrashItem.action_id == action.id).order_by(TrashItem.id)).all())
+
+
+def payload_of(item: TrashItem) -> dict[str, Any]:
     try:
-        os.remove(entry.trashed_path)
-    except FileNotFoundError:
-        pass  # déjà supprimé à la main : la ligne n'a plus de raison d'être
-    session.delete(entry)
+        payload = json.loads(item.torrent_payload or "{}")
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def trashed_paths(item: TrashItem) -> list[str]:
+    if item.kind == "torrent":
+        return [path for path in payload_of(item).get("trashed_paths") or [] if path]
+    return [item.trashed_path] if item.trashed_path else []
+
+
+def item_available(item: TrashItem) -> bool:
+    """Faux dès qu'un élément a disparu de la corbeille : la restauration ne
+    rendrait alors qu'une partie de la suppression."""
+    paths = trashed_paths(item)
+    return bool(paths) and all(os.path.lexists(path) for path in paths)
+
+
+def purge_action(session: Session, action: TrashAction) -> None:
+    """Suppression définitive : les éléments mis de côté sont effacés."""
+    for item in items_of(session, action):
+        for path in trashed_paths(item):
+            _remove(path)
+        session.delete(item)
+    session.delete(action)
     session.commit()
 
 
 def purge_expired(session: Session, settings: Settings | None) -> int:
-    """Vide les entrées dont la rétention est écoulée. Renvoie le nombre
-    d'entrées supprimées."""
     limit = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=retention_days(settings))
-    expired = session.exec(select(TrashEntry).where(TrashEntry.deleted_at < limit)).all()
-    for entry in expired:
-        purge_entry(session, entry)
+    expired = session.exec(select(TrashAction).where(TrashAction.created_at < limit)).all()
+    for action in expired:
+        purge_action(session, action)
     return len(expired)
 
 
-def entries(session: Session) -> list[TrashEntry]:
-    return list(session.exec(select(TrashEntry).order_by(TrashEntry.id.desc())).all())
+# --- Restauration -------------------------------------------------------------
+
+
+async def restore_action(
+    session: Session, settings: Settings | None, action: TrashAction
+) -> tuple[list[DeleteStepResult], bool]:
+    """Remet tout en place : fichiers, torrents, suivi Sonarr/Radarr, demande
+    Seer. Renvoie le détail par étape et si TOUT a réussi — une action dont une
+    étape échoue reste dans la corbeille, avec ce qui n'a pas pu être rendu,
+    pour réessayer sans rien avoir perdu."""
+    steps: list[DeleteStepResult] = []
+    items = items_of(session, action)
+
+    restored_files = [item for item in items if item.kind == "library_file" and _restore_file(item, steps)]
+    torrents = [item for item in items if item.kind == "torrent"]
+    restored_torrents = await _restore_torrents(settings, torrents, steps)
+
+    arr_ok = await _restore_arr(session, action, settings, steps)
+    seer_ok = await _restore_seer(session, action, settings, steps)
+
+    for item in restored_files + restored_torrents:
+        session.delete(item)
+    session.commit()
+
+    complete = all(step.success for step in steps) and arr_ok and seer_ok
+    if complete:
+        purge_action(session, action)
+    return steps, complete
+
+
+def _restore_file(item: TrashItem, steps: list[DeleteStepResult]) -> bool:
+    if not (item.trashed_path and item.original_path):
+        return False
+    try:
+        _restore_path(item.trashed_path, item.original_path)
+    except (OSError, FileExistsError) as exc:
+        steps.append(DeleteStepResult(kind="library_file", label=item.label, success=False, error=str(exc)))
+        return False
+    steps.append(DeleteStepResult(kind="library_file", label=item.label, success=True))
+    return True
+
+
+async def _restore_torrents(
+    settings: Settings | None, items: list[TrashItem], steps: list[DeleteStepResult]
+) -> list[TrashItem]:
+    """Données remises à leur place, puis torrent ré-ajouté au client : il
+    vérifie les fichiers présents et reprend le seed sans rien retélécharger."""
+    if not items:
+        return []
+    from app.clients.torrent import torrent_client, torrent_client_configured
+
+    if not torrent_client_configured(settings):
+        for item in items:
+            steps.append(
+                DeleteStepResult(kind="torrent", label=item.label, success=False, error="Client torrent non configuré.")
+            )
+        return []
+
+    restored: list[TrashItem] = []
+    try:
+        async with torrent_client(settings) as client:
+            for item in items:
+                payload = payload_of(item)
+                try:
+                    for original, trashed in zip(payload.get("paths") or [], payload.get("trashed_paths") or []):
+                        _restore_path(trashed, original)
+                    exported = payload.get("torrent_b64")
+                    await client.add_torrent(
+                        torrent=base64.b64decode(exported) if exported else None,
+                        magnet=payload.get("magnet"),
+                        save_path=payload.get("save_path"),
+                        category=payload.get("category"),
+                    )
+                except (OSError, FileExistsError, httpx.HTTPError, ValueError, RuntimeError) as exc:
+                    steps.append(DeleteStepResult(kind="torrent", label=item.label, success=False, error=str(exc)))
+                    continue
+                steps.append(DeleteStepResult(kind="torrent", label=item.label, success=True))
+                restored.append(item)
+    except (TorrentAuthError, httpx.HTTPError) as exc:
+        steps.append(DeleteStepResult(kind="torrent", label=items[0].label, success=False, error=str(exc)))
+    return restored
+
+
+async def _restore_arr(
+    session: Session, action: TrashAction, settings: Settings | None, steps: list[DeleteStepResult]
+) -> bool:
+    if not action.arr_payload:
+        return True
+    from app.services.arr_instances import arr_target_by_id
+
+    try:
+        payload = json.loads(action.arr_payload)
+    except ValueError:
+        return True
+    service = "radarr" if payload.get("service") == "radarr" else "sonarr"
+    target = arr_target_by_id(session, settings, service, payload.get("instance_id"))
+    if target is None:
+        steps.append(
+            DeleteStepResult(kind="arr_media", label=action.media_title, success=False, error="Instance introuvable.")
+        )
+        return False
+
+    body = payload.get("body") or {}
+    try:
+        if service == "radarr":
+            created = await target.radarr().add_movie(body)
+            if created.get("id"):
+                await target.radarr().rescan_movie(created["id"])
+        else:
+            created = await target.sonarr().add_series(body)
+            if created.get("id"):
+                await target.sonarr().rescan_series(created["id"])
+    except (httpx.HTTPError, ValueError) as exc:
+        steps.append(DeleteStepResult(kind="arr_media", label=action.media_title, success=False, error=str(exc)))
+        return False
+    action.arr_payload = None
+    session.add(action)
+    session.commit()
+    steps.append(DeleteStepResult(kind="arr_media", label=action.media_title, success=True))
+    return True
+
+
+async def _restore_seer(
+    session: Session, action: TrashAction, settings: Settings | None, steps: list[DeleteStepResult]
+) -> bool:
+    if not action.seer_payload:
+        return True
+    from app.clients.seer import SeerClient
+    from app.services.seer import seer_configured
+
+    if not seer_configured(settings):
+        return True
+    try:
+        requests = json.loads(action.seer_payload)
+    except ValueError:
+        return True
+
+    client = SeerClient(settings.seer_url, settings.seer_api_key)
+    for request in requests if isinstance(requests, list) else []:
+        body = _seer_body(request)
+        if body is None:
+            continue
+        try:
+            await client.create_request(body)
+        except httpx.HTTPError as exc:
+            steps.append(DeleteStepResult(kind="seer", label=action.media_title, success=False, error=str(exc)))
+            return False
+    action.seer_payload = None
+    session.add(action)
+    session.commit()
+    steps.append(DeleteStepResult(kind="seer", label=action.media_title, success=True))
+    return True
+
+
+def _seer_body(request: dict[str, Any]) -> dict[str, Any] | None:
+    """Recrée la demande telle qu'elle était : même type, même média, mêmes
+    saisons, même demandeur. Sans identifiant de média, il n'y a rien à
+    recréer."""
+    media = request.get("media") or {}
+    media_type = request.get("type") or media.get("mediaType")
+    media_id = media.get("tmdbId") if media_type == "movie" else media.get("tvdbId") or media.get("tmdbId")
+    if not media_id:
+        return None
+    body: dict[str, Any] = {"mediaType": media_type, "mediaId": int(media_id), "is4k": bool(request.get("is4k"))}
+    seasons = [season.get("seasonNumber") for season in request.get("seasons") or [] if season.get("seasonNumber")]
+    if seasons:
+        body["seasons"] = seasons
+    requester = request.get("requestedBy") or {}
+    if requester.get("id"):
+        body["userId"] = requester["id"]
+    return body

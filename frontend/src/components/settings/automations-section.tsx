@@ -408,7 +408,10 @@ function AutomationGuardCard() {
   const saveMutation = useSaveAutomationGuardMutation()
   const [percent, setPercent] = useState<string>("")
 
-  if (!guard) return null
+  // Rien à protéger tant qu'aucune règle ne porte sur les orphelins, doublons
+  // ou torrents non hardlinkés : la carte reste masquée (sauf pause en cours,
+  // qu'il faut pouvoir lever).
+  if (!guard || (!guard.active && !guard.paused)) return null
   const value = percent === "" ? String(guard.percent) : percent
   const parsed = Number(value)
   const invalid = !Number.isInteger(parsed) || parsed < guard.min_percent || parsed > 100

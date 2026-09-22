@@ -42,6 +42,9 @@ export interface Automation {
 export interface AutomationGuard {
   percent: number
   min_percent: number
+  /** Faux si aucune automatisation activée ne porte sur les orphelins, les
+   * doublons ou les torrents non hardlinkés : rien à protéger, rien à afficher. */
+  active: boolean
   paused: boolean
   paused_at: string | null
   status: string | null

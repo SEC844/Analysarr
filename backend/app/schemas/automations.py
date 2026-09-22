@@ -56,6 +56,10 @@ class AutomationGuard(BaseModel):
 
     percent: int
     min_percent: int
+    # Faux quand aucune automatisation activée ne porte sur les orphelins, les
+    # doublons ou les torrents non hardlinkés : le garde-fou n'a alors rien à
+    # protéger et l'interface ne l'affiche pas.
+    active: bool = False
     paused: bool
     paused_at: Optional[datetime] = None
     # Motif de la pause, tel que détecté par le scan (le libellé est traduit

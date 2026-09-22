@@ -37,6 +37,25 @@ class SeerClient:
                     break
         return requests
 
+    async def get_request(self, request_id: int) -> dict[str, Any] | None:
+        """Demande complète, capturée AVANT suppression pour pouvoir la
+        recréer depuis la corbeille. `None` si Seer ne la connaît plus."""
+        async with self._client() as client:
+            resp = await client.get(f"/api/v1/request/{int(request_id)}")
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.json()
+
+    async def create_request(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Recrée une demande au nom de son demandeur d'origine (`userId`,
+        réservé aux comptes administrateurs — c'est déjà ce que la clé API
+        exige côté Analysarr)."""
+        async with self._client() as client:
+            resp = await client.post("/api/v1/request", json=body)
+            resp.raise_for_status()
+            return resp.json()
+
     async def _delete(self, path: str) -> None:
         async with self._client() as client:
             resp = await client.delete(path)

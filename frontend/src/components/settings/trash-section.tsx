@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2, RotateCcw, Trash2 } from "lucide-react"
+import { ChevronRight, FileVideo, Loader2, Magnet, RotateCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -18,16 +18,123 @@ import {
 } from "@/hooks/use-trash"
 import { useI18n } from "@/i18n"
 import { formatBytes, formatDateTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import type { TrashAction } from "@/types/trash"
+
+function ActionRow({ action }: { action: TrashAction }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const restoreMutation = useRestoreTrashMutation()
+  const deleteMutation = useDeleteTrashMutation()
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const torrents = action.items.filter((item) => item.kind === "torrent").length
+  const files = action.items.length - torrents
+  const extras = [
+    files > 0 ? t("trash.fileCount", { count: files }) : null,
+    torrents > 0 ? t("trash.torrentCount", { count: torrents }) : null,
+    action.restores_arr ? t("trash.withArr") : null,
+    action.restores_seer ? t("trash.withSeer") : null,
+  ].filter(Boolean)
+
+  return (
+    <li className="py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={open}
+        >
+          <ChevronRight className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{action.media_title}</span>
+            <span className="text-muted-foreground block text-xs">
+              {formatDateTime(action.created_at)} · {formatBytes(action.size)} · {extras.join(" · ")}
+            </span>
+          </span>
+        </button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!action.restorable || restoreMutation.isPending}
+            title={action.restorable ? undefined : t("trash.incomplete")}
+            onClick={() =>
+              restoreMutation.mutate(action.id, {
+                onSuccess: (result) => {
+                  if (result.complete) toast.success(t("trash.restored"))
+                  else toast.error(result.steps.find((step) => !step.success)?.error ?? t("trash.restoreFailed"))
+                },
+                onError: (err) => toast.error(err instanceof Error ? err.message : t("trash.restoreFailed")),
+              })
+            }
+          >
+            {restoreMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
+            {t("trash.restore")}
+          </Button>
+          {confirmDelete ? (
+            <>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(action.id, { onSuccess: () => setConfirmDelete(false) })}
+              >
+                {t("common.confirmDelete")}
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
+                {t("common.cancel")}
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              title={t("trash.deleteNow")}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {open && (
+        <ul className="text-muted-foreground mt-2 space-y-1 pl-6 text-xs">
+          {action.items.map((item, index) => (
+            <li key={`${item.label}-${index}`} className="flex items-center gap-2">
+              {item.kind === "torrent" ? (
+                <Magnet className="size-3.5 shrink-0" />
+              ) : (
+                <FileVideo className="size-3.5 shrink-0" />
+              )}
+              <span className="min-w-0 flex-1 truncate" title={item.original_path ?? item.label}>
+                {item.label}
+              </span>
+              <span className="tabular-nums">{formatBytes(item.size)}</span>
+              {!item.available && <span className="text-destructive">{t("trash.missing")}</span>}
+            </li>
+          ))}
+          {action.restores_arr && <li className="pl-5">{t("trash.withArrDetail")}</li>}
+          {action.restores_seer && <li className="pl-5">{t("trash.withSeerDetail")}</li>}
+        </ul>
+      )}
+    </li>
+  )
+}
 
 export function TrashSection() {
   const { t } = useI18n()
   const { data: settings, isLoading } = useTrashSettingsQuery()
-  const { data: entries } = useTrashQuery()
+  const { data: actions } = useTrashQuery()
   const saveMutation = useSaveTrashSettingsMutation()
-  const restoreMutation = useRestoreTrashMutation()
-  const deleteMutation = useDeleteTrashMutation()
   const emptyMutation = useEmptyTrashMutation()
   const [days, setDays] = useState<string | null>(null)
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
 
   if (isLoading) return <Skeleton className="h-64 w-full" />
   if (!settings) return <p className="text-destructive">{t("common.apiUnreachable")}</p>
@@ -36,7 +143,7 @@ export function TrashSection() {
   const parsed = Number(value)
   const valid = Number.isInteger(parsed) && parsed >= settings.min_days && parsed <= settings.max_days
   const failed = (err: unknown) => toast.error(err instanceof Error ? err.message : t("common.saveFailed"))
-  const total = (entries ?? []).reduce((sum, entry) => sum + (entry.available ? entry.size : 0), 0)
+  const total = (actions ?? []).reduce((sum, action) => sum + action.size, 0)
 
   return (
     <div className="space-y-6">
@@ -91,6 +198,7 @@ export function TrashSection() {
           </div>
 
           <p className="text-muted-foreground text-xs">{t("trash.scopeHelp")}</p>
+          <p className="text-muted-foreground text-xs">{t("trash.ratioHelp")}</p>
         </CardContent>
       </Card>
 
@@ -101,68 +209,44 @@ export function TrashSection() {
               <CardTitle>{t("trash.contentTitle")}</CardTitle>
               <CardDescription>{t("trash.contentDescription", { size: formatBytes(total) })}</CardDescription>
             </div>
-            {(entries?.length ?? 0) > 0 && (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                disabled={emptyMutation.isPending}
-                onClick={() =>
-                  emptyMutation.mutate(undefined, {
-                    onSuccess: () => toast.success(t("trash.emptied")),
-                    onError: failed,
-                  })
-                }
-              >
-                {emptyMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                {t("trash.empty")}
-              </Button>
-            )}
+            {(actions?.length ?? 0) > 0 &&
+              (confirmEmpty ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={emptyMutation.isPending}
+                    onClick={() =>
+                      emptyMutation.mutate(undefined, {
+                        onSuccess: () => {
+                          setConfirmEmpty(false)
+                          toast.success(t("trash.emptied"))
+                        },
+                        onError: failed,
+                      })
+                    }
+                  >
+                    {emptyMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+                    {t("common.confirmDelete")}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmEmpty(false)}>
+                    {t("common.cancel")}
+                  </Button>
+                </div>
+              ) : (
+                <Button type="button" variant="destructive" size="sm" onClick={() => setConfirmEmpty(true)}>
+                  <Trash2 className="size-4" />
+                  {t("trash.empty")}
+                </Button>
+              ))}
           </div>
         </CardHeader>
         <CardContent>
-          {entries && entries.length > 0 ? (
+          {actions && actions.length > 0 ? (
             <ul className="divide-border divide-y text-sm">
-              {entries.map((entry) => (
-                <li key={entry.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate" title={entry.original_path}>
-                      {entry.original_path}
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      {entry.media_title ? `${entry.media_title} · ` : ""}
-                      {formatDateTime(entry.deleted_at)} · {formatBytes(entry.size)}
-                      {entry.available ? "" : ` · ${t("trash.missing")}`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!entry.available || restoreMutation.isPending}
-                      onClick={() =>
-                        restoreMutation.mutate(entry.id, {
-                          onSuccess: () => toast.success(t("trash.restored")),
-                          onError: failed,
-                        })
-                      }
-                    >
-                      <RotateCcw className="size-4" />
-                      {t("trash.restore")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      title={t("trash.deleteNow")}
-                      disabled={deleteMutation.isPending}
-                      onClick={() => deleteMutation.mutate(entry.id, { onError: failed })}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                </li>
+              {actions.map((action) => (
+                <ActionRow key={action.id} action={action} />
               ))}
             </ul>
           ) : (

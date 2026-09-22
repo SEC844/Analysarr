@@ -118,6 +118,20 @@ class RadarrClient(ArrClient):
         await self._delete(f"/api/v3/movie/{movie_id}", params={"deleteFiles": "true", "addImportExclusion": "false"})
 
 
+    async def add_movie(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Ré-ajoute un film retiré (restauration depuis la corbeille) à partir
+        de la fiche capturée AVANT la suppression : mêmes profil, dossier
+        racine, tags et monitoring qu'avant. `id` est retiré (Radarr en
+        attribue un nouveau) et les fichiers déjà sur le disque sont
+        redécouverts par `rescan_movie`."""
+        payload = {key: value for key, value in body.items() if key not in ("id", "movieFile", "movieFileId")}
+        payload["addOptions"] = {"searchForMovie": False}
+        return await self._post("/api/v3/movie", payload)
+
+    async def rescan_movie(self, movie_id: int) -> None:
+        await self._post("/api/v3/command", {"name": "RescanMovie", "movieId": movie_id})
+
+
 class SonarrClient(ArrClient):
     async def get_series(self) -> list[dict[str, Any]]:
         return await self._get("/api/v3/series")
@@ -161,6 +175,20 @@ class SonarrClient(ArrClient):
         await self._delete(
             f"/api/v3/series/{series_id}", params={"deleteFiles": "true", "addImportListExclusion": "false"}
         )
+
+    async def add_series(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Ré-ajoute une série retirée (voir `RadarrClient.add_movie`). Les
+        saisons et leur monitoring sont ceux capturés avant la suppression."""
+        payload = {key: value for key, value in body.items() if key not in ("id", "episodeFileCount", "statistics")}
+        payload["addOptions"] = {
+            "searchForMissingEpisodes": False,
+            "searchForCutoffUnmetEpisodes": False,
+            "monitor": "none",
+        }
+        return await self._post("/api/v3/series", payload)
+
+    async def rescan_series(self, series_id: int) -> None:
+        await self._post("/api/v3/command", {"name": "RescanSeries", "seriesId": series_id})
 
     async def delete_episode_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/episodefile/{file_id}")

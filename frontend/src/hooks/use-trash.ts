@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
-  deleteTrashEntry,
+  deleteTrashAction,
   emptyTrash,
   getTrash,
   getTrashSettings,
-  restoreTrashEntry,
+  restoreTrashAction,
   saveTrashSettings,
 } from "@/lib/api"
 import type { TrashSettings } from "@/types/trash"
@@ -42,12 +42,12 @@ function useTrashInvalidation() {
 
 export function useRestoreTrashMutation() {
   const invalidate = useTrashInvalidation()
-  return useMutation({ mutationFn: (id: number) => restoreTrashEntry(id), onSuccess: invalidate })
+  return useMutation({ mutationFn: (id: number) => restoreTrashAction(id), onSuccess: invalidate })
 }
 
 export function useDeleteTrashMutation() {
   const invalidate = useTrashInvalidation()
-  return useMutation({ mutationFn: (id: number) => deleteTrashEntry(id), onSuccess: invalidate })
+  return useMutation({ mutationFn: (id: number) => deleteTrashAction(id), onSuccess: invalidate })
 }
 
 export function useEmptyTrashMutation() {

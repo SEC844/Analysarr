@@ -13,7 +13,7 @@ import type {
   TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
-import type { TrashEntry, TrashSettings } from "@/types/trash"
+import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
@@ -252,8 +252,8 @@ export function resumeAutomations(): Promise<AutomationGuard> {
 }
 
 // --- Corbeille ---------------------------------------------------------------
-export function getTrash(): Promise<TrashEntry[]> {
-  return request<TrashEntry[]>("/api/trash")
+export function getTrash(): Promise<TrashAction[]> {
+  return request<TrashAction[]>("/api/trash")
 }
 
 export function getTrashSettings(): Promise<TrashSettings> {
@@ -264,11 +264,13 @@ export function saveTrashSettings(payload: { enabled: boolean; retention_days: n
   return request<TrashSettings>("/api/trash/settings", { method: "PUT", body: JSON.stringify(payload) })
 }
 
-export function restoreTrashEntry(id: number): Promise<TrashEntry[]> {
-  return request<TrashEntry[]>(`/api/trash/${id}/restore`, { method: "POST" })
+/** Restauration d'une suppression entière : fichiers, torrents, Sonarr/Radarr
+ * et Seer d'un seul coup (jamais élément par élément). */
+export function restoreTrashAction(id: number): Promise<TrashRestoreResult> {
+  return request<TrashRestoreResult>(`/api/trash/${id}/restore`, { method: "POST" })
 }
 
-export function deleteTrashEntry(id: number): Promise<void> {
+export function deleteTrashAction(id: number): Promise<void> {
   return request<void>(`/api/trash/${id}`, { method: "DELETE" })
 }
 

@@ -7,6 +7,7 @@ Deluge sépare le Web UI du démon : après l'authentification, le Web UI doit
 trackers de TOUS les torrents — ils sont ensuite servis depuis ce cache pour ne
 pas multiplier les requêtes pendant un scan."""
 
+import base64
 from typing import Any
 
 import httpx
@@ -118,6 +119,30 @@ class DelugeClient(TorrentClient):
     async def get_files(self, torrent_hash: str) -> list[dict[str, Any]]:
         status = await self._status(torrent_hash)
         return [{"name": f.get("path"), "size": f.get("size")} for f in status.get("files") or [] if f.get("path")]
+
+    async def add_torrent(
+        self,
+        *,
+        torrent: bytes | None = None,
+        magnet: str | None = None,
+        save_path: str | None = None,
+        category: str | None = None,
+        paused: bool = False,
+    ) -> None:
+        """Deluge n'expose pas d'export .torrent : la restauration passe par un
+        magnet dans la quasi-totalité des cas. Le label (équivalent de la
+        catégorie qBittorrent) vient d'un plugin optionnel et n'est donc pas
+        réappliqué."""
+        options: dict[str, Any] = {"add_paused": paused}
+        if save_path:
+            options["download_location"] = save_path
+        if torrent:
+            payload = base64.b64encode(torrent).decode("ascii")
+            await self._rpc("core.add_torrent_file", ["restore.torrent", payload, options])
+            return
+        if not magnet:
+            raise ValueError("Ni fichier .torrent ni magnet fourni.")
+        await self._rpc("core.add_torrent_magnet", [magnet, options])
 
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:

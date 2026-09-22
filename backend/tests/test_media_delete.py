@@ -97,3 +97,21 @@ def test_selection_is_limited_to_the_media_files(fake_http, session, settings, t
     asyncio.run(execute_media_delete(session, media, settings, selection))
 
     assert os.path.exists(other_files[0].path)  # un id d'un autre média est ignoré
+
+
+def test_a_file_already_gone_is_not_an_error(fake_http, session, settings, tmp_path):
+    """Sonarr supprime ses fichiers en tâche de fond : le nôtre peut avoir
+    disparu entre la vérification et la suppression. L'objectif est atteint."""
+    fake_http["http://sonarr"] = recorder([], status=404)
+    media, files = add_media(session, tmp_path, MediaType.series, files=2, sonarr_id=7)
+    for f in files:
+        f.arr_file_id = 900 + f.id
+        session.add(f)
+    session.commit()
+    os.remove(files[0].path)
+
+    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files])
+    result = asyncio.run(execute_media_delete(session, media, settings, selection))
+
+    # 404 côté Sonarr = fichier déjà retiré de son côté : aucune erreur affichée.
+    assert all(step.success for step in result.steps), [s.error for s in result.steps]

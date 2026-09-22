@@ -73,7 +73,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, blocked imports, stalled downloads, deletion, cleanup, hardlink repair, cross-seed search, automation, update available.
 - Optional automations: on orphans, duplicates, non-hardlinked torrents or blocked imports, clean up, repair, retry the import, search a cross-seed or just notify — with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
 - Mount safety net: any action that touches the disk is refused when a volume is not mounted, so nothing is removed from Sonarr/Radarr or from the database while the files are still there.
-- Optional trash: files Analysarr deletes itself are moved aside and stay recoverable for a few days, with one-click restore (**Settings → Trash**).
+- Optional trash: every deletion is kept as one restorable entry — library files, torrents (removed from the client without touching their data), Sonarr/Radarr tracking and the Seer request all come back together, hardlinks included (**Settings → Trash**).
 - Hardened for exposure: security headers (strict CSP, clickjacking protection), rate limiting on the sign-in routes, real client address behind a declared reverse proxy, and a sign-in log in **Settings → Account**.
 - Automation safety net: when a scan flips an unusual share of the library (unreachable share, torrent client reset), automations pause themselves and wait for you to resume them.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
