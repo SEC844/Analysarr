@@ -8,7 +8,6 @@ import httpx
 import pytest
 from sqlmodel import Session, select
 
-from app.database import engine
 from app.models.media import ImportIssue, Media, MediaFile, MediaType, Torrent
 from app.services.media_rescan import rescan_media
 

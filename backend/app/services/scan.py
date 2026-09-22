@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -13,8 +12,6 @@ from sqlmodel import Session, delete, select
 
 from app.clients.emby import EmbyClient, media_server_name
 from app.clients.torrent import (
-    TorrentAuthError,
-    torrent_client,
     torrent_client_configured,
     torrent_client_name,
 )
@@ -35,7 +32,7 @@ from app.models.media import (
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget, arr_targets
 from app.services.events import scan_events
-from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
+from app.services.hardlink import stat_inode
 from app.services.notifications import (
     ChannelTarget,
     automations_paused_notification,
@@ -56,7 +53,6 @@ from app.services.torrent_match import (
     persist_files,
 )
 from app.services.seer import build_request_rows, index_requests, seer_configured
-from app.services.trackers import extract_tracker_domain, status_label
 from app.services.watch_stats import (
     apply_aggregates,
     build_watch_rows,

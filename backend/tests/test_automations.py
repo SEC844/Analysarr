@@ -8,7 +8,6 @@ from app.models.activity import ActionLog
 from app.models.automation import Automation
 from app.models.media import Media, MediaType, Torrent
 from app.models.notification_channel import NotificationChannel
-from app.schemas.automations import AutomationConditions
 from app.services import notifications
 from app.services.automations import as_rule, eligible_medias, run_automations, run_rule
 from app.services.notifications import channel_targets

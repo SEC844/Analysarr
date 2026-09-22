@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { CheckCircle2, Link2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -183,9 +183,13 @@ function LinkForm({
 export function LinkToArrDialog({ media }: { media: MediaDetail }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  const [candidateKey, setCandidateKey] = useState("")
-  const [folder, setFolder] = useState("")
-  const [profileId, setProfileId] = useState("")
+  // Choix explicites de l'utilisateur ; vides tant qu'il n'a rien changé. Les
+  // valeurs affichées sont dérivées du rendu (voir plus bas) plutôt que
+  // recopiées dans un effet : Sonarr/Radarr répond APRÈS l'ouverture, et
+  // recopier sa réponse dans un état relançait un rendu en cascade.
+  const [candidateChoice, setCandidateChoice] = useState("")
+  const [folderChoice, setFolderChoice] = useState("")
+  const [profileChoice, setProfileChoice] = useState("")
   const [monitor, setMonitor] = useState<ArrMonitor>("none")
   const [availability, setAvailability] = useState<ArrAvailability>("released")
 
@@ -194,12 +198,21 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
   const linkMutation = useArrLinkMutation()
   const isSeries = media.media_type === "series"
 
-  useEffect(() => {
-    if (!preview.data) return
-    setCandidateKey(preview.data.candidates[0]?.key ?? "")
-    setFolder(preview.data.suggested_folder ?? preview.data.folders[0] ?? "")
-    setProfileId(String(preview.data.suggested_profile ?? preview.data.quality_profiles[0]?.id ?? ""))
-  }, [preview.data])
+  const candidateKey = candidateChoice || (preview.data?.candidates[0]?.key ?? "")
+  const folder = folderChoice || preview.data?.suggested_folder || (preview.data?.folders[0] ?? "")
+  const profileId =
+    profileChoice || String(preview.data?.suggested_profile ?? preview.data?.quality_profiles[0]?.id ?? "")
+
+  // Fermer le dialogue rend la main à ce que Sonarr/Radarr propose : une
+  // réouverture ne doit pas rejouer une sélection faite pour une autre fiche.
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next)
+    if (!next) {
+      setCandidateChoice("")
+      setFolderChoice("")
+      setProfileChoice("")
+    }
+  }
 
   const canLink = Boolean(candidateKey && profileId && folder)
 
@@ -217,7 +230,7 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
       },
       {
         onSuccess: (result) => {
-          setOpen(false)
+          handleOpenChange(false)
           toast.success(t("linkArr.linked", { title: result.title }))
         },
         onError: (err) => toast.error(err instanceof Error ? err.message : t("linkArr.failed")),
@@ -225,7 +238,7 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
     )
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger
         render={
           <Button
@@ -257,9 +270,9 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
             profileId={profileId}
             monitor={monitor}
             availability={availability}
-            onCandidate={setCandidateKey}
-            onFolder={setFolder}
-            onProfile={setProfileId}
+            onCandidate={setCandidateChoice}
+            onFolder={setFolderChoice}
+            onProfile={setProfileChoice}
             onMonitor={setMonitor}
             onAvailability={setAvailability}
           />
@@ -272,7 +285,7 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
               {t("linkArr.confirm", { service: preview.data?.instance_name ?? "" })}
             </Button>
           )}
-          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
             {t("common.close")}
           </Button>
         </DialogFooter>

@@ -45,7 +45,7 @@ from app.services.arr_instances import arr_targets
 from app.services.events import scan_events
 from app.services.notifications import ChannelTarget, channel_targets
 from app.services.queue_issues import index_queue_issues, issue_rows_for
-from app.services.scan_scopes import NARROW_SCOPES, SERVICE_SCOPES
+from app.services.scan_scopes import SERVICE_SCOPES
 from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.torrent_match import (
     MediaView,

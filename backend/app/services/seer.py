@@ -8,13 +8,11 @@ le backend."""
 
 from typing import Any
 
-import httpx
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, select
 
-from app.clients.seer import SeerClient
 from app.models.media import EmbyUser, Media, MediaRequest, MediaType
 from app.models.settings import Settings
-from app.schemas.media import DeleteStepResult, MediaRequestRead, SeerUserRead
+from app.schemas.media import MediaRequestRead, SeerUserRead
 from app.services.watch_stats import as_utc, parse_emby_date
 
 _STATUSES = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "completed"}

@@ -10,12 +10,9 @@ from app.database import engine, get_session
 from app.models.media import ScanRun
 from app.models.settings import Settings
 from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
-from app.schemas.diagnostics import DiagnosticsResult, EmbyFileDebug, TorrentDebug, UnmatchedTorrent
+from app.schemas.diagnostics import DiagnosticsResult, UnmatchedTorrent
 from app.schemas.media import ScanRunRead
 from app.services.diagnostics import (
-    debug_emby_movies,
-    debug_emby_series_files,
-    debug_torrents,
     list_unmatched_torrents,
     run_diagnostics,
 )
@@ -117,51 +114,6 @@ async def scan_diagnostics(session: Session = Depends(get_session)) -> Diagnosti
         return await run_diagnostics(settings)
     except RuntimeError as exc:
         raise HTTPException(502, str(exc)) from exc
-
-
-@router.get("/debug/torrents", response_model=list[TorrentDebug])
-async def scan_debug_torrents(
-    name_contains: str, session: Session = Depends(get_session)
-) -> list[TorrentDebug]:
-    """Diagnostic ponctuel (pas d'UI dédiée) : détaille le rattachement par
-    inode fichier par fichier pour les torrents qBittorrent dont le nom
-    contient `name_contains`. Utile pour comprendre pourquoi un torrent connu
-    de qBittorrent n'apparaît sur aucune fiche média."""
-    settings = session.get(Settings, 1)
-    if not torrent_client_configured(settings):
-        raise HTTPException(400, f"{torrent_client_name(settings)} non configuré.")
-    try:
-        return await debug_torrents(settings, name_contains)
-    except TorrentAuthError as exc:
-        raise HTTPException(502, str(exc)) from exc
-
-
-@router.get("/debug/emby-series", response_model=list[EmbyFileDebug])
-async def scan_debug_emby_series(
-    title_contains: str, session: Session = Depends(get_session)
-) -> list[EmbyFileDebug]:
-    """Diagnostic ponctuel : détaille le chemin et l'inode réels de chaque
-    fichier d'épisode pour les séries Emby dont le titre contient
-    `title_contains`. À comparer avec /debug/torrents pour trouver quel
-    torrent est réellement hardlinké au fichier actif."""
-    settings = session.get(Settings, 1)
-    if settings is None or not (settings.emby_url and settings.emby_api_key):
-        raise HTTPException(400, "Serveur multimédia non configuré.")
-    return await debug_emby_series_files(settings, title_contains)
-
-
-@router.get("/debug/emby-movies", response_model=list[EmbyFileDebug])
-async def scan_debug_emby_movies(
-    title_contains: str, session: Session = Depends(get_session)
-) -> list[EmbyFileDebug]:
-    """Diagnostic ponctuel : détaille le chemin et l'inode/device réels du
-    fichier pour les films Emby dont le titre contient `title_contains`. À
-    comparer avec /debug/torrents pour vérifier si un torrent est vraiment
-    sur le même système de fichiers que la bibliothèque (device identique)."""
-    settings = session.get(Settings, 1)
-    if settings is None or not (settings.emby_url and settings.emby_api_key):
-        raise HTTPException(400, "Serveur multimédia non configuré.")
-    return await debug_emby_movies(settings, title_contains)
 
 
 @router.get("/debug/unmatched-torrents", response_model=list[UnmatchedTorrent])

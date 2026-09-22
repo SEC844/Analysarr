@@ -3,9 +3,7 @@ Sonarr/Radarr : ils étaient totalement invisibles jusqu'ici, doublons et
 torrents orphelins compris."""
 
 import asyncio
-import os
 
-import httpx
 from sqlmodel import select
 
 from app.models.media import Media, MediaFile, MediaType

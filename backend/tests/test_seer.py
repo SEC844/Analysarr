@@ -3,9 +3,7 @@ import asyncio
 import httpx
 
 from app.clients.seer import SeerClient
-from app.models.media import EmbyUser, Media, MediaRequest, MediaType
-from app.models.settings import Settings
-from app.schemas.media import DeleteStepResult
+from app.models.media import EmbyUser, Media, MediaType
 from app.services import seer
 
 MARIE = {"id": 2, "displayName": "Marie", "jellyfinUserId": "ABCD-1234"}

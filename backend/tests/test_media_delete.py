@@ -2,7 +2,6 @@ import asyncio
 import os
 
 import httpx
-from sqlmodel import select
 
 from app.models.media import Media, MediaFile, MediaRequest, MediaType
 from app.schemas.media import MediaDeleteSelection

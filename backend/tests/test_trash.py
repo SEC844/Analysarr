@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from sqlmodel import select
 
-from app.models.media import Media, MediaFile, MediaRequest, MediaType, Torrent
+from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import MediaDeleteSelection
 from app.services.cascade_delete import execute_delete

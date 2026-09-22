@@ -49,7 +49,6 @@ _pending: set[asyncio.Task] = set()
 # Icône du projet (même dépôt que le code), pour l'avatar Discord.
 ICON_URL = "https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.png"
 
-CHANNEL_KINDS = ("discord", "ntfy", "gotify")
 MAX_CHANNELS = 20
 
 # Événements notifiables, chacun activable canal par canal.
@@ -72,20 +71,6 @@ NOTIFICATION_EVENTS = (
     "update_available",
     "automations_paused",
 )
-# Sélection par défaut d'un nouveau canal : ce qui demande une action ou
-# signale un problème, jamais le simple résumé de scan (trop fréquent).
-DEFAULT_EVENTS = (
-    "scan_failed",
-    "orphan_detected",
-    "duplicate_detected",
-    "import_failed_detected",
-    "delete_selection",
-    "cascade_delete",
-    "hardlink_repair",
-    "update_available",
-    "automations_paused",
-)
-
 DISCORD_WEBHOOK_PREFIXES = (
     "https://discord.com/api/webhooks/",
     "https://discordapp.com/api/webhooks/",

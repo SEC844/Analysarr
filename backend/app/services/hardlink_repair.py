@@ -3,7 +3,7 @@ import os
 
 from sqlmodel import Session, select
 
-from app.clients.torrent_base import TorrentClient
+from app.clients.torrent import torrent_client
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
