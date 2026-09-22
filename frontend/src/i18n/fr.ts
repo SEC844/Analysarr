@@ -79,7 +79,15 @@ export const fr = {
       future: "Prochains épisodes",
       none: "Sans surveillance",
     },
-    folder: "Dossier importé : {path}",
+    folder: "Dossier à importer",
+    folderHelp:
+      "Liste fournie par Sonarr/Radarr : ce sont les dossiers qu'il voit sur le disque sans média rattaché, avec ses chemins à lui.",
+    availability: "Disponibilité minimale",
+    availabilities: {
+      announced: "Annoncé",
+      inCinemas: "En salle",
+      released: "Sorti",
+    },
     noFolder:
       "Ce média n'a pas de dossier à lui sous un dossier racine de Sonarr/Radarr. Rangez ses fichiers dans un dossier dédié, puis relancez une analyse.",
     confirm: "Ajouter dans {service}",

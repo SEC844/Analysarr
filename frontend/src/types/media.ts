@@ -212,18 +212,21 @@ export interface ArrLinkPreview {
   service: "radarr" | "sonarr"
   instance_name: string
   candidates: ArrCandidate[]
-  /** Dossier du média sur le disque : c'est lui qui sera importé. */
-  folder: string | null
-  root_folder: string | null
-  folder_unmapped: boolean
+  /** Dossiers que Sonarr/Radarr voit sans média rattaché (ses chemins à lui). */
+  folders: string[]
+  suggested_folder: string | null
   quality_profiles: { id: number; name: string }[]
   suggested_profile: number | null
 }
 
+export type ArrAvailability = "announced" | "inCinemas" | "released"
+
 export interface ArrLinkRequest {
   candidate_key: string
   quality_profile_id: number
+  folder: string
   monitor: ArrMonitor
+  minimum_availability?: ArrAvailability
 }
 
 export interface ArrLinkResult {

@@ -15,10 +15,18 @@ correspondent au média. Radarr expose deux endpoints par identifiant
 (`movie/lookup/tmdb`, `movie/lookup/imdb`) ; Sonarr ne comprend que le préfixe
 `tvdb:` et retombe sinon en recherche texte, d'où la validation systématique.
 
-Sécurité : le dossier racine et le profil de qualité envoyés par l'interface
-sont vérifiés contre les listes que Sonarr/Radarr renvoie — jamais de chemin
-arbitraire transmis à un service externe."""
+Le dossier importé vient TOUJOURS de Sonarr/Radarr (`unmappedFolders` de
+`GET /api/v3/rootfolder`), jamais des chemins vus par Analysarr : les deux
+conteneurs montent souvent la bibliothèque ailleurs, et un chemin deviné
+aboutissait à un média ajouté sans son fichier. L'ajout emprunte l'import en
+masse (`POST /api/v3/movie/import`, `/series/import`), c'est-à-dire exactement
+le bouton « Importer N films » de l'écran d'import.
 
+Sécurité : dossier et profil de qualité envoyés par l'interface sont vérifiés
+contre les listes que Sonarr/Radarr renvoie — jamais de chemin arbitraire
+transmis à un service externe."""
+
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +48,8 @@ PROBABLE = "probable"
 # Un film n'a que « surveillé » ou « non surveillé » ; une série choisit quels
 # épisodes suivre.
 MONITOR_CHOICES = ("all", "existing", "future", "none")
+# Disponibilité minimale d'un film, comme dans l'écran d'import de Radarr.
+AVAILABILITY_CHOICES = ("announced", "inCinemas", "released")
 
 
 @dataclass
@@ -69,15 +79,10 @@ class ArrLinkPreview:
     instance_id: int | None
     instance_name: str
     candidates: list[ArrCandidate]
-    # Dossier du média sur le disque : c'est LUI qui est importé, comme dans
-    # l'écran « Import Existing » de Radarr/Sonarr.
-    folder: str | None
-    # Dossier racine qui le contient, pour l'afficher et vérifier qu'il est
-    # bien connu de Sonarr/Radarr.
-    root_folder: str | None
-    # Vrai quand Sonarr/Radarr voit encore ce dossier comme non rattaché : le
-    # média est alors sûrement importable.
-    folder_unmapped: bool
+    # Dossiers que Sonarr/Radarr voit sur le disque sans média rattaché, tels
+    # qu'ils les voient EUX (chemins de leur conteneur).
+    folders: list[str]
+    suggested_folder: str | None
     quality_profiles: list[tuple[int, str]]
     suggested_profile: int | None
 
@@ -192,37 +197,50 @@ def _posix(path: str) -> str:
     return path.replace("\\", "/").rstrip("/")
 
 
-def suggest_root(root_folders: list[str], paths: list[str], media_root: str | None) -> str | None:
-    """Dossier racine de Sonarr/Radarr qui contient le média. Le plus profond
-    gagne, pour distinguer `/data/media` de `/data/media/films`."""
-    references = [_posix(path) for path in [media_root, *paths] if path]
-    matching = [
-        root for root in root_folders if any(reference.startswith(_posix(root) + "/") for reference in references)
-    ]
-    return max(matching, key=len) if matching else None
+def folder_name(path: str) -> str:
+    return _posix(path).rsplit("/", 1)[-1]
 
 
-def media_folder(paths: list[str], media_root: str | None, root_folder: str | None) -> str | None:
-    """Dossier propre au média, celui que Sonarr/Radarr doit importer.
+def folder_matches(media: Media, path: str, extra_titles: Iterable[str] = ()) -> int:
+    """Score d'un dossier non mappé pour ce média. 2 : le nom du dossier porte
+    un titre connu ET l'année. 1 : le titre seul. 0 : rien à voir.
 
-    C'est le dossier commun à ses fichiers, mais jamais le dossier racine
-    lui-même : un film posé à plat dans `/data/media/films` n'a pas de dossier
-    à lui, et importer la racine ferait entrer toute la bibliothèque."""
-    folders = {_posix(path).rsplit("/", 1)[0] for path in paths if "/" in _posix(path)}
-    candidate = _posix(media_root) if media_root else (min(folders, key=len) if folders else None)
-    if not candidate:
-        return None
-    if root_folder and candidate == _posix(root_folder):
-        return None
-    if root_folder and not candidate.startswith(_posix(root_folder) + "/"):
-        return None
-    # Série rangée en saisons : on remonte au dossier de la série, pas à
-    # `Season 01`, que Sonarr refuserait.
-    if root_folder:
-        root = _posix(root_folder)
-        while "/" in candidate and candidate.rsplit("/", 1)[0] != root:
-            candidate = candidate.rsplit("/", 1)[0]
-    return candidate
+    Les titres viennent du média ET des fiches trouvées chez Sonarr/Radarr
+    (titre original, titres alternatifs) : un dossier nommé « OSS 117 - Cairo,
+    Nest of Spies (2006) » doit être reconnu pour « OSS 117 : Le Caire, nid
+    d'espions ». Comparaison sur les mots normalisés, comme le rattachement des
+    torrents."""
+    name_words = normalize_words(folder_name(path))
+    if not name_words:
+        return 0
+    for title in [*_titles_of(media), *extra_titles]:
+        title_words = normalize_words(title)
+        if title_words and name_words[: len(title_words)] == title_words:
+            return 2 if media.year and str(media.year) in name_words else 1
+    return 0
+
+
+def pick_folder(
+    media: Media, folders: list[str], paths: list[str], extra_titles: Iterable[str] = ()
+) -> str | None:
+    """Dossier non mappé le plus probable. Un chemin identique à celui d'un
+    fichier connu l'emporte (mêmes montages des deux côtés) ; sinon c'est le
+    nom du dossier qui décide, et à défaut rien n'est proposé — mieux vaut un
+    choix manuel qu'un mauvais dossier importé."""
+    titles = list(extra_titles)
+    known = {_posix(path).rsplit("/", 1)[0] for path in paths if "/" in _posix(path)}
+    for folder in folders:
+        if _posix(folder) in known:
+            return folder
+    # Montages différents des deux côtés (`/media/movies` ici,
+    # `/data/media/movies` chez Radarr) : le NOM du dossier, lui, est le même.
+    known_names = {folder_name(path).lower() for path in known}
+    for folder in folders:
+        if folder_name(folder).lower() in known_names:
+            return folder
+    scored = [(folder_matches(media, folder, titles), folder) for folder in folders]
+    best = max(scored, key=lambda item: item[0], default=(0, None))
+    return best[1] if best[0] > 0 else None
 
 
 async def build_link_preview(session: Session, settings: Settings, media: Media) -> ArrLinkPreview:
@@ -246,27 +264,29 @@ async def build_link_preview(session: Session, settings: Settings, media: Media)
     except httpx.HTTPError as exc:
         raise ArrLinkError(f"{target.name} injoignable : {exc}") from exc
 
-    root_folders = [row.get("path") for row in rows if row.get("path")]
-    # `unmappedFolders` : ce que l'écran « Import Existing » de Sonarr/Radarr
-    # propose, c'est-à-dire les dossiers présents sur le disque qu'aucun média
-    # ne revendique encore.
-    unmapped = {
-        _posix(folder.get("path") or "")
+    # `unmappedFolders` : les dossiers présents sur le disque qu'aucun média ne
+    # revendique — la liste même de l'écran « Import Existing ».
+    folders = [
+        folder["path"]
         for row in rows
         for folder in row.get("unmappedFolders") or []
-        if folder.get("path")
-    }
-    root_folder = suggest_root(root_folders, _media_paths(session, media), media.root_path)
-    folder = media_folder(_media_paths(session, media), media.root_path, root_folder)
+        if isinstance(folder, dict) and folder.get("path")
+    ]
 
     return ArrLinkPreview(
         service=service,
         instance_id=target.instance_id,
         instance_name=target.name,
         candidates=candidates,
-        folder=folder,
-        root_folder=root_folder,
-        folder_unmapped=bool(folder) and _posix(folder) in unmapped,
+        folders=folders,
+        suggested_folder=pick_folder(
+            media,
+            folders,
+            _media_paths(session, media),
+            # Titres tels que Sonarr/Radarr les connaît : le dossier porte
+            # souvent le titre original, pas celui de la bibliothèque.
+            [title for candidate in candidates for title in _candidate_titles(candidate.payload)],
+        ),
         quality_profiles=profiles,
         suggested_profile=profiles[0][0] if profiles else None,
     )
@@ -276,7 +296,7 @@ def pick_automatic(preview: ArrLinkPreview) -> ArrCandidate | None:
     """Candidat qu'une automatisation peut importer sans confirmation : un seul
     candidat certain, un dossier propre au média, et un profil de qualité."""
     certain = [candidate for candidate in preview.candidates if candidate.confidence == CERTAIN]
-    if len(certain) != 1 or preview.folder is None or preview.suggested_profile is None:
+    if len(certain) != 1 or preview.suggested_folder is None or preview.suggested_profile is None:
         return None
     return certain[0]
 
@@ -288,55 +308,58 @@ async def link_media(
     *,
     candidate_key: str,
     quality_profile_id: int,
-    monitor: str = "existing",
+    folder: str | None = None,
+    monitor: str = "none",
+    minimum_availability: str = "released",
 ) -> str:
-    """Importe le média dans Sonarr/Radarr SUR SON DOSSIER, puis demande un
-    rescan. Renvoie le titre ajouté.
+    """Importe le média dans Sonarr/Radarr comme le fait leur écran d'import :
+    sur un dossier qu'EUX voient comme non rattaché, par leur import en masse.
+    Renvoie le titre importé.
 
-    Le chemin n'est jamais fourni par l'interface : il est recalculé ici à
-    partir des fichiers connus, donc aucun dossier arbitraire ne peut être
-    envoyé à Sonarr/Radarr. Le profil de qualité, lui, est vérifié contre la
-    liste que le service déclare."""
+    Chaque choix de l'interface est revérifié ici contre ce que le service
+    déclare : dossier non mappé, profil de qualité, surveillance."""
     preview = await build_link_preview(session, settings, media)
     candidate = next((c for c in preview.candidates if c.key == candidate_key), None)
     if candidate is None:
         raise ArrLinkError("Fiche inconnue : relancez la recherche.")
-    if preview.folder is None:
+
+    target_folder = folder or preview.suggested_folder
+    if target_folder is None:
         raise ArrLinkError(
-            "Ce média n'a pas de dossier à lui sous un dossier racine de Sonarr/Radarr : rangez ses fichiers dans un "
-            "dossier dédié, puis relancez une analyse."
+            f"{preview.instance_name} ne voit aucun dossier à importer pour ce média : vérifiez que sa bibliothèque "
+            "est bien montée du même côté, puis relancez une analyse."
         )
+    if target_folder not in preview.folders:
+        raise ArrLinkError("Dossier inconnu de Sonarr/Radarr.")
     if quality_profile_id not in {profile_id for profile_id, _ in preview.quality_profiles}:
         raise ArrLinkError("Profil de qualité inconnu de Sonarr/Radarr.")
     if monitor not in MONITOR_CHOICES:
         raise ArrLinkError("État de surveillance inconnu.")
+    if minimum_availability not in AVAILABILITY_CHOICES:
+        raise ArrLinkError("Disponibilité minimale inconnue.")
 
     target = arr_target_by_id(session, settings, preview.service, preview.instance_id)
     if target is None:
         raise ArrLinkError("Instance Sonarr/Radarr introuvable.")
 
     body = dict(candidate.payload)
-    body["path"] = preview.folder
+    body["path"] = target_folder
     body["qualityProfileId"] = quality_profile_id
     body["monitored"] = monitor != "none"
 
     try:
         if preview.service == "radarr":
+            body["minimumAvailability"] = minimum_availability
             body["addOptions"] = {"searchForMovie": False}
-            created = await target.radarr().add_movie(body) or {}
-            if created.get("id"):
-                await target.radarr().rescan_movie(created["id"])
+            await target.radarr().import_movies([body])
         else:
+            body["seasonFolder"] = True
             body["addOptions"] = {
                 "searchForMissingEpisodes": False,
                 "searchForCutoffUnmetEpisodes": False,
-                # `existing` : surveille les épisodes déjà sur le disque, comme
-                # le propose l'écran d'import de Sonarr.
-                "monitor": "none" if monitor == "none" else monitor,
+                "monitor": monitor,
             }
-            created = await target.sonarr().add_series(body) or {}
-            if created.get("id"):
-                await target.sonarr().rescan_series(created["id"])
+            await target.sonarr().import_series([body])
     except httpx.HTTPError as exc:
         raise ArrLinkError(_error_text(exc)) from exc
     return candidate.title

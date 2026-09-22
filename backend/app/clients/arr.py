@@ -29,7 +29,7 @@ class ArrClient:
             resp = await client.put(path, json=json)
             resp.raise_for_status()
 
-    async def _post(self, path: str, json: dict[str, Any]) -> Any:
+    async def _post(self, path: str, json: Any) -> Any:
         async with self._client() as client:
             resp = await client.post(path, json=json)
             resp.raise_for_status()
@@ -171,6 +171,14 @@ class RadarrClient(ArrClient):
         payload.setdefault("addOptions", {"searchForMovie": False})
         return await self._post("/api/v3/movie", payload)
 
+    async def import_movies(self, movies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Import en masse de dossiers déjà présents sur le disque : c'est
+        exactement ce que fait « Importer N films » dans Radarr (écran
+        `/add/import`). Radarr ajoute chaque film PUIS rafraîchit sa fiche, ce
+        qui déclenche le scan du dossier et l'import du fichier existant."""
+        created = await self._post("/api/v3/movie/import", movies)
+        return created if isinstance(created, list) else []
+
     async def rescan_movie(self, movie_id: int) -> None:
         await self._post("/api/v3/command", {"name": "RescanMovie", "movieId": movie_id})
 
@@ -242,6 +250,12 @@ class SonarrClient(ArrClient):
             {"searchForMissingEpisodes": False, "searchForCutoffUnmetEpisodes": False, "monitor": "none"},
         )
         return await self._post("/api/v3/series", payload)
+
+    async def import_series(self, series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Équivalent Sonarr de `RadarrClient.import_movies` (écran
+        « Import Existing Series »)."""
+        created = await self._post("/api/v3/series/import", series)
+        return created if isinstance(created, list) else []
 
     async def rescan_series(self, series_id: int) -> None:
         await self._post("/api/v3/command", {"name": "RescanSeries", "seriesId": series_id})

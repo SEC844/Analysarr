@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { useArrLinkMutation, useArrLinkPreviewQuery } from "@/hooks/use-media"
 import { useI18n, type MessageKey } from "@/i18n"
-import type { ArrCandidate, ArrLinkPreview, ArrMonitor, MediaDetail } from "@/types/media"
+import type { ArrAvailability, ArrCandidate, ArrLinkPreview, ArrMonitor, MediaDetail } from "@/types/media"
 
 function candidateLabel(candidate: ArrCandidate): string {
   const ids = [
@@ -32,19 +32,27 @@ function candidateLabel(candidate: ArrCandidate): string {
 function LinkForm({
   preview,
   candidateKey,
+  folder,
   profileId,
   monitor,
+  availability,
   onCandidate,
+  onFolder,
   onProfile,
   onMonitor,
+  onAvailability,
 }: {
   preview: ArrLinkPreview
   candidateKey: string
+  folder: string
   profileId: string
   monitor: ArrMonitor
+  availability: ArrAvailability
   onCandidate: (value: string) => void
+  onFolder: (value: string) => void
   onProfile: (value: string) => void
   onMonitor: (value: ArrMonitor) => void
+  onAvailability: (value: ArrAvailability) => void
 }) {
   const { t } = useI18n()
   const isSeries = preview.service === "sonarr"
@@ -124,14 +132,43 @@ function LinkForm({
         </Select>
       </div>
 
-      {/* Dossier importé : information, jamais un champ libre — il est
-          recalculé côté serveur à partir des fichiers connus. */}
-      {preview.folder ? (
-        <p className="text-muted-foreground min-w-0 text-xs break-all">
-          {t("linkArr.folder", { path: preview.folder })}
-        </p>
-      ) : (
-        <p className="text-destructive text-xs break-words">{t("linkArr.noFolder")}</p>
+      {/* Dossier à importer : uniquement ceux que Sonarr/Radarr déclare non
+          rattachés, avec SES chemins — les nôtres peuvent différer. */}
+      <div className="min-w-0 space-y-1.5">
+        <Label htmlFor="link-folder">{t("linkArr.folder")}</Label>
+        <Select value={folder} onValueChange={(value) => onFolder(value ?? "")}>
+          <SelectTrigger id="link-folder" className="w-full">
+            <SelectValue>
+              {(value: string) => <span className="truncate">{value || t("linkArr.noFolder")}</span>}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {preview.folders.map((path) => (
+              <SelectItem key={path} value={path}>
+                <span className="truncate">{path}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-xs">{t("linkArr.folderHelp")}</p>
+      </div>
+
+      {!isSeries && (
+        <div className="min-w-0 space-y-1.5">
+          <Label htmlFor="link-availability">{t("linkArr.availability")}</Label>
+          <Select value={availability} onValueChange={(value) => onAvailability((value ?? "released") as ArrAvailability)}>
+            <SelectTrigger id="link-availability" className="w-full">
+              <SelectValue>{(value: string) => t(`linkArr.availabilities.${value}` as MessageKey)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {(["announced", "inCinemas", "released"] as ArrAvailability[]).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {t(`linkArr.availabilities.${value}` as MessageKey)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       )}
     </div>
   )
@@ -147,8 +184,10 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [candidateKey, setCandidateKey] = useState("")
+  const [folder, setFolder] = useState("")
   const [profileId, setProfileId] = useState("")
-  const [monitor, setMonitor] = useState<ArrMonitor>("existing")
+  const [monitor, setMonitor] = useState<ArrMonitor>("none")
+  const [availability, setAvailability] = useState<ArrAvailability>("released")
 
   // Recherche lancée à l'ouverture seulement : elle interroge Sonarr/Radarr.
   const preview = useArrLinkPreviewQuery(media.id, open)
@@ -158,16 +197,23 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
   useEffect(() => {
     if (!preview.data) return
     setCandidateKey(preview.data.candidates[0]?.key ?? "")
+    setFolder(preview.data.suggested_folder ?? preview.data.folders[0] ?? "")
     setProfileId(String(preview.data.suggested_profile ?? preview.data.quality_profiles[0]?.id ?? ""))
   }, [preview.data])
 
-  const canLink = Boolean(candidateKey && profileId && preview.data?.folder)
+  const canLink = Boolean(candidateKey && profileId && folder)
 
   const handleLink = () =>
     linkMutation.mutate(
       {
         id: media.id,
-        payload: { candidate_key: candidateKey, quality_profile_id: Number(profileId), monitor },
+        payload: {
+          candidate_key: candidateKey,
+          quality_profile_id: Number(profileId),
+          folder,
+          monitor,
+          minimum_availability: availability,
+        },
       },
       {
         onSuccess: (result) => {
@@ -207,11 +253,15 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
           <LinkForm
             preview={preview.data}
             candidateKey={candidateKey}
+            folder={folder}
             profileId={profileId}
             monitor={monitor}
+            availability={availability}
             onCandidate={setCandidateKey}
+            onFolder={setFolder}
             onProfile={setProfileId}
             onMonitor={setMonitor}
+            onAvailability={setAvailability}
           />
         )}
 

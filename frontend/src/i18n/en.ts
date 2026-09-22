@@ -79,7 +79,15 @@ export const en: Dictionary = {
       future: "Future episodes",
       none: "Not monitored",
     },
-    folder: "Imported folder: {path}",
+    folder: "Folder to import",
+    folderHelp:
+      "List provided by Sonarr/Radarr: the folders it sees on disk with no media attached, with its own paths.",
+    availability: "Minimum availability",
+    availabilities: {
+      announced: "Announced",
+      inCinemas: "In cinemas",
+      released: "Released",
+    },
     noFolder:
       "This media has no folder of its own under a Sonarr/Radarr root folder. Move its files into a dedicated folder, then run a scan.",
     confirm: "Add to {service}",

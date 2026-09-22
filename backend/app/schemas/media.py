@@ -168,12 +168,10 @@ class ArrLinkPreview(BaseModel):
     service: str
     instance_name: str
     candidates: list[ArrCandidateRead]
-    # Dossier du média sur le disque : c'est lui qui est importé, comme dans
-    # l'écran « Import Existing » de Sonarr/Radarr.
-    folder: Optional[str] = None
-    root_folder: Optional[str] = None
-    # Sonarr/Radarr voit encore ce dossier comme non rattaché : bon signe.
-    folder_unmapped: bool = False
+    # Dossiers que Sonarr/Radarr voit sur le disque sans média rattaché,
+    # exactement la liste de son écran « Import Existing ».
+    folders: list[str] = []
+    suggested_folder: Optional[str] = None
     quality_profiles: list["ArrQualityProfile"]
     suggested_profile: Optional[int] = None
 
@@ -190,9 +188,13 @@ class ArrLinkRequest(BaseModel):
 
     candidate_key: str = Field(max_length=64)
     quality_profile_id: int = Field(ge=1)
+    # Dossier à importer : forcément un de ceux que Sonarr/Radarr a déclarés
+    # non rattachés (revérifié côté serveur).
+    folder: Optional[str] = Field(default=None, max_length=512)
     # all : tout surveiller · existing : les épisodes présents · future : les
     # prochains · none : ajouter sans surveiller.
-    monitor: Literal["all", "existing", "future", "none"] = "existing"
+    monitor: Literal["all", "existing", "future", "none"] = "none"
+    minimum_availability: Literal["announced", "inCinemas", "released"] = "released"
 
 
 class ArrLinkResult(BaseModel):
