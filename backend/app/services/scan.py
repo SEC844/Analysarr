@@ -76,6 +76,7 @@ DETECTION_EVENTS = {
     "non_hardlink_detected": "non_hardlink",
     "import_failed_detected": "import_rate",
     "stalled_download_detected": "telechargement_bloque",
+    "untracked_detected": "manquant_arr",
 }
 
 
@@ -521,6 +522,11 @@ class LibraryContext:
     emby_movies_by_tmdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     emby_movies_by_imdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     emby_series_by_tvdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Séries indexées aussi par IMDb et TMDB : une série du serveur multimédia
+    # sans identifiant TVDB passait pour absente de Sonarr, et se retrouvait
+    # comptée deux fois (suivie ET non suivie).
+    emby_series_by_imdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    emby_series_by_tmdb: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # Fichiers suivis par CHAQUE instance : un fichier suivi par une autre
     # instance ne doit jamais être compté comme doublon.
     movie_files_by_tmdb: dict[str, list[tuple[ArrTarget, dict[str, Any]]]] = field(default_factory=dict)
@@ -624,7 +630,7 @@ async def build_series_result(
     result.import_issues = issue_rows_for(issues)
 
     tvdb_key = str(series.get("tvdbId")) if series.get("tvdbId") else None
-    candidates = ctx.emby_series_by_tvdb.get(tvdb_key, []) if tvdb_key else []
+    candidates = (ctx.emby_series_by_tvdb.get(tvdb_key, []) if tvdb_key else []) or _series_fallback(ctx, series)
     if candidates:
         episode_files = await ctx.episode_files_for(target, series["id"])
         current_paths: set[str] = {f["path"] for f in episode_files if f.get("path")}
@@ -710,6 +716,126 @@ async def build_series_result(
     return result
 
 
+def _series_fallback(ctx: LibraryContext, series: dict[str, Any]) -> list[dict[str, Any]]:
+    """Repli quand l'identifiant TVDB ne donne rien : IMDb puis TMDB."""
+    imdb = series.get("imdbId")
+    tmdb = series.get("tmdbId")
+    return (ctx.emby_series_by_imdb.get(str(imdb), []) if imdb else []) or (
+        ctx.emby_series_by_tmdb.get(str(tmdb), []) if tmdb else []
+    )
+
+
+def _apply_provider_ids(media: Media, item: dict[str, Any]) -> None:
+    """Identifiants externes du serveur multimédia : ce sont eux qui permettent
+    d'ajouter ensuite le média dans Radarr ou Sonarr."""
+    provider_ids = item.get("ProviderIds")
+    media.tmdb_id = _to_int(_provider_id(provider_ids, "Tmdb"))
+    media.tvdb_id = _to_int(_provider_id(provider_ids, "Tvdb"))
+    media.imdb_id = _provider_id(provider_ids, "Imdb")
+
+
+def _to_int(value: str | None) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def _common_root(paths: list[str]) -> str | None:
+    """Dossier commun aux fichiers : sert au rattachement des torrents, qui
+    compare aussi les chemins (voir services/torrent_match.py)."""
+    usable = [os.path.dirname(path) for path in paths if path]
+    if not usable:
+        return None
+    if len(usable) == 1:
+        return usable[0]
+    try:
+        return os.path.commonpath(usable)
+    except ValueError:
+        return usable[0]
+
+
+def _library_media(item: dict[str, Any], media_type: MediaType) -> Media:
+    media = Media(
+        media_type=media_type,
+        title=item.get("Name") or "Sans titre",
+        year=item.get("ProductionYear"),
+        emby_item_id=item.get("Id"),
+        has_poster=bool(item.get("Id")),
+        poster_image_tag=(item.get("ImageTags") or {}).get("Primary"),
+        emby_date_added=parse_emby_date(item.get("DateCreated")),
+    )
+    _apply_provider_ids(media, item)
+    return media
+
+
+def _library_file(source: dict[str, Any], label: str | None) -> MediaFile:
+    path = source.get("Path")
+    inode = stat_inode(path)
+    return MediaFile(
+        media_id=0,
+        path=path or "",
+        size=source.get("Size"),
+        inode=inode[0] if inode else None,
+        device=inode[1] if inode else None,
+        episode_label=label,
+        # Aucun Sonarr/Radarr ne suit ce fichier : il n'a pas d'identité arr,
+        # et il est par définition le fichier « actuel » du média.
+        is_current=True,
+    )
+
+
+def build_untracked_movie(item: dict[str, Any]) -> MediaBuildResult | None:
+    """Film présent sur le serveur multimédia mais suivi par aucun Radarr."""
+    sources = _media_sources(item)
+    if not sources:
+        return None
+    media = _library_media(item, MediaType.movie)
+    files = [_library_file(source, None) for source in sources]
+    return MediaBuildResult(media=media, root_path=_common_root([f.path for f in files]), files=files)
+
+
+async def build_untracked_series(ctx: LibraryContext, item: dict[str, Any]) -> MediaBuildResult | None:
+    """Série présente sur le serveur multimédia mais suivie par aucun Sonarr."""
+    episodes = await ctx.emby.get_episodes(item["Id"])
+    files = [
+        _library_file(source, _episode_label(episode)) for episode in episodes for source in _media_sources(episode)
+    ]
+    if not files:
+        return None
+    media = _library_media(item, MediaType.series)
+    media.episode_count = len(episodes)
+    return MediaBuildResult(media=media, root_path=_common_root([f.path for f in files]), files=files)
+
+
+async def build_untracked_results(
+    ctx: LibraryContext,
+    emby_movies: list[dict[str, Any]],
+    emby_series: list[dict[str, Any]],
+    claimed_item_ids: set[str],
+) -> list[MediaBuildResult]:
+    """Médias de la bibliothèque qu'aucun Radarr/Sonarr ne suit.
+
+    Sans eux, Analysarr ne voyait qu'une moitié du problème : un film ajouté à
+    la main, une série retirée de Sonarr ou une bibliothèque montée avant
+    l'installation de Radarr restaient totalement invisibles, avec leurs
+    doublons et leurs torrents orphelins."""
+    results: list[MediaBuildResult] = []
+    for item in emby_movies:
+        if item.get("Id") in claimed_item_ids:
+            continue
+        built = build_untracked_movie(item)
+        if built is not None:
+            results.append(built)
+    for item in emby_series:
+        if item.get("Id") in claimed_item_ids:
+            continue
+        built = await build_untracked_series(ctx, item)
+        if built is not None:
+            results.append(built)
+    return results
+
+
 async def _collect(
     settings: Settings,
     run_id: int,
@@ -765,6 +891,8 @@ async def _collect(
     emby_movies_by_tmdb = _index_items(emby_movies, "Tmdb")
     emby_movies_by_imdb = _index_items(emby_movies, "Imdb")
     emby_series_by_tvdb = _index_items(emby_series, "Tvdb")
+    emby_series_by_imdb = _index_items(emby_series, "Imdb")
+    emby_series_by_tmdb = _index_items(emby_series, "Tmdb")
 
     # Un même film/une même série peut être suivi par plusieurs instances
     # (ex : Radarr et Radarr 4K) : fichiers suivis par chaque instance, pour ne
@@ -799,6 +927,8 @@ async def _collect(
         emby_movies_by_tmdb=emby_movies_by_tmdb,
         emby_movies_by_imdb=emby_movies_by_imdb,
         emby_series_by_tvdb=emby_series_by_tvdb,
+        emby_series_by_imdb=emby_series_by_imdb,
+        emby_series_by_tmdb=emby_series_by_tmdb,
         movie_files_by_tmdb=movie_files_by_tmdb,
         series_by_tvdb=series_by_tvdb,
         movie_issues=movie_issues,
@@ -813,6 +943,11 @@ async def _collect(
         result = await build_series_result(ctx, target, series)
         if result is not None:
             results.append(result)
+
+    # --- Médias de la bibliothèque non suivis par Sonarr/Radarr ----------
+    await progress("bibliothèque")
+    claimed = {r.media.emby_item_id for r in results if r.media.emby_item_id}
+    results.extend(await build_untracked_results(ctx, emby_movies, emby_series, claimed))
 
     # --- Correspondance torrent -> média via l'historique Sonarr/Radarr ---
     # (indexé par id Radarr/Sonarr, pas par position : certains films/séries
@@ -887,6 +1022,7 @@ async def _collect(
             len(result.missing_emby_episodes),
             {i.download_id.lower() for i in result.import_issues if i.download_id},
             {i.kind for i in result.import_issues},
+            tracked_by_arr=is_tracked_by_arr(result.media),
         )
         result.media.statuses = ",".join(sorted(statuses))
         result.media.reclaimable_bytes = reclaimable
@@ -921,6 +1057,12 @@ async def _collect(
     return results, fetched, emby_users
 
 
+def is_tracked_by_arr(media: Media) -> bool:
+    """Média suivi par un Radarr/Sonarr. Faux pour un média trouvé dans la
+    bibliothèque seule (voir `build_untracked_results`)."""
+    return media.radarr_id is not None or media.sonarr_id is not None
+
+
 def compute_statuses(
     files: list[MediaFile],
     torrents: list[Torrent],
@@ -928,6 +1070,7 @@ def compute_statuses(
     missing_emby_episode_count: int = 0,
     import_blocked_hashes: set[str] | None = None,
     queue_kinds: set[str] | None = None,
+    tracked_by_arr: bool = True,
 ) -> tuple[set[str], int]:
     statuses: set[str] = set()
     reclaimable = 0
@@ -1008,6 +1151,12 @@ def compute_statuses(
     explained_by_import = bool(kinds) and not files
     if (not has_emby_item or missing_emby_episode_count > 0) and not explained_by_import:
         statuses.add("manquant_emby")
+
+    # Média présent dans la bibliothèque mais suivi par aucun Radarr/Sonarr :
+    # pas de mise à jour de qualité, pas de suppression propre, pas de
+    # renommage — et il restait jusqu'ici totalement invisible.
+    if not tracked_by_arr:
+        statuses.add("manquant_arr")
 
     has_active_torrent = any(t.is_hardlinked is True for t in torrents)
     has_unresolved_torrent = any(t.is_hardlinked is None for t in torrents)

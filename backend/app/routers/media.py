@@ -177,6 +177,9 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         radarr_id=media.radarr_id,
         sonarr_id=media.sonarr_id,
         emby_item_id=media.emby_item_id,
+        tmdb_id=media.tmdb_id,
+        tvdb_id=media.tvdb_id,
+        imdb_id=media.imdb_id,
         files=[
             MediaFileRead(id=f.id, path=f.path, size=f.size, episode_label=f.episode_label, is_current=f.is_current)
             for f in files
@@ -291,7 +294,7 @@ async def delete_selection(
 ) -> MediaDeleteSelectionResult:
     # Un média sans fichier ni torrent n'a rien à cocher : seuls son suivi
     # Sonarr/Radarr et sa demande Seer peuvent encore être retirés.
-    if not payload.torrent_ids and not payload.media_file_ids and not (payload.remove_from_arr or payload.remove_from_seer):
+    if not payload.torrent_ids and not payload.media_file_ids and not payload.remove_from_arr:
         raise HTTPException(400, "Aucun élément sélectionné.")
     media = session.get(Media, media_id)
     if media is None:

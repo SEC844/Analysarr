@@ -4,6 +4,7 @@ export const AUTOMATION_TRIGGERS = [
   "non_hardlink_detected",
   "import_failed_detected",
   "stalled_download_detected",
+  "untracked_detected",
 ] as const
 export const AUTOMATION_ACTIONS = [
   "cleanup",
@@ -23,6 +24,7 @@ export const CONDITIONS_BY_TRIGGER = {
   non_hardlink_detected: ["min_seed_days", "min_ratio"],
   import_failed_detected: [],
   stalled_download_detected: [],
+  untracked_detected: [],
 } as const satisfies Record<(typeof AUTOMATION_TRIGGERS)[number], readonly string[]>
 
 export type AutomationTrigger = (typeof AUTOMATION_TRIGGERS)[number]

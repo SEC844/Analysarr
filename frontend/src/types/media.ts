@@ -5,6 +5,7 @@ export type MediaStatus =
   | "tracker_unique"
   | "manquant_emby"
   | "manquant_qbit"
+  | "manquant_arr"
   | "import_rate"
   | "telechargement_bloque"
 export type MediaTypeFilter = "movie" | "series"
@@ -164,6 +165,10 @@ export interface MediaDetail extends MediaListItem {
   radarr_id: number | null
   sonarr_id: number | null
   emby_item_id: string | null
+  /** Identifiants externes, utiles surtout pour un média non suivi. */
+  tmdb_id: number | null
+  tvdb_id: number | null
+  imdb_id: string | null
   files: MediaFileRead[]
   torrents: TorrentRead[]
   missing_emby_episodes: string[]
@@ -197,7 +202,6 @@ export interface MediaDeleteSelection {
   torrent_ids: number[]
   media_file_ids: number[]
   remove_from_arr: boolean
-  remove_from_seer: boolean
 }
 
 export interface DiskUnit {

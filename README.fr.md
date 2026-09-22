@@ -75,6 +75,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Garde-fou des montages : toute action qui touche au disque est refusée quand un volume n'est pas monté, pour ne rien retirer de Sonarr/Radarr ni de la base alors que les fichiers sont toujours là.
 - Corbeille optionnelle : chaque suppression est conservée comme une seule entrée restaurable — fichiers de bibliothèque, torrents (retirés du client sans toucher à leurs données), suivi Sonarr/Radarr et demande Seer reviennent ensemble, hardlinks compris (**Réglages → Corbeille**).
 - Durci pour une instance exposée : en-têtes de sécurité (CSP stricte, protection contre le clickjacking), limitation de débit sur les routes de connexion, adresse réelle du client derrière un reverse-proxy déclaré, et journal des connexions dans **Réglages → Compte**.
+- Les médias de la bibliothèque que Sonarr/Radarr ne suit pas sont détectés eux aussi : un film ajouté à la main ou une série retirée de Sonarr apparaît avec ses identifiants TMDB/TVDB/IMDb, ses doublons et ses torrents, au lieu de rester invisible.
 - Garde-fou des automatisations : quand un scan fait basculer une part anormale de la bibliothèque (partage injoignable, client torrent réinitialisé), les règles se mettent en pause et attendent que vous les relanciez.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.

@@ -34,7 +34,6 @@ function ActionRow({ action }: { action: TrashAction }) {
     files > 0 ? t("trash.fileCount", { count: files }) : null,
     torrents > 0 ? t("trash.torrentCount", { count: torrents }) : null,
     action.restores_arr ? t("trash.withArr") : null,
-    action.restores_seer ? t("trash.withSeer") : null,
   ].filter(Boolean)
 
   return (
@@ -125,7 +124,6 @@ function ActionRow({ action }: { action: TrashAction }) {
             </li>
           ))}
           {action.restores_arr && <li className="pl-5">{t("trash.withArrDetail")}</li>}
-          {action.restores_seer && <li className="pl-5">{t("trash.withSeerDetail")}</li>}
         </ul>
       )}
     </li>

@@ -51,6 +51,9 @@ const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, AutomationAction[]> = {
   // notification a du sens ici (le nettoyage de file est le rôle de
   // Cleanuparr ou Decluttarr).
   stalled_download_detected: ["notify_only"],
+  // Ajouter le média dans Sonarr/Radarr est une décision humaine :
+  // Analysarr se contente de le signaler.
+  untracked_detected: ["notify_only"],
 }
 
 const emptyRule = (): AutomationWrite => ({

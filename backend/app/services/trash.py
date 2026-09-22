@@ -17,8 +17,11 @@ Ce qui est réellement restauré :
   en place et reprend le seed sans rien retélécharger ;
 - film/série : recréé dans Sonarr/Radarr à partir de la fiche capturée avant
   suppression (profil, dossier racine, tags, monitoring), puis rescan pour
-  qu'il retrouve ses fichiers ;
-- demande Seer : recréée au nom de son demandeur d'origine.
+  qu'il retrouve ses fichiers.
+
+Seer reste à l'écart : son API ne sait pas recréer une demande à l'identique
+(ni date d'origine, ni statut « disponible »), donc Analysarr ne supprime plus
+et ne restaure plus rien côté Seer.
 
 Ce qui ne peut PAS être restauré, aucune API de client torrent ne l'expose :
 les statistiques de seed (ratio, quantité envoyée) repartent de zéro. Le
@@ -148,7 +151,7 @@ def close_action(session: Session, action: TrashAction | None) -> None:
         return
     if session.exec(select(TrashItem.id).where(TrashItem.action_id == action.id)).first() is not None:
         return
-    if action.arr_payload or action.seer_payload:
+    if action.arr_payload:
         return
     session.delete(action)
     session.commit()
@@ -274,14 +277,6 @@ def capture_arr(
     session.commit()
 
 
-def capture_seer(session: Session, action: TrashAction | None, requests: list[dict]) -> None:
-    if action is None or not requests:
-        return
-    action.seer_payload = json.dumps(requests)
-    session.add(action)
-    session.commit()
-
-
 # --- Lecture, purge -----------------------------------------------------------
 
 
@@ -350,13 +345,12 @@ async def restore_action(
     restored_torrents = await _restore_torrents(settings, torrents, steps)
 
     arr_ok = await _restore_arr(session, action, settings, steps)
-    seer_ok = await _restore_seer(session, action, settings, steps)
 
     for item in restored_files + restored_torrents:
         session.delete(item)
     session.commit()
 
-    complete = all(step.success for step in steps) and arr_ok and seer_ok
+    complete = all(step.success for step in steps) and arr_ok
     if complete:
         purge_action(session, action)
     return steps, complete
@@ -454,68 +448,3 @@ async def _restore_arr(
     session.commit()
     steps.append(DeleteStepResult(kind="arr_media", label=action.media_title, success=True))
     return True
-
-
-async def _restore_seer(
-    session: Session, action: TrashAction, settings: Settings | None, steps: list[DeleteStepResult]
-) -> bool:
-    if not action.seer_payload:
-        return True
-    from app.clients.seer import SeerClient, SeerRequestError
-    from app.services.seer import seer_configured
-
-    if not seer_configured(settings):
-        return True
-    try:
-        requests = json.loads(action.seer_payload)
-    except ValueError:
-        return True
-
-    client = SeerClient(settings.seer_url, settings.seer_api_key)
-    for request in requests if isinstance(requests, list) else []:
-        body = _seer_body(request)
-        if body is None:
-            continue
-        try:
-            await client.create_request(body)
-        except (httpx.HTTPError, SeerRequestError) as exc:
-            steps.append(DeleteStepResult(kind="seer", label=action.media_title, success=False, error=str(exc)))
-            return False
-    action.seer_payload = None
-    session.add(action)
-    session.commit()
-    steps.append(DeleteStepResult(kind="seer", label=action.media_title, success=True))
-    return True
-
-
-def _seer_body(request: dict[str, Any]) -> dict[str, Any] | None:
-    """Recrée la demande telle qu'elle était : même type, même média, mêmes
-    saisons, même demandeur. Sans identifiant de média, il n'y a rien à
-    recréer.
-
-    `mediaId` est TOUJOURS le tmdbId, y compris pour une série : c'est
-    l'identifiant qu'attend `POST /api/v1/request` (bug réel : envoyer le
-    tvdbId faisait répondre 500 à Seer)."""
-    media = request.get("media") or {}
-    media_type = request.get("type") or media.get("mediaType")
-    media_id = media.get("tmdbId")
-    if not media_id:
-        return None
-    body: dict[str, Any] = {
-        "mediaType": "movie" if media_type == "movie" else "tv",
-        "mediaId": int(media_id),
-        "is4k": bool(request.get("is4k")),
-    }
-    seasons = [
-        season.get("seasonNumber")
-        for season in request.get("seasons") or []
-        if isinstance(season.get("seasonNumber"), int)
-    ]
-    if body["mediaType"] == "tv":
-        # Une demande de série sans saison est refusée par Seer : à défaut de
-        # détail, on redemande la série entière, comme le ferait l'interface.
-        body["seasons"] = seasons or "all"
-    requester = request.get("requestedBy") or {}
-    if requester.get("id"):
-        body["userId"] = requester["id"]
-    return body

@@ -7,6 +7,12 @@
 # sur les runners GitHub. Construit une seule fois, copié dans chaque image.
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-build
 WORKDIR /frontend
+# Version connue dès le build du frontend : elle sert uniquement à teinter le
+# point du logo en rouge sur une image `dev`, pour distinguer d'un coup d'œil
+# une instance de développement d'une instance de production (y compris sur
+# l'écran de connexion, où l'API n'est pas encore interrogeable).
+ARG APP_VERSION=dev
+ENV VITE_APP_VERSION=${APP_VERSION}
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./

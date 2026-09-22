@@ -27,6 +27,7 @@ const STATUS_OPTIONS: [string, MessageKey][] = [
   ["tracker_unique", "status.tracker_unique"],
   ["manquant_emby", "status.manquant_emby"],
   ["manquant_qbit", "status.manquant_qbit"],
+  ["manquant_arr", "status.manquant_arr"],
   ["import_rate", "status.import_rate"],
   ["telechargement_bloque", "status.telechargement_bloque"],
 ]

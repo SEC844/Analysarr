@@ -53,7 +53,6 @@ def _to_read(session: Session, action: TrashAction) -> TrashActionRead:
         size=sum(item.size for item in items),
         items=reads,
         restores_arr=bool(action.arr_payload),
-        restores_seer=bool(action.seer_payload),
         restorable=all(read.available for read in reads),
     )
 

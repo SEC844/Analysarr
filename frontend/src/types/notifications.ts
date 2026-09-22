@@ -9,6 +9,7 @@ export const NOTIFICATION_EVENTS = [
   "non_hardlink_detected",
   "import_failed_detected",
   "stalled_download_detected",
+  "untracked_detected",
   "delete_selection",
   "import_retry",
   "cascade_delete",

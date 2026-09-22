@@ -174,7 +174,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const prefs = usePreferences()
   const [removeFromArr, setRemoveFromArr] = useState(false)
-  const [removeFromSeer, setRemoveFromSeer] = useState(false)
   const [result, setResult] = useState<MediaDeleteSelectionResult | null>(null)
 
   const executeMutation = useDeleteSelectionExecuteMutation()
@@ -206,7 +205,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const canRemoveMedia = wholeLibrary && arrId !== null
   const showArrOption = canRemoveMedia || (isSeries && selectedFiles.length > 0)
   // Seer : même règle que le retrait du média entier de Sonarr/Radarr.
-  const showSeerOption = wholeLibrary && media.requests.length > 0
 
   // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.
   const nominalBytes =
@@ -241,7 +239,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
     if (next) {
       // Cases de retrait cochées d'office si la préférence le demande.
       setRemoveFromArr(prefs.delete_remove_from_arr_default)
-      setRemoveFromSeer(prefs.delete_remove_from_arr_default)
     } else {
       setSelected(new Set())
       setExpanded(new Set())
@@ -253,11 +250,9 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
     if (allSelected) {
       setSelected(new Set())
       setRemoveFromArr(prefs.delete_remove_from_arr_default)
-      setRemoveFromSeer(prefs.delete_remove_from_arr_default)
     } else {
       setSelected(new Set(allKeys))
       setRemoveFromArr(true)
-      setRemoveFromSeer(true)
     }
   }
 
@@ -277,7 +272,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
           torrent_ids: selectedTorrents.map((torrent) => torrent.id),
           media_file_ids: selectedFiles.map((f) => f.id),
           remove_from_arr: removeFromArr && showArrOption,
-          remove_from_seer: removeFromSeer && showSeerOption,
         },
       },
       {
@@ -376,13 +370,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               </label>
             )}
 
-            {showSeerOption && (
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={removeFromSeer} onCheckedChange={setRemoveFromSeer} />
-                {t("seer.deleteOption")}
-              </label>
-            )}
-
             {hasSelection && (
               <div className="bg-muted/50 rounded-md px-3 py-2 text-sm">
                 <p className="flex items-center gap-2 font-medium">
@@ -430,7 +417,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               type="button"
               variant="destructive"
               disabled={
-                (isEmpty ? !removeFromArr && !removeFromSeer : !hasSelection) || executeMutation.isPending
+                (isEmpty ? !removeFromArr : !hasSelection) || executeMutation.isPending
               }
               onClick={handleConfirm}
             >

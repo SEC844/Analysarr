@@ -28,9 +28,8 @@ class TrashActionRead(BaseModel):
     media_type: Optional[str] = None
     size: int
     items: list[TrashItemRead]
-    # Ce que la restauration remettra en plus des fichiers.
+    # Vrai si le suivi Sonarr/Radarr sera recréé par la restauration.
     restores_arr: bool
-    restores_seer: bool
     # Faux dès qu'un élément manque : restaurer ne rendrait qu'une partie.
     restorable: bool
 

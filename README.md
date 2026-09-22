@@ -75,6 +75,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Mount safety net: any action that touches the disk is refused when a volume is not mounted, so nothing is removed from Sonarr/Radarr or from the database while the files are still there.
 - Optional trash: every deletion is kept as one restorable entry — library files, torrents (removed from the client without touching their data), Sonarr/Radarr tracking and the Seer request all come back together, hardlinks included (**Settings → Trash**).
 - Hardened for exposure: security headers (strict CSP, clickjacking protection), rate limiting on the sign-in routes, real client address behind a declared reverse proxy, and a sign-in log in **Settings → Account**.
+- Library media that Sonarr/Radarr does not track are detected too: a movie added by hand or a series removed from Sonarr shows up with its TMDB/TVDB/IMDb ids, its duplicates and its torrents, instead of staying invisible.
 - Automation safety net: when a scan flips an unusual share of the library (unreachable share, torrent client reset), automations pause themselves and wait for you to resume them.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.

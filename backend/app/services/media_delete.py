@@ -27,7 +27,6 @@ from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.path_guard import ensure_paths_available
 from app.services.trash import (
     capture_arr,
-    capture_seer,
     close_action,
     delete_or_trash,
     open_action,
@@ -36,7 +35,6 @@ from app.services.trash import (
 )
 from app.services.hardlink import resolve_torrent_files
 from app.services.scan import compute_statuses, current_files_size
-from app.services.seer import remove_seer_requests
 
 
 async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
@@ -333,28 +331,6 @@ async def _capture_arr_media(session: Session, media: Media, target: ArrTarget |
     capture_arr(session, trash, service, media.arr_instance_id, body)
 
 
-async def capture_seer_requests(session: Session, media: Media, settings: Settings, trash: TrashAction) -> None:
-    """Demandes Seer complètes, capturées avant leur suppression : elles sont
-    recréées telles quelles (même demandeur, mêmes saisons) à la restauration."""
-    from app.clients.seer import SeerClient
-    from app.models.media import MediaRequest
-    from app.services.seer import seer_configured
-
-    rows = list(session.exec(select(MediaRequest).where(MediaRequest.media_id == media.id)).all())
-    if not rows or not seer_configured(settings):
-        return
-    client = SeerClient(settings.seer_url, settings.seer_api_key)
-    captured = []
-    for row in rows:
-        try:
-            request = await client.get_request(row.seer_request_id)
-        except httpx.HTTPError:
-            continue
-        if request:
-            captured.append(request)
-    capture_seer(session, trash, captured)
-
-
 async def execute_media_delete(
     session: Session, media: Media, settings: Settings, selection: MediaDeleteSelection
 ) -> MediaDeleteSelectionResult:
@@ -403,14 +379,6 @@ async def execute_media_delete(
             await _delete_movie_files(files, target, steps, session, settings, trash)
         else:
             await _delete_episode_files(files, target, selection.remove_from_arr, steps, session, settings, trash)
-
-    # Demande Seer : seulement si toute la bibliothèque du média a bien été
-    # supprimée — jamais pour un média qui existe encore, même en partie.
-    library_failed = any(not s.success for s in steps if s.kind in ("library_file", "arr_media"))
-    if selection.remove_from_seer and len(files) == all_file_count and not library_failed:
-        if trash is not None:
-            await capture_seer_requests(session, media, settings, trash)
-        await remove_seer_requests(session, media, settings, steps)
 
     close_action(session, trash)
     session.commit()

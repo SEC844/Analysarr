@@ -28,8 +28,6 @@ class TrashAction(SQLModel, table=True):
     # Fiche Sonarr/Radarr capturée AVANT la suppression, pour la recréer telle
     # quelle : {"service": "radarr"|"sonarr", "instance_id": int|null, "body": {...}}
     arr_payload: Optional[str] = None
-    # Demandes Seer capturées avant suppression : [{...}, ...]
-    seer_payload: Optional[str] = None
 
 
 class TrashItem(SQLModel, table=True):

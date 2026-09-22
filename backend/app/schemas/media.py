@@ -137,6 +137,11 @@ class MediaDetail(MediaListItem):
     radarr_id: Optional[int]
     sonarr_id: Optional[int]
     emby_item_id: Optional[str]
+    # Identifiants externes (statut `manquant_arr`) : ce sont eux qui
+    # permettent d'ajouter le média dans Radarr ou Sonarr.
+    tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    imdb_id: Optional[str] = None
     files: list[MediaFileRead]
     torrents: list[TorrentRead]
     missing_emby_episodes: list[str]
@@ -199,9 +204,6 @@ class MediaDeleteSelection(BaseModel):
     # du film. Sonarr : démonitoring des épisodes concernés (pas d'équivalent
     # "supprimer" à cette granularité côté Sonarr).
     remove_from_arr: bool = False
-    # Supprime aussi la demande (et la fiche) du média dans Seer. Appliqué
-    # seulement si toute la bibliothèque du média est supprimée sans erreur.
-    remove_from_seer: bool = False
 
 
 class DiskUnit(BaseModel):

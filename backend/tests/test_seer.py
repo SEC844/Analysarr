@@ -71,25 +71,3 @@ def test_requester_avatar_comes_from_the_media_server_account(session):
     assert read.requested_by.emby_user_id == "abcd1234" and read.requested_by.image_tag == "t1"
 
 
-def test_removal_deletes_the_seer_media_once_and_tolerates_404(fake_http, session):
-    deleted = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        deleted.append((req.method, req.url.path))
-        return httpx.Response(404)  # déjà supprimé côté Seer : objectif atteint
-
-    fake_http["http://seer"] = handler
-    settings = Settings(id=1, seer_enabled=True, seer_url="http://seer", seer_api_key="k")
-    media = Media(media_type=MediaType.movie, title="Matrix", requested_by="Marie")
-    session.add(media)
-    session.commit()
-    for request_id in (10, 11):
-        session.add(MediaRequest(media_id=media.id, seer_request_id=request_id, seer_media_id=100, status="approved"))
-    session.commit()
-
-    steps: list[DeleteStepResult] = []
-    asyncio.run(seer.remove_seer_requests(session, media, settings, steps))
-    session.commit()
-
-    assert deleted == [("DELETE", "/api/v1/media/100")]
-    assert steps[-1].success and media.requested_by is None

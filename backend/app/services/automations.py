@@ -32,6 +32,7 @@ TRIGGER_STATUSES = {
     "non_hardlink_detected": "non_hardlink",
     "import_failed_detected": "import_rate",
     "stalled_download_detected": "telechargement_bloque",
+    "untracked_detected": "manquant_arr",
 }
 MAX_ACTIONS_LIMIT = 50
 
@@ -46,6 +47,7 @@ TRIGGER_CONDITIONS: dict[str, tuple[str, ...]] = {
     "non_hardlink_detected": ("min_seed_days", "min_ratio"),
     "import_failed_detected": (),
     "stalled_download_detected": (),
+    "untracked_detected": (),
 }
 
 

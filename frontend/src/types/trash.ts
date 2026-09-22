@@ -18,7 +18,6 @@ export interface TrashAction {
   size: number
   items: TrashItem[]
   restores_arr: boolean
-  restores_seer: boolean
   /** Faux dès qu'un élément manque : la restauration serait incomplète. */
   restorable: boolean
 }
