@@ -32,8 +32,27 @@ TRIGGER_STATUSES = {
     "non_hardlink_detected": "non_hardlink",
     "import_failed_detected": "import_rate",
     "stalled_download_detected": "telechargement_bloque",
+    "untracked_detected": "manquant_arr",
 }
 MAX_ACTIONS_LIMIT = 50
+
+# Conditions qui ont un sens pour chaque déclencheur. Une condition de seed ou
+# de ratio ne veut rien dire pour un import bloqué, et un espace récupérable ne
+# veut rien dire là où il n'y a rien à supprimer : elles sont effacées à
+# l'enregistrement plutôt que gardées sans effet, et l'interface ne les affiche
+# pas (même table dans `frontend/src/types/automations.ts`).
+TRIGGER_CONDITIONS: dict[str, tuple[str, ...]] = {
+    "orphan_detected": ("min_seed_days", "min_ratio", "min_reclaimable_bytes"),
+    "duplicate_detected": ("min_reclaimable_bytes",),
+    "non_hardlink_detected": ("min_seed_days", "min_ratio"),
+    "import_failed_detected": (),
+    "stalled_download_detected": (),
+    "untracked_detected": (),
+}
+
+
+def applicable_conditions(trigger: str) -> tuple[str, ...]:
+    return TRIGGER_CONDITIONS.get(trigger, ())
 
 
 @dataclass(frozen=True)
@@ -124,6 +143,7 @@ def eligible_medias(session: Session, rule: AutomationRule) -> list[tuple[Media,
 async def _execute(rule: AutomationRule, session: Session, settings: Settings, media: Media) -> tuple[list[AutomationStep], int]:
     """Exécute l'action de la règle sur un média. Réutilise exactement le code
     des actions manuelles (imports différés : ces modules dépendent du scan)."""
+    from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic
     from app.services.cascade_delete import build_delete_preview, execute_delete
     from app.services.cross_seed import trigger_cross_seed_search
     from app.services.hardlink_repair import execute_repair
@@ -147,6 +167,23 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
                 for s in import_steps
             ]
             return steps or [AutomationStep(label=media.title, success=False, error="Aucun import bloqué.")], 0
+        if rule.action == "link_to_arr":
+            # Rattachement automatique : uniquement sur un candidat CERTAIN
+            # (identifiant résolu par Sonarr/Radarr, titre et année
+            # concordants) et un dossier racine déduit des fichiers en place.
+            # Tout le reste attend une confirmation humaine.
+            preview = await build_link_preview(session, settings, media)
+            candidate = pick_automatic(preview)
+            if candidate is None:
+                return [AutomationStep(label=media.title, success=False, error="Aucune correspondance certaine.")], 0
+            title = await link_media(
+                session,
+                settings,
+                media,
+                candidate_key=candidate.key,
+                quality_profile_id=preview.suggested_profile,
+            )
+            return [AutomationStep(label=f"{media.title} — {title}", success=True)], 0
         if rule.action == "repair_hardlinks":
             result = await execute_repair(session, media, settings)
             steps = [AutomationStep(label=f"{media.title} — {s.label}", success=s.success, error=s.error) for s in result.steps]
@@ -158,7 +195,7 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
             AutomationStep(label=media.title, success=False, error=error) for error in search.errors
         ]
         return steps or [AutomationStep(label=media.title, success=False, error="Aucune recherche déclenchée.")], 0
-    except (httpx.HTTPError, OSError, RuntimeError) as exc:
+    except (httpx.HTTPError, OSError, RuntimeError, ArrLinkError) as exc:
         return [AutomationStep(label=media.title, success=False, error=f"{type(exc).__name__} : {exc}")], 0
 
 

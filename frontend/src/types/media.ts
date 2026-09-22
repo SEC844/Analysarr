@@ -1,3 +1,20 @@
+/** Couverture tracker : information affichée à côté de « Sain ». */
+export const INFO_STATUSES: MediaStatus[] = ["tracker_unique", "cross_seed"]
+
+/** Statuts d'alerte : ceux qui demandent une action. La couverture tracker
+ * (`tracker_unique`, `cross_seed`) est informative et n'en fait pas partie —
+ * même découpage que `services/scan.py::INFO_STATUSES`. */
+export const ALERT_STATUSES = [
+  "doublon",
+  "orphelin_qbit",
+  "non_hardlink",
+  "manquant_emby",
+  "manquant_qbit",
+  "manquant_arr",
+  "import_rate",
+  "telechargement_bloque",
+] as const
+
 export type MediaStatus =
   | "doublon"
   | "orphelin_qbit"
@@ -5,6 +22,8 @@ export type MediaStatus =
   | "tracker_unique"
   | "manquant_emby"
   | "manquant_qbit"
+  | "manquant_arr"
+  | "cross_seed"
   | "import_rate"
   | "telechargement_bloque"
 export type MediaTypeFilter = "movie" | "series"
@@ -164,11 +183,55 @@ export interface MediaDetail extends MediaListItem {
   radarr_id: number | null
   sonarr_id: number | null
   emby_item_id: string | null
+  /** Identifiants externes, utiles surtout pour un média non suivi. */
+  tmdb_id: number | null
+  tvdb_id: number | null
+  imdb_id: string | null
   files: MediaFileRead[]
   torrents: TorrentRead[]
   missing_emby_episodes: string[]
   requests: MediaRequestRead[]
   import_issues: ImportIssueRead[]
+}
+
+/** Fiche Sonarr/Radarr proposée pour rattacher un média non suivi. */
+export interface ArrCandidate {
+  key: string
+  title: string
+  year: number | null
+  tmdb_id: number | null
+  tvdb_id: number | null
+  imdb_id: string | null
+  /** "certain" : identifiant résolu par Sonarr/Radarr, titre et année concordants. */
+  confidence: "certain" | "probable"
+}
+
+export type ArrMonitor = "all" | "existing" | "future" | "none"
+
+export interface ArrLinkPreview {
+  service: "radarr" | "sonarr"
+  instance_name: string
+  candidates: ArrCandidate[]
+  /** Dossiers que Sonarr/Radarr voit sans média rattaché (ses chemins à lui). */
+  folders: string[]
+  suggested_folder: string | null
+  quality_profiles: { id: number; name: string }[]
+  suggested_profile: number | null
+}
+
+export type ArrAvailability = "announced" | "inCinemas" | "released"
+
+export interface ArrLinkRequest {
+  candidate_key: string
+  quality_profile_id: number
+  folder: string
+  monitor: ArrMonitor
+  minimum_availability?: ArrAvailability
+}
+
+export interface ArrLinkResult {
+  title: string
+  service: "radarr" | "sonarr"
 }
 
 export interface DeletePreviewItem {
@@ -197,7 +260,6 @@ export interface MediaDeleteSelection {
   torrent_ids: number[]
   media_file_ids: number[]
   remove_from_arr: boolean
-  remove_from_seer: boolean
 }
 
 export interface DiskUnit {
@@ -256,9 +318,13 @@ export interface HardlinkRepairResult {
 }
 
 export interface MediaListParams {
-  status?: MediaStatus | "sain"
+  /** Statuts cochés dans le panneau de filtres (plusieurs possibles). */
+  status?: MediaStatus[]
+  /** "all" : le média porte TOUS les statuts cochés ; sinon au moins un. */
+  match?: "all"
+  health?: "sain" | "alerte"
   media_type?: MediaTypeFilter
-  watch?: WatchFilter
+  watch?: WatchFilter[]
   search?: string
   sort?: MediaSort
 }

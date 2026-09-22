@@ -9,8 +9,11 @@ AutomationTrigger = Literal[
     "non_hardlink_detected",
     "import_failed_detected",
     "stalled_download_detected",
+    "untracked_detected",
 ]
-AutomationAction = Literal["cleanup", "repair_hardlinks", "cross_seed_search", "retry_import", "notify_only"]
+AutomationAction = Literal[
+    "cleanup", "repair_hardlinks", "cross_seed_search", "retry_import", "link_to_arr", "notify_only"
+]
 
 
 class AutomationConditions(BaseModel):
@@ -48,6 +51,31 @@ class AutomationWrite(BaseModel):
     conditions: AutomationConditions = AutomationConditions()
     max_actions: int = Field(default=5, ge=1, le=50)
     dry_run: bool = False
+
+
+class AutomationGuard(BaseModel):
+    """État du garde-fou (services/automation_guard.py) : part de la
+    bibliothèque tolérée d'un scan à l'autre, et pause éventuelle."""
+
+    percent: int
+    min_percent: int
+    # Faux quand aucune automatisation activée ne porte sur les orphelins, les
+    # doublons ou les torrents non hardlinkés : le garde-fou n'a alors rien à
+    # protéger et l'interface ne l'affiche pas.
+    active: bool = False
+    paused: bool
+    paused_at: Optional[datetime] = None
+    # Motif de la pause, tel que détecté par le scan (le libellé est traduit
+    # par l'interface) : statut concerné et compteurs avant/après.
+    status: Optional[str] = None
+    previous: Optional[int] = None
+    current: Optional[int] = None
+    total: Optional[int] = None
+    changed_percent: Optional[int] = None
+
+
+class AutomationGuardWrite(BaseModel):
+    percent: int = Field(ge=5, le=100)
 
 
 class AutomationStep(BaseModel):

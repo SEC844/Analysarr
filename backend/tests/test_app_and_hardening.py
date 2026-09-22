@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -90,3 +90,71 @@ def test_as_utc_keeps_naive_database_dates_in_utc():
     from app.services.watch_stats import as_utc
 
     assert as_utc(datetime(2026, 1, 1)).tzinfo == timezone.utc
+
+
+def test_page_open_refreshes_in_background_without_blocking(fake_http, monkeypatch):
+    """La vérification suit l'ouverture des pages : le premier appel attend le
+    résultat, les suivants renvoient le cache et rafraîchissent en fond."""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return github_release(f"v0.19.{len(calls)}", f"{updates.RELEASES_PAGE}/tag/v0.19.0")(request)
+
+    fake_http["https://api.github.com"] = handler
+    monkeypatch.setattr(updates, "APP_VERSION", "0.18.0")
+
+    async def scenario():
+        first = await updates.status_for_page(True)
+        assert first.latest_version == "0.19.1" and len(calls) == 1
+        assert await updates.status_for_page(True) is first and len(calls) == 1  # cache frais
+
+        updates._expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        assert await updates.status_for_page(True) is first and len(calls) == 1  # réponse immédiate
+        await updates._refresh_task  # le rafraîchissement, lui, s'est bien lancé
+        assert len(calls) == 2
+        assert (await updates.status_for_page(True)).latest_version == "0.19.2"
+
+    asyncio.run(scenario())
+
+
+def test_disabled_update_check_makes_no_outbound_request(fake_http, admin_client):
+    def forbidden(request):
+        raise AssertionError("aucune requête sortante quand la vérification est désactivée")
+
+    fake_http["https://api.github.com"] = forbidden
+    assert admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code == 200
+    assert admin_client.get("/api/app/info").json()["update"] is None
+
+
+def test_star_prompt_state_is_stored_and_bounded(admin_client):
+    """Invitation à mettre une étoile : l'état vit dans les préférences, donc
+    le rappel ne revient pas à chaque navigateur ni à chaque redémarrage."""
+    info = admin_client.get("/api/app/info").json()
+    assert info["ui"]["star_prompt_state"] == "pending" and info["ui"]["star_prompt_at"] is None
+
+    ui = info["ui"] | {"star_prompt_state": "done", "star_prompt_at": "2026-09-22T06:00:00Z"}
+    saved = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": ui})
+    assert saved.json()["ui"]["star_prompt_state"] == "done"
+
+    bad = info["ui"] | {"star_prompt_state": "whatever"}
+    refused = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": bad})
+    assert refused.status_code == 422
+
+
+def test_the_display_timezone_is_stored_and_validated(admin_client):
+    """Fuseau d'affichage : passé tel quel à Intl côté navigateur, donc
+    contraint côté serveur."""
+    info = admin_client.get("/api/app/info").json()
+    assert info["ui"]["timezone"] == ""  # défaut : celui du navigateur
+
+    ui = info["ui"] | {"timezone": "Europe/Paris"}
+    saved = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": ui})
+    assert saved.json()["ui"]["timezone"] == "Europe/Paris"
+
+    for bad in ("<script>", "Europe/Paris; rm -rf /", "x" * 80):
+        refused = admin_client.put(
+            "/api/app/preferences",
+            json={"language": "fr", "update_check_enabled": False, "ui": info["ui"] | {"timezone": bad}},
+        )
+        assert refused.status_code == 422, bad

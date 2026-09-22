@@ -23,6 +23,12 @@ export interface UiPreferences {
   media_sections_expanded: boolean
   delete_remove_from_arr_default: boolean
   absolute_dates: boolean
+  /** Fuseau d'affichage (nom IANA) ; vide = celui du navigateur. */
+  timezone: string
+  /** Invitation à mettre une étoile : jamais montrée, reportée, ou terminée. */
+  star_prompt_state: "pending" | "later" | "done"
+  /** Première ouverture, puis date du dernier report. */
+  star_prompt_at: string | null
 }
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
@@ -35,6 +41,9 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   media_sections_expanded: false,
   delete_remove_from_arr_default: false,
   absolute_dates: false,
+  timezone: "",
+  star_prompt_state: "pending",
+  star_prompt_at: null,
 }
 
 export interface AppInfo {

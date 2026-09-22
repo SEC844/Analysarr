@@ -15,6 +15,7 @@ import type { ScanScope } from "@/types/media"
 // Étapes envoyées par le backend (événements SSE) : identifiants fixes.
 const STAGES = new Set([
   "radarr",
+  "bibliothèque",
   "sonarr",
   "emby",
   "historique",

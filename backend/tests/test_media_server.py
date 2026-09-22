@@ -141,3 +141,88 @@ def test_library_items_never_request_fields_the_server_would_reject(fake_http, k
     sent = (calls[-1].url.params.get("Fields") or "").split(",")
     assert ("ImageTags" in sent) == (kind == "emby")
     assert "ProviderIds" in sent and "MediaSources" in sent
+
+
+# Champs refusés par Jellyfin (hors énumération ItemFields) : le faux serveur
+# répond 400, comme le vrai.
+_JELLYFIN_REJECTED = {"ImageTags", "IndexNumber", "ParentIndexNumber", "IndexNumberEnd"}
+
+UNTRACKED_MOVIE = {
+    "Id": "lib-movie",
+    "Name": "Film hors Radarr",
+    "ProductionYear": 2024,
+    "ProviderIds": {"Tmdb": "77", "Imdb": "tt77"},
+    "ImageTags": {"Primary": "poster"},
+    "MediaSources": [{"Path": "/data/media/films/Film.mkv", "Size": 12}],
+}
+UNTRACKED_SERIES = {
+    "Id": "lib-series",
+    "Name": "Série hors Sonarr",
+    "ProductionYear": 2021,
+    "ProviderIds": {"Tvdb": "88"},
+    "ImageTags": {"Primary": "poster"},
+}
+UNTRACKED_EPISODE = {
+    "Id": "lib-episode",
+    "ParentIndexNumber": 1,
+    "IndexNumber": 1,
+    "MediaSources": [{"Path": "/data/media/series/S01E01.mkv", "Size": 6}],
+}
+
+
+def library_server(kind: str, calls: list[httpx.Request]):
+    """Bibliothèque minimale des deux serveurs, avec la validation `Fields` de
+    Jellyfin."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        path, params = request.url.path, request.url.params
+        if kind == "jellyfin":
+            asked = set((params.get("Fields") or "").split(","))
+            if asked & _JELLYFIN_REJECTED:
+                return httpx.Response(400, json={"error": "Invalid ItemFields"})
+        if path == "/Items" and params.get("IncludeItemTypes") == "Movie":
+            return httpx.Response(200, json={"Items": [UNTRACKED_MOVIE]})
+        if path == "/Items" and params.get("IncludeItemTypes") == "Series":
+            return httpx.Response(200, json={"Items": [UNTRACKED_SERIES]})
+        if path == "/Items" and params.get("IncludeItemTypes") == "Episode":
+            return httpx.Response(200, json={"Items": [UNTRACKED_EPISODE]})
+        return httpx.Response(404)
+
+    return handler
+
+
+@pytest.mark.parametrize("kind", ["emby", "jellyfin"])
+def test_untracked_media_are_found_on_both_servers(fake_http, kind):
+    """Les médias non suivis par Sonarr/Radarr viennent du serveur multimédia :
+    la détection doit marcher à l'identique sur Emby et sur Jellyfin, dont le
+    paramètre `Fields` est strict."""
+    from app.services.scan import LibraryContext, build_untracked_results
+
+    calls: list[httpx.Request] = []
+    fake_http[f"http://{kind}"] = library_server(kind, calls)
+    client = EmbyClient(f"http://{kind}", KEY, kind)
+
+    movies = asyncio.run(client.get_library_items("Movie"))
+    series = asyncio.run(client.get_library_items("Series"))
+    results = asyncio.run(build_untracked_results(LibraryContext(emby=client), movies, series, claimed_item_ids=set()))
+
+    titles = sorted(r.media.title for r in results)
+    assert titles == ["Film hors Radarr", "Série hors Sonarr"]
+    movie = next(r for r in results if r.media.title == "Film hors Radarr")
+    assert (movie.media.tmdb_id, movie.media.imdb_id) == (77, "tt77")
+    assert [f.path for f in movie.files] == ["/data/media/films/Film.mkv"]
+    series_result = next(r for r in results if r.media.title == "Série hors Sonarr")
+    assert [f.episode_label for f in series_result.files] == ["S01E01"]
+    # La jaquette reste disponible : `ImageTags` est renvoyé d'office par les
+    # deux serveurs, même quand Jellyfin refuse qu'on le demande.
+    assert movie.media.poster_image_tag == "poster"
+    assert all(response_ok(call, kind) for call in calls)
+
+
+def response_ok(request: httpx.Request, kind: str) -> bool:
+    """Aucun appel ne demande à Jellyfin un champ qu'il refuse."""
+    if kind != "jellyfin":
+        return True
+    asked = set((request.url.params.get("Fields") or "").split(","))
+    return not (asked & _JELLYFIN_REJECTED)

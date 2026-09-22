@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -58,3 +59,23 @@ class TwoFactorDisableRequest(BaseModel):
 
 class RecoveryCodes(BaseModel):
     codes: list[str]
+
+
+class LoginAttemptRead(BaseModel):
+    """Entrée du journal de connexion (Réglages → Compte)."""
+
+    created_at: datetime
+    username: str
+    ip: str
+    success: bool
+    reason: Optional[str] = None
+
+
+class SecuritySettings(BaseModel):
+    """Réglages de sécurité du compte (Réglages → Compte)."""
+
+    trusted_proxies: str = ""
+
+
+class SecuritySettingsWrite(BaseModel):
+    trusted_proxies: str = Field(default="", max_length=200)

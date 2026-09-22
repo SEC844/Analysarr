@@ -8,13 +8,11 @@ le backend."""
 
 from typing import Any
 
-import httpx
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, select
 
-from app.clients.seer import SeerClient
 from app.models.media import EmbyUser, Media, MediaRequest, MediaType
 from app.models.settings import Settings
-from app.schemas.media import DeleteStepResult, MediaRequestRead, SeerUserRead
+from app.schemas.media import MediaRequestRead, SeerUserRead
 from app.services.watch_stats import as_utc, parse_emby_date
 
 _STATUSES = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "completed"}
@@ -124,29 +122,3 @@ def build_requests_read(session: Session, media: Media) -> list[MediaRequestRead
         )
         for r in sorted(rows, key=_requested_order)
     ]
-
-
-async def remove_seer_requests(
-    session: Session, media: Media, settings: Settings, steps: list[DeleteStepResult]
-) -> None:
-    """Retire côté Seer tout ce qui concerne ce média : la fiche Seer (qui
-    emporte ses demandes et le rend de nouveau demandable), sinon chaque
-    demande isolée."""
-    rows = list(session.exec(select(MediaRequest).where(MediaRequest.media_id == media.id)).all())
-    if not rows or not seer_configured(settings):
-        return
-    client = SeerClient(settings.seer_url, settings.seer_api_key)
-    try:
-        media_ids = {r.seer_media_id for r in rows if r.seer_media_id is not None}
-        for seer_media_id in media_ids:
-            await client.delete_media(seer_media_id)
-        for row in rows:
-            if row.seer_media_id is None:
-                await client.delete_request(row.seer_request_id)
-    except httpx.HTTPError as exc:
-        steps.append(DeleteStepResult(kind="seer", label=media.title, success=False, error=str(exc)))
-        return
-    session.exec(delete(MediaRequest).where(MediaRequest.media_id == media.id))
-    media.requested_by = None
-    session.add(media)
-    steps.append(DeleteStepResult(kind="seer", label=f"{media.title} : demande Seer supprimée", success=True))

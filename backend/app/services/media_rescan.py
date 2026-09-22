@@ -23,16 +23,18 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from sqlmodel import Session, delete, select
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client, torrent_client_configured
 from app.models.media import ImportIssue, Media, MediaFile, MediaType, MediaRequest, MediaWatch, Torrent
 from app.models.settings import Settings
-from app.services.arr_instances import arr_target_for
+from app.services.arr_instances import arr_target_for, arr_targets
 from app.services.hardlink import stat_inode
 from app.services.queue_issues import index_queue_issues, issue_rows_for
 from app.services.scan import (
+    LibraryContext,
     _current_flags,
     _episode_label,
     _episode_span_labels,
@@ -73,14 +75,16 @@ class MediaRescanResult:
 
 
 async def rescan_media(session: Session, settings: Settings, media: Media) -> MediaRescanResult:
-    target = arr_target_for(session, settings, media)
-    if target is None:
-        raise RuntimeError("Instance Sonarr/Radarr introuvable pour ce média.")
-
     is_series = media.media_type == MediaType.series
     arr_id = media.sonarr_id if is_series else media.radarr_id
     if arr_id is None:
-        raise RuntimeError("Média sans identifiant Sonarr/Radarr.")
+        # Média trouvé dans la bibliothèque seule : rien à demander à
+        # Sonarr/Radarr, tout vient du serveur multimédia.
+        return await _rescan_untracked(session, settings, media, is_series)
+
+    target = arr_target_for(session, settings, media)
+    if target is None:
+        raise RuntimeError("Instance Sonarr/Radarr introuvable pour ce média.")
 
     entry = await (target.sonarr().get_series_by_id(arr_id) if is_series else target.radarr().get_movie(arr_id))
     if entry is None:
@@ -118,6 +122,87 @@ async def rescan_media(session: Session, settings: Settings, media: Media) -> Me
         import_issues=len(issues),
         statuses=sorted(statuses),
     )
+
+
+async def _adopt_arr_entry(session: Session, settings: Settings, media: Media, is_series: bool) -> bool:
+    """Un Sonarr/Radarr suit-il désormais ce média ? Après un rattachement, la
+    fiche doit reprendre son identité sans attendre un scan complet : sans
+    cette recherche, « Analyser ce média » laissait le statut « Non suivi »
+    (bug réel)."""
+    for target in arr_targets(session, settings, "sonarr" if is_series else "radarr"):
+        try:
+            entry = (
+                await target.sonarr().find_series(media.tvdb_id)
+                if is_series
+                else await target.radarr().find_movie(media.tmdb_id, media.imdb_id)
+            )
+        except httpx.HTTPError:
+            continue
+        if entry is None:
+            continue
+        media.arr_instance_id = target.instance_id
+        if is_series:
+            media.sonarr_id = entry["id"]
+        else:
+            media.radarr_id = entry["id"]
+        session.add(media)
+        session.commit()
+        return True
+    return False
+
+
+async def _rescan_untracked(
+    session: Session, settings: Settings, media: Media, is_series: bool
+) -> MediaRescanResult:
+    """Relit un média que Sonarr/Radarr ne suit pas : son item du serveur
+    multimédia, ses fichiers, puis ses torrents. Si l'item a disparu de la
+    bibliothèque, la fiche n'a plus lieu d'être."""
+    from app.services.scan import build_untracked_movie, build_untracked_series
+
+    # Un rattachement a pu avoir lieu entre-temps : dans ce cas le média
+    # redevient un média suivi, et c'est le chemin normal qui s'applique.
+    if await _adopt_arr_entry(session, settings, media, is_series):
+        return await rescan_media(session, settings, media)
+
+    emby = media_server_client(settings)
+    items = await emby.get_items_by_ids([media.emby_item_id]) if media.emby_item_id else []
+    if not items:
+        _delete_media(session, media)
+        return MediaRescanResult(media_deleted=True)
+
+    item = items[0]
+    ctx = LibraryContext(emby=emby)
+    built = await build_untracked_series(ctx, item) if is_series else build_untracked_movie(item)
+    if built is None:
+        _delete_media(session, media)
+        return MediaRescanResult(media_deleted=True)
+
+    _apply_media_server_item(media, item)
+    media.title = built.media.title
+    media.year = built.media.year
+    media.episode_count = built.media.episode_count
+    media.root_path = built.root_path
+    media.tmdb_id, media.tvdb_id, media.imdb_id = built.media.tmdb_id, built.media.tvdb_id, built.media.imdb_id
+
+    session.exec(delete(MediaFile).where(MediaFile.media_id == media.id))
+    files: list[MediaFile] = []
+    for row in built.files:
+        row.media_id = media.id
+        session.add(row)
+        files.append(row)
+    session.commit()
+
+    torrents = await _rebuild_torrents(session, settings, media, files)
+    statuses, reclaimable = compute_statuses(files, torrents, bool(media.emby_item_id), tracked_by_arr=False)
+    media.statuses = ",".join(sorted(statuses))
+    media.reclaimable_bytes = reclaimable
+    media.total_size = current_files_size(files)
+    session.add(media)
+    session.commit()
+
+    await refresh_media_watch(session, media, settings)
+    session.commit()
+    return MediaRescanResult(files=len(files), torrents=len(torrents), statuses=sorted(statuses))
 
 
 def _delete_media(session: Session, media: Media) -> None:

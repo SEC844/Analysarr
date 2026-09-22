@@ -50,11 +50,11 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 
 **Actions — always with a preview and an explicit confirmation**
 - Cascade cleanup of duplicates and orphans.
-- Selective deletion (torrents, episodes, seasons, whole series or movie) with the **real** disk space freed, hardlinks accounted for.
-- Optional removal from Sonarr/Radarr and Seer (never added to exclusion lists).
+- Selective deletion (torrents, episodes, seasons, whole series or movie) with the **real** disk space freed, hardlinks accounted for. Companion files (NFO, subtitles, artwork) follow the video, and a folder left without any video is removed.
+- Optional removal from Sonarr/Radarr (never added to exclusion lists). Seer is read only: a request is never deleted nor recreated.
 - One-click hardlink repair, with a symbolic link fallback across filesystems.
 - Retry a blocked import (nothing is deleted: the file already on disk is simply handed back to Sonarr/Radarr).
-- Remove a media that has nothing left on disk from Sonarr/Radarr and Seer.
+- Remove a media that has nothing left on disk from Sonarr/Radarr.
 - Targeted cross-seed search per episode, season or whole series.
 
 **Decision support**
@@ -63,6 +63,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - "Cleanup candidates" sort: big files nobody watched for a long time.
 
 **Everyday comfort**
+- Library filters: media type, state (healthy / alert), sorting and search at hand, plus a "Filters" panel where several statuses and watch states can be combined.
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
 - **Targeted scans**: the arrow next to **Scan** runs a single service — Radarr, Sonarr, the media server, the torrent client, the queue, watch activity or Seer — and every media page has its own **Scan this media** button. Both are much faster than a full scan and leave the rest of the cache untouched.
 - qBittorrent, Deluge or Transmission: the torrent client is a setting, everything else works the same way.
@@ -70,11 +71,16 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Library files are matched to Sonarr/Radarr even when containers mount the library at different paths.
 - Connection status of every service in the settings, with an alert in the header as soon as one becomes unreachable.
 - Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
-- Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, deletion, cleanup, hardlink repair, cross-seed search, automation.
+- Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, blocked imports, stalled downloads, deletion, cleanup, hardlink repair, cross-seed search, automation, update available.
 - Optional automations: on orphans, duplicates, non-hardlinked torrents or blocked imports, clean up, repair, retry the import, search a cross-seed or just notify — with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
+- Mount safety net: any action that touches the disk is refused when a volume is not mounted, so nothing is removed from Sonarr/Radarr or from the database while the files are still there.
+- Optional trash: every deletion is kept as one restorable entry — library files, torrents (removed from the client without touching their data), and Sonarr/Radarr tracking all come back together, hardlinks included (**Settings → Trash**).
+- Hardened for exposure: security headers (strict CSP, clickjacking protection), rate limiting on the sign-in routes, real client address behind a declared reverse proxy, and a sign-in log in **Settings → Account**.
+- Library media that Sonarr/Radarr does not track are detected too: a movie added by hand or a series removed from Sonarr shows up with its duplicates and its torrents, instead of staying invisible — and one button adds it back to Radarr/Sonarr with the folder that already holds its files, so nothing is downloaded again.
+- Automation safety net: when a scan flips an unusual share of the library (unreachable share, torrent client reset), automations pause themselves and wait for you to resume them.
 - Action history: every deletion, cleanup, repair and cross-seed search, with its detailed result.
 - English and French interface, dark/light theme, display preferences.
-- Update notification when a new version is released.
+- Update check when the app is opened (at most one request every 10 minutes), with an optional notification when a new version is released.
 
 ## Compatibility
 

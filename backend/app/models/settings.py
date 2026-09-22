@@ -65,6 +65,24 @@ class Settings(SQLModel, table=True):
     # Vérifie périodiquement sur GitHub si une nouvelle version est publiée
     # (voir services/updates.py). Désactivable : aucune requête sortante alors.
     update_check_enabled: bool = True
+    # Garde-fou des automatisations (services/automation_guard.py) : part de la
+    # bibliothèque qui peut basculer d'un scan à l'autre avant la mise en pause.
+    automation_guard_percent: int = 20
+    # Mise en pause effective : date + motif (JSON) du basculement détecté.
+    automations_paused_at: Optional[datetime] = None
+    automations_paused_reason: Optional[str] = None
+    # Reverse-proxys de confiance (IP ou CIDR, séparés par des virgules) :
+    # seule leur requête autorise la lecture de X-Forwarded-For pour connaître
+    # l'adresse réelle du client (verrouillage et journal de connexion).
+    trusted_proxies: str = ""
+    # Corbeille (services/trash.py) : désactivée par défaut — l'espace n'est
+    # libéré qu'à la purge, ce qui n'est pas ce qu'on attend d'un outil de
+    # nettoyage tant qu'on ne l'a pas demandé.
+    trash_enabled: bool = False
+    trash_retention_days: int = 7
+    # Dernière version annoncée par notification : une version n'est notifiée
+    # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
+    update_notified_version: Optional[str] = None
 
     # Identifiants des utilisateurs Emby exclus des statistiques de visionnage
     # (liste JSON) — comptes de test, TV partagée... Les comptes désactivés

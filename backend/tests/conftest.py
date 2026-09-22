@@ -11,6 +11,15 @@ import tempfile
 _TMP_DIR = tempfile.mkdtemp(prefix="analysarr-tests-")
 os.environ["DATABASE_PATH"] = os.path.join(_TMP_DIR, "analysarr.db")
 
+# Racines réelles (non vides) : le garde-fou des montages refuse toute
+# suppression quand la racine de la bibliothèque n'existe pas ou est vide
+# (services/path_guard.py).
+LIBRARY_PATH = os.path.join(_TMP_DIR, "media")
+DOWNLOAD_PATH = os.path.join(_TMP_DIR, "torrents")
+for _path in (LIBRARY_PATH, DOWNLOAD_PATH):
+    os.makedirs(_path, exist_ok=True)
+    open(os.path.join(_path, ".mounted"), "w").close()
+
 from collections.abc import Callable  # noqa: E402
 
 import httpx  # noqa: E402
@@ -21,7 +30,7 @@ from sqlmodel import Session, SQLModel  # noqa: E402
 from app.database import engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.settings import Settings  # noqa: E402
-from app.services import service_status, updates  # noqa: E402
+from app.services import rate_limit, service_status, updates  # noqa: E402
 
 ADMIN = {"username": "admin", "password": "correct-horse-battery"}
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -35,7 +44,9 @@ def fresh_database():
     init_db()
     updates._cached = None
     updates._expires_at = None
+    updates._refresh_task = None
     service_status._cache = None
+    rate_limit.reset()  # compteur global en mémoire : chaque test repart à zéro
 
 
 @pytest.fixture
@@ -96,8 +107,8 @@ def settings(session: Session) -> Settings:
         qbittorrent_url="http://qbit",
         qbittorrent_username="admin",
         qbittorrent_password="secret",
-        emby_library_path="/data/media",
-        qbittorrent_download_path="/data/torrents",
+        emby_library_path=LIBRARY_PATH,
+        qbittorrent_download_path=DOWNLOAD_PATH,
     )
     session.add(row)
     session.commit()

@@ -301,6 +301,7 @@ class ScanRun(SQLModel, table=True):
     media_count: int = 0
     duplicate_count: int = 0
     orphan_count: int = 0
+    non_hardlink_count: int = 0
     tracker_unique_count: int = 0
 
     # Taux de rattachement torrent -> média : combien de torrents qBittorrent

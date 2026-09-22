@@ -8,7 +8,6 @@ from app.models.activity import ActionLog
 from app.models.automation import Automation
 from app.models.media import Media, MediaType, Torrent
 from app.models.notification_channel import NotificationChannel
-from app.schemas.automations import AutomationConditions
 from app.services import notifications
 from app.services.automations import as_rule, eligible_medias, run_automations, run_rule
 from app.services.notifications import channel_targets
@@ -176,3 +175,24 @@ def test_automation_api_validates_and_previews(admin_client, session, settings):
     assert admin_client.put(f"{AUTOMATIONS}/{automation['id']}", json={**body, "enabled": False}).json()["enabled"] is False
     assert admin_client.delete(f"{AUTOMATIONS}/{automation['id']}").status_code == 204
     assert admin_client.get(AUTOMATIONS).json() == []
+
+
+def test_conditions_out_of_scope_are_dropped_on_save(admin_client):
+    """Un import bloqué n'a ni seed ni ratio : ces conditions ne doivent pas
+    être enregistrées, sinon elles filtreraient sans que rien ne l'explique."""
+    body = {
+        "name": "Imports",
+        "trigger": "import_failed_detected",
+        "action": "retry_import",
+        "conditions": {"media_types": ["series"], "min_seed_days": 30, "min_ratio": 1.5, "min_reclaimable_bytes": 10},
+        "max_actions": 5,
+        "dry_run": False,
+    }
+    created = admin_client.post("/api/automations", json=body).json()
+    assert created["conditions"]["media_types"] == ["series"]
+    assert created["conditions"]["min_seed_days"] is None
+    assert created["conditions"]["min_ratio"] is None
+    assert created["conditions"]["min_reclaimable_bytes"] is None
+
+    kept = admin_client.post("/api/automations", json=body | {"trigger": "orphan_detected", "action": "cleanup"}).json()
+    assert kept["conditions"]["min_seed_days"] == 30 and kept["conditions"]["min_ratio"] == 1.5

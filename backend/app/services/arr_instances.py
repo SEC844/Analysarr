@@ -69,5 +69,14 @@ def arr_target_for(session: Session, settings: Settings | None, media: Media) ->
     return _extra(row) if row is not None and row.kind == kind else None
 
 
+def arr_target_by_id(session: Session, settings: Settings | None, kind: str, instance_id: int | None) -> ArrTarget | None:
+    """Instance désignée par son identifiant (None = principale). Sert à la
+    restauration depuis la corbeille, où le média n'existe plus en base."""
+    if instance_id is None:
+        return _primary(settings, kind)
+    row = session.get(ArrInstance, instance_id)
+    return _extra(row) if row is not None and row.kind == kind else None
+
+
 def instance_names(session: Session) -> dict[int, str]:
     return {row.id: row.name for row in extra_instances(session)}

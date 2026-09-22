@@ -53,6 +53,99 @@ export const fr = {
     otpLabel: "Code de vérification",
     otpHelp: "Code à 6 chiffres de votre application d'authentification, ou un code de secours.",
   },
+  star: {
+    title: "Vous appréciez Analysarr ?",
+    description:
+      "Analysarr est open source. Si l'application vous rend service, une étoile sur GitHub aide d'autres utilisateurs à la découvrir.",
+    action: "Mettre une étoile sur GitHub",
+    later: "Plus tard",
+  },
+  linkArr: {
+    buttonMovie: "Lier à Radarr",
+    buttonSeries: "Lier à Sonarr",
+    descriptionMovie:
+      "Ajoute ce film dans Radarr avec le dossier qui contient déjà ses fichiers : ils sont repris tels quels, rien n'est retéléchargé.",
+    descriptionSeries:
+      "Ajoute cette série dans Sonarr avec le dossier qui contient déjà ses fichiers : ils sont repris tels quels, rien n'est retéléchargé.",
+    candidate: "Fiche à rattacher",
+    candidateHelp:
+      "Chaque fiche a été retrouvée puis vérifiée auprès de Sonarr/Radarr (titre et année). Les identifiants du serveur multimédia sont parfois faux : ils ne sont jamais repris tels quels.",
+    certain: "Correspondance certaine",
+    qualityProfile: "Profil de qualité",
+    monitor: "Surveillance",
+    monitors: {
+      existing: "Épisodes présents",
+      all: "Tous les épisodes",
+      future: "Prochains épisodes",
+      none: "Sans surveillance",
+    },
+    folder: "Dossier à importer",
+    folderHelp:
+      "Liste fournie par Sonarr/Radarr : ce sont les dossiers qu'il voit sur le disque sans média rattaché, avec ses chemins à lui.",
+    availability: "Disponibilité minimale",
+    availabilities: {
+      announced: "Annoncé",
+      inCinemas: "En salle",
+      released: "Sorti",
+    },
+    noFolder:
+      "Ce média n'a pas de dossier à lui sous un dossier racine de Sonarr/Radarr. Rangez ses fichiers dans un dossier dédié, puis relancez une analyse.",
+    confirm: "Ajouter dans {service}",
+    linked: "{title} ajouté : analyse en cours pour reprendre ses fichiers.",
+    failed: "Rattachement impossible.",
+    noCandidate:
+      "Aucune fiche ne correspond à ce média chez Sonarr/Radarr. Vérifiez son titre dans la bibliothèque, puis ajoutez-le à la main.",
+  },
+  trash: {
+    title: "Corbeille",
+    description:
+      "Filet de sécurité des suppressions : au lieu d'être effacés, les fichiers et les torrents sont mis de côté et restent récupérables pendant la durée choisie. Indispensable face à une automatisation qui se serait trompée.",
+    enabled: "Activer la corbeille",
+    retention: "Durée de conservation",
+    days: "jours",
+    retentionHelp:
+      "Passé ce délai, tout est supprimé définitivement (vérification toutes les 6 heures). L'espace disque n'est donc libéré qu'à ce moment-là.",
+    scopeHelp:
+      "Concerne les fichiers qu'Analysarr supprime lui-même et les torrents qu'il retire du client (leurs données sont mises de côté, jamais effacées). Quand Sonarr ou Radarr supprime un fichier à notre demande, c'est leur propre corbeille qui s'applique.",
+    ratioHelp:
+      "À la restauration : les fichiers retrouvent leur emplacement et leurs hardlinks, le torrent est remis dans le client avec ses données (aucun retéléchargement), et le média est recréé dans Sonarr/Radarr et Seer. Seules les statistiques de partage du torrent (ratio, quantité envoyée) repartent de zéro : aucun client torrent ne permet de les restaurer.",
+    contentTitle: "Contenu de la corbeille",
+    contentDescription: "{size} en attente de suppression définitive.",
+    empty: "Vider la corbeille",
+    empty0: "La corbeille est vide.",
+    emptied: "Corbeille vidée.",
+    restore: "Restaurer",
+    restored: "Suppression annulée : tout a été remis en place.",
+    restoredWithScan: "Suppression annulée : tout a été remis en place, analyse en cours pour remettre le média dans la bibliothèque.",
+    restoreFailed: "Restauration incomplète : rien n'a été retiré de la corbeille.",
+    incomplete: "Des éléments manquent dans la corbeille : la restauration serait incomplète.",
+    deleteNow: "Supprimer définitivement",
+    missing: "absent",
+    fileCount: { one: "{count} fichier", other: "{count} fichiers" },
+    torrentCount: { one: "{count} torrent", other: "{count} torrents" },
+    withArr: "suivi Sonarr/Radarr",
+    withArrDetail: "Le film ou la série sera recréé dans Sonarr/Radarr, puis rescanné.",
+    notice: "Les fichiers et torrents supprimés iront dans la corbeille et resteront récupérables {days} jours.",
+  },
+  security: {
+    title: "Sécurité et connexions",
+    description:
+      "Utile quand Analysarr est joignable depuis l'extérieur : voir qui se connecte, et faire remonter la vraie adresse des visiteurs derrière un reverse-proxy.",
+    trustedProxies: "Reverse-proxys de confiance",
+    trustedProxiesHelp:
+      "IP ou plages CIDR séparées par des virgules. Seule une requête venant de ces adresses autorise la lecture de l'en-tête X-Forwarded-For : sans ça, n'importe qui pourrait annoncer l'adresse de son choix et contourner le verrouillage anti-bruteforce. Laissez vide sans reverse-proxy.",
+    history: "Dernières tentatives de connexion",
+    historyEmpty: "Aucune tentative enregistrée.",
+    success: "Réussie",
+    reasons: {
+      password: "Mot de passe incorrect",
+      otp: "Code 2FA incorrect",
+      locked: "Compte verrouillé",
+      rate_limited: "Trop de tentatives",
+      unknown_user: "Utilisateur inconnu",
+    },
+    saved: "Réglages de sécurité enregistrés.",
+  },
   account: {
     title: "Mot de passe",
     description: "Changer le mot de passe du compte administrateur.",
@@ -263,12 +356,16 @@ export const fr = {
       non_hardlink_detected: "Torrents non hardlinkés détectés",
       import_failed_detected: "Imports bloqués détectés",
       stalled_download_detected: "Téléchargements en souffrance",
+      untracked_detected: "Médias non suivis",
       delete_selection: "Suppression",
       import_retry: "Import relancé",
       cascade_delete: "Nettoyage",
       hardlink_repair: "Réparation des hardlinks",
       cross_seed_search: "Recherche cross-seed",
+      arr_link: "Média rattaché à Sonarr/Radarr",
       automation: "Automatisation exécutée",
+      update_available: "Mise à jour disponible",
+      automations_paused: "Automatisations mises en pause",
     },
     eventHelp: {
       scan_completed: "Résumé chiffré après chaque scan réussi.",
@@ -278,12 +375,16 @@ export const fr = {
       non_hardlink_detected: "Un scan trouve du contenu seedé sans hardlink vers la bibliothèque.",
       import_failed_detected: "Un scan trouve des téléchargements que Sonarr/Radarr n'a pas pu ranger.",
       stalled_download_detected: "Un scan trouve des téléchargements qui n'avancent plus.",
+      untracked_detected: "Un scan trouve des médias de la bibliothèque que Sonarr/Radarr ne suit pas.",
       delete_selection: "Suppression manuelle depuis une fiche média.",
       import_retry: "Un import bloqué a été relancé depuis une fiche média.",
       cascade_delete: "Nettoyage des doublons et orphelins d'un média.",
       hardlink_repair: "Hardlinks recréés pour un média.",
       cross_seed_search: "Recherche lancée auprès du daemon cross-seed.",
+      arr_link: "Un média de la bibliothèque a été ajouté dans Sonarr/Radarr.",
       automation: "Une règle d'automatisation a agi.",
+      update_available: "Une nouvelle version d'Analysarr est publiée (vérifié toutes les 3 h, une seule notification par version).",
+      automations_paused: "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues.",
     },
     urlLabel: {
       discord: "URL du webhook",
@@ -306,6 +407,25 @@ export const fr = {
     confirmDelete: "Confirmer la suppression",
   },
   automations: {
+    guard: {
+      title: "Garde-fou des automatisations",
+      description:
+        "Protection contre la perte de toute une bibliothèque : un disque non monté, un partage injoignable ou un client torrent réinitialisé fait passer d'un coup des centaines de médias pour des orphelins ou des doublons — et une automatisation de nettoyage les supprimerait tous. Au-delà du seuil, les règles se coupent et attendent votre feu vert.",
+      how: "Comment ça marche",
+      threshold: "Part de la bibliothèque tolérée",
+      thresholdHelp:
+        "Analysarr compare le dernier scan complet au précédent. Si le nombre de médias en orphelin, doublon ou non hardlink augmente de plus de ce pourcentage de la bibliothèque sans action de votre part (exemple : 1 000 médias, 10 orphelins qui passent à 210, soit 20 %), les automatisations se mettent en pause. Minimum {min} %.",
+      inactive:
+        "Aucune automatisation activée sur les orphelins, doublons ou torrents non hardlinkés : il n'y a rien à protéger pour l'instant.",
+      pausedTitle: "Automatisations en pause",
+      reason: "Dernier scan : {status} passé de {previous} à {current} média(s), soit {percent} % de la bibliothèque.",
+      reasonUnknown: "Un scan a fait basculer une part anormale de la bibliothèque.",
+      pausedAdvice:
+        "Vérifiez vos montages, vos disques et vos services, relancez un scan, puis reprenez les automatisations. Tant qu'elles sont en pause, aucune règle ne supprime quoi que ce soit.",
+      resume: "Reprendre les automatisations",
+      resumed: "Automatisations reprises.",
+      open: "Voir les automatisations",
+    },
     title: "Automatisations",
     description:
       "Des règles qui agissent toutes seules après chaque scan : par exemple supprimer les torrents orphelins seedés depuis plus de 30 jours. Aucune règle n'existe par défaut.",
@@ -326,6 +446,7 @@ export const fr = {
       non_hardlink_detected: "Torrent non hardlinké détecté",
       import_failed_detected: "Import bloqué détecté",
       stalled_download_detected: "Téléchargement en souffrance",
+      untracked_detected: "Média non suivi détecté",
     },
     action: "Action",
     actions: {
@@ -333,6 +454,7 @@ export const fr = {
       repair_hardlinks: "Réparer les hardlinks",
       cross_seed_search: "Chercher un cross-seed",
       retry_import: "Relancer l'import",
+      link_to_arr: "Lier à Sonarr/Radarr",
       notify_only: "Notifier seulement",
     },
     actionHelp: {
@@ -340,6 +462,8 @@ export const fr = {
       repair_hardlinks: "Même action que le bouton « Réparer les hardlinks ».",
       cross_seed_search: "Lance une recherche cross-seed par épisode pour le média.",
       retry_import: "Redemande à Sonarr/Radarr d'importer le téléchargement bloqué. Ne supprime rien.",
+      link_to_arr:
+        "Ajoute le média dans Sonarr/Radarr avec le dossier qui contient déjà ses fichiers. Seulement en cas de correspondance certaine, sinon la règle passe son tour. Ne supprime rien.",
       notify_only: "N'agit pas : liste les médias concernés dans la notification et l'historique.",
     },
     conditions: "Conditions (toutes optionnelles)",
@@ -401,6 +525,9 @@ export const fr = {
       hardlink_repair: "Réparation",
       cross_seed_search: "Cross-seed",
       import_retry: "Import relancé",
+      automation: "Automatisation",
+      trash_restore: "Restauration",
+      arr_link: "Rattachement",
     },
     succeeded: { one: "{count} réussite", other: "{count} réussites" },
     failures: { one: "{count} échec", other: "{count} échecs" },
@@ -430,6 +557,7 @@ export const fr = {
       widget: "Widget",
       history: "Historique",
       account: "Compte",
+      trash: "Corbeille",
       preferences: "Préférences",
       application: "Application",
     },
@@ -453,8 +581,7 @@ export const fr = {
     neverChecked: "Aucune vérification effectuée.",
     checkNow: "Vérifier maintenant",
     autoCheck: "Vérifier automatiquement les mises à jour",
-    autoCheckHelp:
-      "Interroge GitHub toutes les 6 heures. Seul le numéro de version d'Analysarr est transmis, aucune autre donnée.",
+    autoCheckHelp: "Interroge GitHub à l'ouverture de l'application.",
     sourceCode: "Code source",
     reportIssue: "Signaler un problème",
     starTitle: "Analysarr vous est utile ?",
@@ -486,7 +613,6 @@ export const fr = {
     pending: "en attente d'approbation",
     failed: "échec de la demande",
     seasons: { one: "saison {list}", other: "saisons {list}" },
-    deleteOption: "Supprimer aussi la demande dans Seer (le média redevient demandable)",
   },
   preferences: {
     appearanceTitle: "Langue et apparence",
@@ -510,6 +636,10 @@ export const fr = {
     removeArrDefault: "Retrait coché par défaut",
     removeArrDefaultHelp:
       "À la suppression, « Retirer aussi de Sonarr/Radarr » et « Supprimer aussi la demande dans Seer » sont cochés d'office.",
+    timezone: "Fuseau horaire",
+    timezoneHelp:
+      "Fuseau utilisé pour afficher toutes les dates. Par défaut celui du navigateur — utile quand le conteneur est en UTC ou que vous consultez Analysarr depuis un autre pays.",
+    timezoneAuto: "Automatique (navigateur)",
     absoluteDates: "Dates précises",
     absoluteDatesHelp: "Afficher « le 12/03/2026 » au lieu de « il y a 6 mois ».",
   },
@@ -566,10 +696,17 @@ export const fr = {
     clearSearch: "Effacer la recherche",
     type: "Type",
     allTypes: "Tous les types",
+    health: "État",
+    allHealth: "Tous les états",
+    healthy: "Sain",
+    alert: "Alerte",
+    more: "Filtres",
+    matchAll: "Cumuler les statuts",
+    matchAllHelp:
+      "Activé : seuls les médias qui portent TOUS les statuts cochés. Désactivé : ceux qui en portent au moins un.",
     movies: "Films",
     series: "Séries",
     status: "Statut",
-    allStatuses: "Tous les statuts",
     sortBy: "Trier par",
     sortTitle: "Titre (A-Z)",
     sortYear: "Année (récent)",
@@ -607,8 +744,10 @@ export const fr = {
     orphelin_qbit: "Orphelin qBit",
     non_hardlink: "Non hardlink",
     tracker_unique: "Tracker unique",
+    cross_seed: "Cross-seed",
     manquant_emby: "Absent {deServer}",
     manquant_qbit: "Non seedé",
+    manquant_arr: "Non suivi",
     import_rate: "Import raté",
     telechargement_bloque: "Téléchargement en souffrance",
   },
@@ -625,6 +764,7 @@ export const fr = {
       radarr: "Lecture de Radarr...",
       sonarr: "Lecture de Sonarr...",
       emby: "Lecture {deServer}...",
+      "bibliothèque": "Recherche des médias non suivis...",
       historique: "Association des torrents...",
       qbittorrent: "Lecture de qBittorrent...",
       enregistrement: "Enregistrement des résultats...",
@@ -703,6 +843,7 @@ export const fr = {
     description:
       "Confirmez pour réparer automatiquement chaque fichier ci-dessous : la copie non protégée est remplacée par un hardlink vers un fichier déjà valide (bibliothèque ou torrent, selon le cas) — aucune étape manuelle à faire, et un hardlink déjà fonctionnel n'est jamais touché.",
     nothing: "Rien à réparer automatiquement pour ce média.",
+    failed: "Échec de la réparation.",
     file: "Fichier",
     fromTorrent: "depuis {name}",
     joinsLibrary: "{name} rejoint le hardlink de la bibliothèque",
@@ -722,6 +863,7 @@ export const fr = {
       orphan_torrent: "Torrent orphelin",
     },
     total: "Total récupérable : {size}",
+    failed: "Échec du nettoyage.",
   },
   deleteSelection: {
     emptyMedia:

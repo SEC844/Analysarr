@@ -29,11 +29,19 @@ class ArrClient:
             resp = await client.put(path, json=json)
             resp.raise_for_status()
 
-    async def _post(self, path: str, json: dict[str, Any]) -> Any:
+    async def _post(self, path: str, json: Any) -> Any:
         async with self._client() as client:
             resp = await client.post(path, json=json)
             resp.raise_for_status()
             return resp.json() if resp.content else None
+
+    async def get_root_folders(self) -> list[dict[str, Any]]:
+        """Dossiers racine déclarés dans Sonarr/Radarr. Un ajout ne peut viser
+        qu'un de ces dossiers : c'est la liste qui borne le chemin accepté."""
+        return await self._get("/api/v3/rootfolder")
+
+    async def get_quality_profiles(self) -> list[dict[str, Any]]:
+        return await self._get("/api/v3/qualityprofile")
 
     async def _queue(self, extra_params: dict[str, Any]) -> list[dict[str, Any]]:
         """File d'attente paginée. Sonarr et Radarr renvoient au maximum une
@@ -104,18 +112,88 @@ class RadarrClient(ArrClient):
                 return None
             raise
 
+    async def find_movie(self, tmdb_id: int | None, imdb_id: str | None) -> dict[str, Any] | None:
+        """Film DÉJÀ suivi par cette instance, retrouvé par identifiant externe.
+        Sert après un rattachement : la fiche Analysarr doit adopter l'identité
+        Radarr sans attendre le prochain scan complet."""
+        for params in ({"tmdbId": tmdb_id} if tmdb_id else None, {"imdbId": imdb_id} if imdb_id else None):
+            if params is None:
+                continue
+            try:
+                found = await self._get("/api/v3/movie", params=params)
+            except httpx.HTTPStatusError:
+                continue
+            for movie in found or []:
+                if isinstance(movie, dict) and movie.get("id"):
+                    return movie
+        return None
+
     async def get_history_for_movie(self, movie_id: int) -> list[dict[str, Any]]:
         return await self._get("/api/v3/history/movie", params={"movieId": movie_id})
 
     async def delete_movie_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/moviefile/{file_id}")
 
-    async def delete_movie(self, movie_id: int) -> None:
-        """Retire le film de Radarr (arrête le suivi/monitoring) ET supprime
-        son fichier — équivalent de "Supprimer" depuis l'UI Radarr elle-même.
-        `addImportExclusion=false` : on ne bloque pas un futur ré-ajout
-        volontaire du film, on arrête juste de le suivre maintenant."""
-        await self._delete(f"/api/v3/movie/{movie_id}", params={"deleteFiles": "true", "addImportExclusion": "false"})
+    async def delete_movie(self, movie_id: int, delete_files: bool = True) -> None:
+        """Retire le film de Radarr (arrête le suivi/monitoring) et, par
+        défaut, supprime son fichier — équivalent de "Supprimer" depuis l'UI
+        Radarr elle-même. `addImportExclusion=false` : on ne bloque pas un
+        futur ré-ajout volontaire du film, on arrête juste de le suivre
+        maintenant.
+
+        `delete_files=False` quand la corbeille est active : c'est Analysarr
+        qui met alors les fichiers de côté, sinon Radarr les effacerait pour de
+        bon et il n'y aurait plus rien à restaurer."""
+        await self._delete(
+            f"/api/v3/movie/{movie_id}",
+            params={"deleteFiles": str(delete_files).lower(), "addImportExclusion": "false"},
+        )
+
+
+    async def lookup_movie_by_tmdb(self, tmdb_id: int) -> dict[str, Any] | None:
+        """Fiche Radarr d'un film par identifiant TMDB (endpoint dédié : pas de
+        recherche texte, donc pas d'homonyme)."""
+        try:
+            movie = await self._get("/api/v3/movie/lookup/tmdb", params={"tmdbId": tmdb_id})
+        except httpx.HTTPStatusError:
+            return None
+        return movie if isinstance(movie, dict) and movie.get("tmdbId") else None
+
+    async def lookup_movie_by_imdb(self, imdb_id: str) -> dict[str, Any] | None:
+        try:
+            movie = await self._get("/api/v3/movie/lookup/imdb", params={"imdbId": imdb_id})
+        except httpx.HTTPStatusError:
+            return None
+        return movie if isinstance(movie, dict) and movie.get("tmdbId") else None
+
+    async def lookup_movies(self, term: str) -> list[dict[str, Any]]:
+        """Recherche par titre : sert quand aucun identifiant n'est exploitable
+        (ou faux), et ses résultats sont toujours confrontés au titre et à
+        l'année du média avant d'être proposés."""
+        try:
+            results = await self._get("/api/v3/movie/lookup", params={"term": term})
+        except httpx.HTTPStatusError:
+            return []
+        return [movie for movie in results or [] if isinstance(movie, dict)]
+
+    async def add_movie(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Ajoute un film : restauration depuis la corbeille (fiche capturée
+        avant suppression) ou rattachement d'un média de la bibliothèque (fiche
+        de `movie/lookup`). `id` et les champs de fichier sont retirés — Radarr
+        en attribue de nouveaux et redécouvre les fichiers au rescan. Les
+        options d'ajout (`addOptions`, `path`, profil) viennent de l'appelant,
+        qui sait s'il ré-ajoute ou s'il importe un dossier existant."""
+        payload = {key: value for key, value in body.items() if key not in ("id", "movieFile", "movieFileId")}
+        payload.setdefault("addOptions", {"searchForMovie": False})
+        return await self._post("/api/v3/movie", payload)
+
+    async def import_movies(self, movies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Import en masse de dossiers déjà présents sur le disque : c'est
+        exactement ce que fait « Importer N films » dans Radarr (écran
+        `/add/import`). Radarr ajoute chaque film PUIS rafraîchit sa fiche, ce
+        qui déclenche le scan du dossier et l'import du fichier existant."""
+        created = await self._post("/api/v3/movie/import", movies)
+        return created if isinstance(created, list) else []
 
 
 class SonarrClient(ArrClient):
@@ -133,6 +211,20 @@ class SonarrClient(ArrClient):
             if exc.response.status_code == 404:
                 return None
             raise
+
+    async def find_series(self, tvdb_id: int | None) -> dict[str, Any] | None:
+        """Série DÉJÀ suivie par cette instance (voir `RadarrClient.find_movie`).
+        Sonarr ne filtre que par identifiant TVDB."""
+        if not tvdb_id:
+            return None
+        try:
+            found = await self._get("/api/v3/series", params={"tvdbId": tvdb_id})
+        except httpx.HTTPStatusError:
+            return None
+        for series in found or []:
+            if isinstance(series, dict) and series.get("id"):
+                return series
+        return None
 
     async def get_episode_files(self, series_id: int) -> list[dict[str, Any]]:
         return await self._get("/api/v3/episodefile", params={"seriesId": series_id})
@@ -153,14 +245,44 @@ class SonarrClient(ArrClient):
         # filtrée par série.
         return await self._get("/api/v3/history/series", params={"seriesId": series_id})
 
-    async def delete_series(self, series_id: int) -> None:
-        """Retire la série de Sonarr ET supprime son dossier — équivalent de
-        "Supprimer" depuis l'UI Sonarr, seul cas où la granularité série
-        s'applique (tous les fichiers de la série sélectionnés). Même choix
-        que `RadarrClient.delete_movie` : pas d'exclusion d'import."""
+    async def delete_series(self, series_id: int, delete_files: bool = True) -> None:
+        """Retire la série de Sonarr et, par défaut, supprime son dossier —
+        équivalent de "Supprimer" depuis l'UI Sonarr, seul cas où la
+        granularité série s'applique (tous les fichiers de la série
+        sélectionnés). Même choix que `RadarrClient.delete_movie` : pas
+        d'exclusion d'import, et `delete_files=False` quand la corbeille est
+        active."""
         await self._delete(
-            f"/api/v3/series/{series_id}", params={"deleteFiles": "true", "addImportListExclusion": "false"}
+            f"/api/v3/series/{series_id}",
+            params={"deleteFiles": str(delete_files).lower(), "addImportListExclusion": "false"},
         )
+
+    async def lookup_series(self, term: str) -> list[dict[str, Any]]:
+        """Recherche de séries. Sonarr ne comprend que le préfixe `tvdb:`
+        (vérifié dans SkyHookProxy.SearchForNewSeries) : un `imdb:`/`tmdb:`
+        retomberait en recherche texte, donc l'appelant passe l'identifiant
+        TVDB quand il l'a, et le titre sinon."""
+        try:
+            results = await self._get("/api/v3/series/lookup", params={"term": term})
+        except httpx.HTTPStatusError:
+            return []
+        return [series for series in results or [] if isinstance(series, dict)]
+
+    async def add_series(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Ajoute une série (voir `RadarrClient.add_movie`) : restauration ou
+        rattachement d'un dossier existant, selon les `addOptions` fournies."""
+        payload = {key: value for key, value in body.items() if key not in ("id", "episodeFileCount", "statistics")}
+        payload.setdefault(
+            "addOptions",
+            {"searchForMissingEpisodes": False, "searchForCutoffUnmetEpisodes": False, "monitor": "none"},
+        )
+        return await self._post("/api/v3/series", payload)
+
+    async def import_series(self, series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Équivalent Sonarr de `RadarrClient.import_movies` (écran
+        « Import Existing Series »)."""
+        created = await self._post("/api/v3/series/import", series)
+        return created if isinstance(created, list) else []
 
     async def delete_episode_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/episodefile/{file_id}")

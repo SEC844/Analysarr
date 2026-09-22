@@ -50,11 +50,11 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Actions — toujours avec aperçu et confirmation explicite**
 - Nettoyage en cascade des doublons et orphelins.
-- Suppression sélective (torrents, épisodes, saisons, série entière ou film) avec l'espace disque **réellement** libéré, hardlinks pris en compte.
-- Retrait optionnel de Sonarr/Radarr et de Seer (jamais d'ajout en liste d'exclusion).
+- Suppression sélective (torrents, épisodes, saisons, série entière ou film) avec l'espace disque **réellement** libéré, hardlinks pris en compte. Les fichiers annexes (NFO, sous-titres, jaquettes) suivent la vidéo, et un dossier qui ne contient plus aucune vidéo est supprimé.
+- Retrait optionnel de Sonarr/Radarr (jamais d'ajout en liste d'exclusion). Seer est en lecture seule : une demande n'est jamais supprimée ni recréée.
 - Réparation des hardlinks en un clic, avec repli par lien symbolique entre systèmes de fichiers.
 - Relance d'un import bloqué (rien n'est supprimé : le fichier déjà sur le disque est simplement redonné à Sonarr/Radarr).
-- Retrait d'un média dont il ne reste rien sur le disque, de Sonarr/Radarr et de Seer.
+- Retrait d'un média dont il ne reste rien sur le disque, de Sonarr/Radarr.
 - Recherche cross-seed ciblée par épisode, saison ou série intégrale.
 
 **Aide à la décision**
@@ -63,6 +63,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Tri « candidats au nettoyage » : les gros fichiers que personne n'a regardés depuis longtemps.
 
 **Confort au quotidien**
+- Filtres de la bibliothèque : type de média, état (sain / alerte), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
 - **Analyses ciblées** : la flèche à côté de **Scanner** lance un seul service — Radarr, Sonarr, le serveur multimédia, le client torrent, la file d'attente, le visionnage ou Seer — et chaque fiche média a son bouton **Analyser ce média**. Les deux sont bien plus rapides qu'un scan complet et laissent le reste du cache intact.
 - qBittorrent, Deluge ou Transmission : le client torrent est un réglage, tout le reste fonctionne à l'identique.
@@ -70,11 +71,16 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Fichiers de la bibliothèque rapprochés de Sonarr/Radarr même quand les conteneurs montent la bibliothèque à des chemins différents.
 - État de connexion de chaque service dans les réglages, avec une alerte dans l'en-tête dès qu'un service ne répond plus.
 - Widget de tableau de bord en lecture seule (`/api/status`) pour Homepage, Homarr ou tout outil capable de lire du JSON.
-- Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape). Plusieurs canaux, chacun avec ses propres événements : scan terminé, échec de scan, orphelins détectés, suppression, nettoyage, réparation des hardlinks, recherche cross-seed, automatisation.
+- Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape). Plusieurs canaux, chacun avec ses propres événements : scan terminé, échec de scan, orphelins détectés, imports bloqués, téléchargements en souffrance, suppression, nettoyage, réparation des hardlinks, recherche cross-seed, automatisation, mise à jour disponible.
 - Automatisations optionnelles : sur orphelins, doublons, torrents non hardlinkés ou imports bloqués, nettoyer, réparer, relancer l'import, chercher un cross-seed ou simplement notifier — avec conditions (ancienneté du seed, ratio, type de média, espace récupérable), mode simulation et plafond par exécution.
+- Garde-fou des montages : toute action qui touche au disque est refusée quand un volume n'est pas monté, pour ne rien retirer de Sonarr/Radarr ni de la base alors que les fichiers sont toujours là.
+- Corbeille optionnelle : chaque suppression est conservée comme une seule entrée restaurable — fichiers de bibliothèque, torrents (retirés du client sans toucher à leurs données), et suivi Sonarr/Radarr reviennent ensemble, hardlinks compris (**Réglages → Corbeille**).
+- Durci pour une instance exposée : en-têtes de sécurité (CSP stricte, protection contre le clickjacking), limitation de débit sur les routes de connexion, adresse réelle du client derrière un reverse-proxy déclaré, et journal des connexions dans **Réglages → Compte**.
+- Les médias de la bibliothèque que Sonarr/Radarr ne suit pas sont détectés eux aussi : un film ajouté à la main ou une série retirée de Sonarr apparaît avec ses doublons et ses torrents au lieu de rester invisible — et un bouton le rattache à Radarr/Sonarr avec le dossier qui contient déjà ses fichiers, sans rien retélécharger.
+- Garde-fou des automatisations : quand un scan fait basculer une part anormale de la bibliothèque (partage injoignable, client torrent réinitialisé), les règles se mettent en pause et attendent que vous les relanciez.
 - Historique des actions : chaque suppression, nettoyage, réparation et recherche cross-seed, avec son résultat détaillé.
 - Interface en français et en anglais, thème sombre/clair, préférences d'affichage.
-- Notification quand une nouvelle version est publiée.
+- Vérification des mises à jour à l'ouverture de l'application (une requête toutes les 10 minutes au maximum), avec notification optionnelle quand une nouvelle version est publiée.
 
 ## Compatibilité
 

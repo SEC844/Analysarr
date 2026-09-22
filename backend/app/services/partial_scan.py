@@ -45,7 +45,7 @@ from app.services.arr_instances import arr_targets
 from app.services.events import scan_events
 from app.services.notifications import ChannelTarget, channel_targets
 from app.services.queue_issues import index_queue_issues, issue_rows_for
-from app.services.scan_scopes import NARROW_SCOPES, SERVICE_SCOPES
+from app.services.scan_scopes import SERVICE_SCOPES
 from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.torrent_match import (
     MediaView,
@@ -74,7 +74,11 @@ def _recompute_statuses(session: Session, medias: list[Media]) -> None:
     de ce que la base contient MAINTENANT. Appelé à la fin de chaque analyse
     partielle : les statuts croisent plusieurs sources, ils ne peuvent pas
     rester figés parce qu'une seule a été relue."""
-    from app.services.scan import compute_statuses, current_files_size  # import différé : évite un cycle
+    from app.services.scan import (  # import différé : évite un cycle
+        compute_statuses,
+        current_files_size,
+        is_tracked_by_arr,
+    )
 
     for media in medias:
         files = list(session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all())
@@ -87,6 +91,7 @@ def _recompute_statuses(session: Session, medias: list[Media]) -> None:
             len([label for label in media.missing_emby_episodes.split(",") if label]),
             {i.download_id.lower() for i in issues if i.download_id},
             {i.kind for i in issues},
+            tracked_by_arr=is_tracked_by_arr(media),
         )
         media.statuses = ",".join(sorted(statuses))
         media.reclaimable_bytes = reclaimable
@@ -294,6 +299,7 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
             run.media_count = len(medias)
             run.duplicate_count = sum(1 for m in medias if "doublon" in m.statuses.split(","))
             run.orphan_count = sum(1 for m in medias if "orphelin_qbit" in m.statuses.split(","))
+            run.non_hardlink_count = sum(1 for m in medias if "non_hardlink" in m.statuses.split(","))
             run.tracker_unique_count = sum(1 for m in medias if "tracker_unique" in m.statuses.split(","))
             run.qbittorrent_torrent_count = torrent_count
             run.qbittorrent_matched_count = matched_count
@@ -321,12 +327,15 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
 # l'historique de chaque média et tout le client torrent.
 
 
-def _arr_key(media: Media) -> tuple[str, int | None, int | None]:
-    return (
-        media.media_type.value,
-        media.arr_instance_id,
-        media.radarr_id if media.media_type == MediaType.movie else media.sonarr_id,
-    )
+def _arr_key(media: Media) -> tuple[str, Any, Any]:
+    """Identité d'un média d'une analyse à l'autre. Un média non suivi par
+    Sonarr/Radarr n'a pas d'identifiant arr : c'est son item du serveur
+    multimédia qui l'identifie, sinon tous ces médias partageraient la même
+    clé et s'écraseraient entre eux."""
+    arr_id = media.radarr_id if media.media_type == MediaType.movie else media.sonarr_id
+    if arr_id is None:
+        return (media.media_type.value, "library", media.emby_item_id)
+    return (media.media_type.value, media.arr_instance_id, arr_id)
 
 
 def _copy_media_fields(row: Media, source: Media) -> None:
@@ -358,7 +367,13 @@ async def _refresh_service(session: Session, settings: Settings, scope: str) -> 
     - `sonarr` : les séries, idem ;
     - `media_server` : les fichiers de bibliothèque des films ET des séries.
     """
-    from app.services.scan import LibraryContext, _index_items, build_movie_result, build_series_result
+    from app.services.scan import (
+        LibraryContext,
+        _index_items,
+        build_movie_result,
+        build_series_result,
+        build_untracked_results,
+    )
 
     wants_movies = scope in ("radarr", "media_server")
     wants_series = scope in ("sonarr", "media_server")
@@ -374,6 +389,8 @@ async def _refresh_service(session: Session, settings: Settings, scope: str) -> 
             series_entries += [(target, entry) for entry in await target.sonarr().get_series()]
 
     ctx = LibraryContext(emby=emby)
+    emby_movies: list[dict[str, Any]] = []
+    emby_series: list[dict[str, Any]] = []
     if wants_movies:
         emby_movies = await emby.get_library_items("Movie")
         ctx.emby_movies_by_tmdb = _index_items(emby_movies, "Tmdb")
@@ -382,7 +399,10 @@ async def _refresh_service(session: Session, settings: Settings, scope: str) -> 
             if movie.get("hasFile") and movie.get("movieFile") and movie.get("tmdbId"):
                 ctx.movie_files_by_tmdb.setdefault(str(movie["tmdbId"]), []).append((target, movie["movieFile"]))
     if wants_series:
-        ctx.emby_series_by_tvdb = _index_items(await emby.get_library_items("Series"), "Tvdb")
+        emby_series = await emby.get_library_items("Series")
+        ctx.emby_series_by_tvdb = _index_items(emby_series, "Tvdb")
+        ctx.emby_series_by_imdb = _index_items(emby_series, "Imdb")
+        ctx.emby_series_by_tmdb = _index_items(emby_series, "Tmdb")
         for target, entry in series_entries:
             if (entry.get("statistics") or {}).get("episodeFileCount") and entry.get("tvdbId"):
                 ctx.series_by_tvdb.setdefault(str(entry["tvdbId"]), []).append((target, entry["id"]))
@@ -423,8 +443,22 @@ async def _refresh_service(session: Session, settings: Settings, scope: str) -> 
         if built is not None:
             results.append(built)
 
+    # Les médias non suivis par Sonarr/Radarr viennent de la bibliothèque : seule
+    # une analyse du serveur multimédia peut les reconstruire, et elle seule a le
+    # droit de retirer ceux qui n'y sont plus.
+    untracked = scope == "media_server"
+    if untracked:
+        claimed = {r.media.emby_item_id for r in results if r.media.emby_item_id}
+        results.extend(await build_untracked_results(ctx, emby_movies, emby_series, claimed))
+
     return _persist_service_results(
-        session, settings, results, wants_movies, wants_series, refresh_queue=scope != "media_server"
+        session,
+        settings,
+        results,
+        wants_movies,
+        wants_series,
+        refresh_queue=scope != "media_server",
+        prune_untracked=untracked,
     )
 
 
@@ -435,6 +469,7 @@ def _persist_service_results(
     wants_movies: bool,
     wants_series: bool,
     refresh_queue: bool,
+    prune_untracked: bool = False,
 ) -> tuple[int, int]:
     """Écrit les médias reconstruits SANS changer leurs identifiants, puis
     rattache les torrents connus et recalcule tous les statuts."""
@@ -470,6 +505,10 @@ def _persist_service_results(
     for key, row in existing.items():
         is_movie = key[0] == MediaType.movie.value
         if key in seen or (is_movie and not wants_movies) or (not is_movie and not wants_series):
+            continue
+        if key[1] == "library" and not prune_untracked:
+            # Une analyse Radarr/Sonarr ne connaît pas les médias non suivis :
+            # les élaguer ici les ferait disparaître à chaque analyse.
             continue
         for table in (ImportIssue, MediaRequest, MediaWatch, Torrent, MediaFile):
             session.exec(delete(table).where(table.media_id == row.id))

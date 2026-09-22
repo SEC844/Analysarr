@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MediaFileRead(BaseModel):
@@ -137,12 +137,69 @@ class MediaDetail(MediaListItem):
     radarr_id: Optional[int]
     sonarr_id: Optional[int]
     emby_item_id: Optional[str]
+    # Identifiants externes (statut `manquant_arr`) : ce sont eux qui
+    # permettent d'ajouter le média dans Radarr ou Sonarr.
+    tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    imdb_id: Optional[str] = None
     files: list[MediaFileRead]
     torrents: list[TorrentRead]
     missing_emby_episodes: list[str]
     # Vide si Seer n'est pas activé.
     requests: list["MediaRequestRead"]
     import_issues: list["ImportIssueRead"]
+
+
+class ArrCandidateRead(BaseModel):
+    """Fiche Sonarr/Radarr proposée pour rattacher un média non suivi."""
+
+    key: str
+    title: str
+    year: Optional[int] = None
+    tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    imdb_id: Optional[str] = None
+    # "certain" : identifiant résolu par Sonarr/Radarr, titre et année
+    # concordants. "probable" : trouvé par recherche de titre.
+    confidence: str
+
+
+class ArrLinkPreview(BaseModel):
+    service: str
+    instance_name: str
+    candidates: list[ArrCandidateRead]
+    # Dossiers que Sonarr/Radarr voit sur le disque sans média rattaché,
+    # exactement la liste de son écran « Import Existing ».
+    folders: list[str] = []
+    suggested_folder: Optional[str] = None
+    quality_profiles: list["ArrQualityProfile"]
+    suggested_profile: Optional[int] = None
+
+
+class ArrQualityProfile(BaseModel):
+    id: int
+    name: str
+
+
+class ArrLinkRequest(BaseModel):
+    """Choix de l'utilisateur. Le dossier importé n'en fait PAS partie : il est
+    recalculé côté serveur à partir des fichiers connus, donc aucun chemin
+    arbitraire ne peut être envoyé à Sonarr/Radarr (voir services/arr_link.py)."""
+
+    candidate_key: str = Field(max_length=64)
+    quality_profile_id: int = Field(ge=1)
+    # Dossier à importer : forcément un de ceux que Sonarr/Radarr a déclarés
+    # non rattachés (revérifié côté serveur).
+    folder: Optional[str] = Field(default=None, max_length=512)
+    # all : tout surveiller · existing : les épisodes présents · future : les
+    # prochains · none : ajouter sans surveiller.
+    monitor: Literal["all", "existing", "future", "none"] = "none"
+    minimum_availability: Literal["announced", "inCinemas", "released"] = "released"
+
+
+class ArrLinkResult(BaseModel):
+    title: str
+    service: str
 
 
 class MediaListResponse(BaseModel):
@@ -199,9 +256,6 @@ class MediaDeleteSelection(BaseModel):
     # du film. Sonarr : démonitoring des épisodes concernés (pas d'équivalent
     # "supprimer" à cette granularité côté Sonarr).
     remove_from_arr: bool = False
-    # Supprime aussi la demande (et la fiche) du média dans Seer. Appliqué
-    # seulement si toute la bibliothèque du média est supprimée sans erreur.
-    remove_from_seer: bool = False
 
 
 class DiskUnit(BaseModel):

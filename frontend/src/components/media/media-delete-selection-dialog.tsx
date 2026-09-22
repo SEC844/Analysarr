@@ -26,6 +26,7 @@ import {
 import { watchProgressLabel } from "@/components/media/watch-stats"
 import { usePreferences } from "@/hooks/use-app"
 import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation, useMediaWatchQuery } from "@/hooks/use-media"
+import { useTrashSettingsQuery } from "@/hooks/use-trash"
 import { useI18n } from "@/i18n"
 import { diskBytes, fileKey, indexFootprint, reclaimedBytes, torrentKey } from "@/lib/footprint"
 import { formatBytes } from "@/lib/format"
@@ -173,7 +174,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const prefs = usePreferences()
   const [removeFromArr, setRemoveFromArr] = useState(false)
-  const [removeFromSeer, setRemoveFromSeer] = useState(false)
   const [result, setResult] = useState<MediaDeleteSelectionResult | null>(null)
 
   const executeMutation = useDeleteSelectionExecuteMutation()
@@ -190,6 +190,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
 
   const isSeries = media.media_type === "series"
   const selectedTorrents = media.torrents.filter((torrent) => selected.has(torrentKey(torrent.id)))
+  const { data: trash } = useTrashSettingsQuery()
   const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
   const hasSelection = selected.size > 0
   // Média vide : plus aucun fichier ni torrent, seuls subsistent le suivi
@@ -202,9 +203,10 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const wholeLibrary = isEmpty || (hasSelection && selectedFiles.length === media.files.length)
   const arrId = isSeries ? media.sonarr_id : media.radarr_id
   const canRemoveMedia = wholeLibrary && arrId !== null
-  const showArrOption = canRemoveMedia || (isSeries && selectedFiles.length > 0)
+  // Média suivi par aucun Sonarr/Radarr : ni retrait ni démonitoring à
+  // proposer, il n'y a rien à retirer de leur côté.
+  const showArrOption = arrId !== null && (canRemoveMedia || (isSeries && selectedFiles.length > 0))
   // Seer : même règle que le retrait du média entier de Sonarr/Radarr.
-  const showSeerOption = wholeLibrary && media.requests.length > 0
 
   // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.
   const nominalBytes =
@@ -239,7 +241,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
     if (next) {
       // Cases de retrait cochées d'office si la préférence le demande.
       setRemoveFromArr(prefs.delete_remove_from_arr_default)
-      setRemoveFromSeer(prefs.delete_remove_from_arr_default)
     } else {
       setSelected(new Set())
       setExpanded(new Set())
@@ -251,11 +252,9 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
     if (allSelected) {
       setSelected(new Set())
       setRemoveFromArr(prefs.delete_remove_from_arr_default)
-      setRemoveFromSeer(prefs.delete_remove_from_arr_default)
     } else {
       setSelected(new Set(allKeys))
       setRemoveFromArr(true)
-      setRemoveFromSeer(true)
     }
   }
 
@@ -275,7 +274,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
           torrent_ids: selectedTorrents.map((torrent) => torrent.id),
           media_file_ids: selectedFiles.map((f) => f.id),
           remove_from_arr: removeFromArr && showArrOption,
-          remove_from_seer: removeFromSeer && showSeerOption,
         },
       },
       {
@@ -359,17 +357,18 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               </div>
             )}
 
+            {selectedFiles.length > 0 && trash?.enabled && (
+              // La corbeille change ce qui arrive vraiment aux fichiers cochés :
+              // le dire ici, pas seulement dans les réglages.
+              <p className="text-muted-foreground text-xs">
+                {t("trash.notice", { days: trash.retention_days })}
+              </p>
+            )}
+
             {showArrOption && (
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={removeFromArr} onCheckedChange={setRemoveFromArr} />
                 {arrLabel}
-              </label>
-            )}
-
-            {showSeerOption && (
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={removeFromSeer} onCheckedChange={setRemoveFromSeer} />
-                {t("seer.deleteOption")}
               </label>
             )}
 
@@ -420,7 +419,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
               type="button"
               variant="destructive"
               disabled={
-                (isEmpty ? !removeFromArr && !removeFromSeer : !hasSelection) || executeMutation.isPending
+                (isEmpty ? !removeFromArr : !hasSelection) || executeMutation.isPending
               }
               onClick={handleConfirm}
             >

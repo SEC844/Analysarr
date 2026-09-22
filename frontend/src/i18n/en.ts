@@ -53,6 +53,99 @@ export const en: Dictionary = {
     otpLabel: "Verification code",
     otpHelp: "6-digit code from your authenticator app, or a recovery code.",
   },
+  star: {
+    title: "Enjoying Analysarr?",
+    description:
+      "Analysarr is open source. If the app helps you, a star on GitHub helps other people discover it.",
+    action: "Star on GitHub",
+    later: "Later",
+  },
+  linkArr: {
+    buttonMovie: "Link to Radarr",
+    buttonSeries: "Link to Sonarr",
+    descriptionMovie:
+      "Adds this movie to Radarr with the folder that already holds its files: they are picked up as they are, nothing is downloaded again.",
+    descriptionSeries:
+      "Adds this series to Sonarr with the folder that already holds its files: they are picked up as they are, nothing is downloaded again.",
+    candidate: "Entry to link",
+    candidateHelp:
+      "Every entry was looked up and then checked against Sonarr/Radarr (title and year). Media server ids are sometimes wrong: they are never used as they are.",
+    certain: "Certain match",
+    qualityProfile: "Quality profile",
+    monitor: "Monitoring",
+    monitors: {
+      existing: "Episodes on disk",
+      all: "All episodes",
+      future: "Future episodes",
+      none: "Not monitored",
+    },
+    folder: "Folder to import",
+    folderHelp:
+      "List provided by Sonarr/Radarr: the folders it sees on disk with no media attached, with its own paths.",
+    availability: "Minimum availability",
+    availabilities: {
+      announced: "Announced",
+      inCinemas: "In cinemas",
+      released: "Released",
+    },
+    noFolder:
+      "This media has no folder of its own under a Sonarr/Radarr root folder. Move its files into a dedicated folder, then run a scan.",
+    confirm: "Add to {service}",
+    linked: "{title} added: a scan is running to pick up its files.",
+    failed: "Linking failed.",
+    noCandidate:
+      "No entry matches this media in Sonarr/Radarr. Check its title in the library, then add it by hand.",
+  },
+  trash: {
+    title: "Trash",
+    description:
+      "Safety net for deletions: instead of being erased, files and torrents are set aside and stay recoverable for the chosen period. Essential when an automation gets it wrong.",
+    enabled: "Enable the trash",
+    retention: "Retention",
+    days: "days",
+    retentionHelp:
+      "After this delay everything is deleted for good (checked every 6 hours). Disk space is therefore only freed at that point.",
+    scopeHelp:
+      "Covers the files Analysarr deletes itself and the torrents it removes from the client (their data is set aside, never erased). When Sonarr or Radarr deletes a file on our behalf, their own recycling bin applies.",
+    ratioHelp:
+      "On restore: files return to their location with their hardlinks, the torrent goes back to the client with its data (no re-download), and the media is recreated in Sonarr/Radarr and Seer. Only the torrent sharing stats (ratio, uploaded) start over: no torrent client allows restoring them.",
+    contentTitle: "Trash content",
+    contentDescription: "{size} waiting for permanent deletion.",
+    empty: "Empty the trash",
+    empty0: "The trash is empty.",
+    emptied: "Trash emptied.",
+    restore: "Restore",
+    restored: "Deletion undone: everything is back in place.",
+    restoredWithScan: "Deletion undone: everything is back in place, a scan is running to bring the media back into the library.",
+    restoreFailed: "Incomplete restore: nothing was removed from the trash.",
+    incomplete: "Items are missing from the trash: the restore would be incomplete.",
+    deleteNow: "Delete permanently",
+    missing: "missing",
+    fileCount: { one: "{count} file", other: "{count} files" },
+    torrentCount: { one: "{count} torrent", other: "{count} torrents" },
+    withArr: "Sonarr/Radarr tracking",
+    withArrDetail: "The movie or series will be recreated in Sonarr/Radarr, then rescanned.",
+    notice: "Deleted files and torrents go to the trash and stay recoverable for {days} days.",
+  },
+  security: {
+    title: "Security and sign-ins",
+    description:
+      "Useful when Analysarr is reachable from outside: see who signs in, and surface the real visitor address behind a reverse proxy.",
+    trustedProxies: "Trusted reverse proxies",
+    trustedProxiesHelp:
+      "IP addresses or CIDR ranges, comma separated. Only a request coming from these addresses allows the X-Forwarded-For header to be read: otherwise anyone could announce the address of their choice and bypass the brute-force lockout. Leave empty without a reverse proxy.",
+    history: "Latest sign-in attempts",
+    historyEmpty: "No attempt recorded yet.",
+    success: "Succeeded",
+    reasons: {
+      password: "Wrong password",
+      otp: "Wrong 2FA code",
+      locked: "Account locked",
+      rate_limited: "Too many attempts",
+      unknown_user: "Unknown user",
+    },
+    saved: "Security settings saved.",
+  },
   account: {
     title: "Password",
     description: "Change the administrator account password.",
@@ -261,12 +354,16 @@ export const en: Dictionary = {
       non_hardlink_detected: "Non-hardlinked torrents detected",
       import_failed_detected: "Blocked imports detected",
       stalled_download_detected: "Stalled downloads",
+      untracked_detected: "Untracked media",
       delete_selection: "Deletion",
       import_retry: "Import retried",
       cascade_delete: "Cleanup",
       hardlink_repair: "Hardlink repair",
       cross_seed_search: "Cross-seed search",
+      arr_link: "Media linked to Sonarr/Radarr",
       automation: "Automation ran",
+      update_available: "Update available",
+      automations_paused: "Automations paused",
     },
     eventHelp: {
       scan_completed: "Summary figures after each successful scan.",
@@ -276,12 +373,16 @@ export const en: Dictionary = {
       non_hardlink_detected: "A scan finds seeded content without a hardlink to the library.",
       import_failed_detected: "A scan finds downloads Sonarr/Radarr could not move into the library.",
       stalled_download_detected: "A scan finds downloads that are not progressing any more.",
+      untracked_detected: "A scan finds library media that Sonarr/Radarr does not track.",
       delete_selection: "Manual deletion from a media page.",
       import_retry: "A blocked import was retried from a media page.",
       cascade_delete: "Cleanup of a media's duplicates and orphans.",
       hardlink_repair: "Hardlinks recreated for a media.",
       cross_seed_search: "Search sent to the cross-seed daemon.",
+      arr_link: "A library media was added to Sonarr/Radarr.",
       automation: "An automation rule acted.",
+      update_available: "A new version of Analysarr has been released (checked every 3 hours, notified once per version).",
+      automations_paused: "A scan flipped an unusual share of the library: the rules are suspended.",
     },
     urlLabel: {
       discord: "Webhook URL",
@@ -304,6 +405,25 @@ export const en: Dictionary = {
     confirmDelete: "Confirm deletion",
   },
   automations: {
+    guard: {
+      title: "Automation safety net",
+      description:
+        "Protection against losing a whole library: an unmounted disk, an unreachable share or a reset torrent client makes hundreds of media look like orphans or duplicates at once — and a cleanup automation would delete them all. Above the threshold, rules stop and wait for your go-ahead.",
+      how: "How it works",
+      threshold: "Share of the library tolerated",
+      thresholdHelp:
+        "Analysarr compares the last full scan with the previous one. If the number of media flagged orphan, duplicate or not hardlinked grows by more than this share of the library without any action from you (example: 1,000 media, 10 orphans becoming 210, that is 20%), automations are paused. Minimum {min}%.",
+      inactive:
+        "No automation enabled on orphans, duplicates or non-hardlinked torrents: there is nothing to protect right now.",
+      pausedTitle: "Automations paused",
+      reason: "Last scan: {status} went from {previous} to {current} media, that is {percent}% of the library.",
+      reasonUnknown: "A scan flipped an unusual share of the library.",
+      pausedAdvice:
+        "Check your mounts, disks and services, run a scan, then resume the automations. While they are paused, no rule deletes anything.",
+      resume: "Resume automations",
+      resumed: "Automations resumed.",
+      open: "Open automations",
+    },
     title: "Automations",
     description:
       "Rules that act on their own after each scan: for example deleting orphan torrents seeded for more than 30 days. No rule exists by default.",
@@ -324,6 +444,7 @@ export const en: Dictionary = {
       non_hardlink_detected: "Non-hardlinked torrent detected",
       import_failed_detected: "Blocked import detected",
       stalled_download_detected: "Stalled download",
+      untracked_detected: "Untracked media detected",
     },
     action: "Action",
     actions: {
@@ -331,6 +452,7 @@ export const en: Dictionary = {
       repair_hardlinks: "Repair hardlinks",
       cross_seed_search: "Search for a cross-seed",
       retry_import: "Retry import",
+      link_to_arr: "Link to Sonarr/Radarr",
       notify_only: "Notify only",
     },
     actionHelp: {
@@ -338,6 +460,8 @@ export const en: Dictionary = {
       repair_hardlinks: "Same action as the Repair hardlinks button.",
       cross_seed_search: "Starts a per-episode cross-seed search for the media.",
       retry_import: "Asks Sonarr/Radarr to import the blocked download again. Deletes nothing.",
+      link_to_arr:
+        "Adds the media to Sonarr/Radarr with the folder that already holds its files. Only on a certain match, otherwise the rule skips it. Deletes nothing.",
       notify_only: "Does not act: lists the matching media in the notification and the history.",
     },
     conditions: "Conditions (all optional)",
@@ -399,6 +523,9 @@ export const en: Dictionary = {
       hardlink_repair: "Repair",
       cross_seed_search: "Cross-seed",
       import_retry: "Import retried",
+      automation: "Automation",
+      trash_restore: "Restore",
+      arr_link: "Link",
     },
     succeeded: { one: "{count} succeeded", other: "{count} succeeded" },
     failures: { one: "{count} failure", other: "{count} failures" },
@@ -428,6 +555,7 @@ export const en: Dictionary = {
       widget: "Widget",
       history: "History",
       account: "Account",
+      trash: "Trash",
       preferences: "Preferences",
       application: "Application",
     },
@@ -451,7 +579,7 @@ export const en: Dictionary = {
     neverChecked: "No check performed yet.",
     checkNow: "Check now",
     autoCheck: "Automatically check for updates",
-    autoCheckHelp: "Queries GitHub every 6 hours. Only the Analysarr version number is sent, no other data.",
+    autoCheckHelp: "Queries GitHub when the app is opened.",
     sourceCode: "Source code",
     reportIssue: "Report an issue",
     starTitle: "Enjoying Analysarr?",
@@ -483,7 +611,6 @@ export const en: Dictionary = {
     pending: "pending approval",
     failed: "request failed",
     seasons: { one: "season {list}", other: "seasons {list}" },
-    deleteOption: "Also delete the request in Seer (the media becomes requestable again)",
   },
   preferences: {
     appearanceTitle: "Language and appearance",
@@ -507,6 +634,10 @@ export const en: Dictionary = {
     removeArrDefault: "Removal checked by default",
     removeArrDefaultHelp:
       "When deleting, “Also remove from Sonarr/Radarr” and “Also delete the request in Seer” are checked by default.",
+    timezone: "Time zone",
+    timezoneHelp:
+      "Time zone used to display every date. Defaults to the browser one — useful when the container runs in UTC or when you open Analysarr from another country.",
+    timezoneAuto: "Automatic (browser)",
     absoluteDates: "Exact dates",
     absoluteDatesHelp: "Show “on 03/12/2026” instead of “6 months ago”.",
   },
@@ -563,10 +694,17 @@ export const en: Dictionary = {
     clearSearch: "Clear search",
     type: "Type",
     allTypes: "All types",
+    health: "State",
+    allHealth: "All states",
+    healthy: "Healthy",
+    alert: "Alert",
+    more: "Filters",
+    matchAll: "Combine statuses",
+    matchAllHelp:
+      "On: only media carrying ALL the checked statuses. Off: those carrying at least one.",
     movies: "Movies",
     series: "Series",
     status: "Status",
-    allStatuses: "All statuses",
     sortBy: "Sort by",
     sortTitle: "Title (A-Z)",
     sortYear: "Year (newest)",
@@ -600,8 +738,10 @@ export const en: Dictionary = {
     orphelin_qbit: "qBit orphan",
     non_hardlink: "Not hardlinked",
     tracker_unique: "Single tracker",
+    cross_seed: "Cross-seed",
     manquant_emby: "Missing {deServer}",
     manquant_qbit: "Not seeded",
+    manquant_arr: "Untracked",
     import_rate: "Failed import",
     telechargement_bloque: "Stalled download",
   },
@@ -618,6 +758,7 @@ export const en: Dictionary = {
       radarr: "Reading Radarr...",
       sonarr: "Reading Sonarr...",
       emby: "Reading {server}...",
+      "bibliothèque": "Looking for untracked media...",
       historique: "Matching torrents...",
       qbittorrent: "Reading qBittorrent...",
       enregistrement: "Saving results...",
@@ -696,6 +837,7 @@ export const en: Dictionary = {
     description:
       "Confirm to automatically repair each file below: the unprotected copy is replaced by a hardlink to an already valid file (library or torrent, depending on the case) — no manual step needed, and a working hardlink is never touched.",
     nothing: "Nothing to repair automatically for this media.",
+    failed: "Repair failed.",
     file: "File",
     fromTorrent: "from {name}",
     joinsLibrary: "{name} joins the library hardlink",
@@ -715,6 +857,7 @@ export const en: Dictionary = {
       orphan_torrent: "Orphan torrent",
     },
     total: "Total reclaimable: {size}",
+    failed: "Cleanup failed.",
   },
   deleteSelection: {
     emptyMedia:

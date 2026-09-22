@@ -7,11 +7,18 @@ export const NOTIFICATION_EVENTS = [
   "orphan_detected",
   "duplicate_detected",
   "non_hardlink_detected",
+  "import_failed_detected",
+  "stalled_download_detected",
+  "untracked_detected",
   "delete_selection",
+  "import_retry",
   "cascade_delete",
   "hardlink_repair",
   "cross_seed_search",
+  "arr_link",
   "automation",
+  "update_available",
+  "automations_paused",
 ] as const
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number]

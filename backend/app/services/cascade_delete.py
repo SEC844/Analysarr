@@ -1,4 +1,3 @@
-import os
 
 import httpx
 from sqlmodel import Session, select
@@ -12,7 +11,10 @@ from app.schemas.media import (
     DeletePreviewItem,
     DeleteStepResult,
 )
+from app.services.media_delete import torrent_paths
+from app.services.path_guard import ensure_paths_available
 from app.services.scan import compute_statuses
+from app.services.trash import clean_media_folders, close_action, delete_or_trash, open_action, trash_torrent
 
 
 def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile], list[Torrent]]:
@@ -75,11 +77,18 @@ def build_delete_preview(session: Session, media: Media) -> DeletePreview:
 
 async def execute_delete(session: Session, media: Media, settings: Settings) -> DeleteExecuteResult:
     duplicate_files, orphan_torrents = _resolve_candidates(session, media)
+    # Voir services/path_guard.py : un volume non monté ferait passer des
+    # fichiers intacts pour des doublons ou des orphelins supprimables.
+    ensure_paths_available(settings, [f.path for f in duplicate_files], "Suppression")
+
     steps: list[DeleteStepResult] = []
+    # Une seule action de corbeille pour tout le nettoyage : c'est aussi le
+    # chemin qu'empruntent les automatisations, donc leur filet de sécurité.
+    trash = open_action(session, settings, media, "cascade_delete")
 
     for f in duplicate_files:
         try:
-            os.remove(f.path)
+            delete_or_trash(session, settings, f.path, action=trash, label=f.path)
             session.delete(f)
             steps.append(DeleteStepResult(kind="duplicate_file", label=f.path, success=True))
         except OSError as exc:
@@ -88,14 +97,20 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
     if orphan_torrents:
         try:
             async with torrent_client(settings) as qbit:
-                await qbit.delete_torrents([t.hash for t in orphan_torrents], delete_files=True)
+                if trash is not None:
+                    for t in orphan_torrents:
+                        await trash_torrent(session, settings, qbit, trash, t, torrent_paths(session, t))
+                else:
+                    await qbit.delete_torrents([t.hash for t in orphan_torrents], delete_files=True)
             for t in orphan_torrents:
                 session.delete(t)
                 steps.append(DeleteStepResult(kind="orphan_torrent", label=t.name, success=True))
-        except (TorrentAuthError, httpx.HTTPError) as exc:
+        except (TorrentAuthError, httpx.HTTPError, OSError, RuntimeError) as exc:
             for t in orphan_torrents:
                 steps.append(DeleteStepResult(kind="orphan_torrent", label=t.name, success=False, error=str(exc)))
 
+    clean_media_folders(session, settings, [f.path for f in duplicate_files], action=trash)
+    close_action(session, trash)
     session.commit()
 
     # Le statut et l'espace récupérable affichés sont calculés au moment du scan : sans

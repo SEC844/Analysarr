@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Copy, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, ShieldOff, UserPen } from "lucide-react"
+import { Copy, Eye, EyeOff, KeyRound, Loader2, ScrollText, ShieldCheck, ShieldOff, UserPen } from "lucide-react"
 import { toast } from "sonner"
 import { renderSVG } from "uqr"
 
@@ -13,12 +13,16 @@ import {
   useChangePasswordMutation,
   useChangeUsernameMutation,
   useCurrentUserQuery,
+  useLoginHistoryQuery,
+  useSaveSecuritySettingsMutation,
+  useSecuritySettingsQuery,
   useTwoFactorDisableMutation,
   useTwoFactorEnableMutation,
   useTwoFactorSetupMutation,
 } from "@/hooks/use-auth"
-import { useI18n } from "@/i18n"
+import { useI18n, type MessageKey } from "@/i18n"
 import { copyText } from "@/lib/clipboard"
+import { formatDateTime } from "@/lib/format"
 
 const MIN_PASSWORD_LENGTH = 8
 
@@ -382,6 +386,84 @@ function TwoFactorCard({ enabled }: { enabled: boolean }) {
   )
 }
 
+/** Proxys de confiance + dernières tentatives de connexion : de quoi vérifier
+ * qu'une instance exposée n'est pas sondée, et que l'adresse affichée est bien
+ * celle du client et non celle du reverse-proxy. */
+function SecurityCard() {
+  const { t } = useI18n()
+  const { data: security } = useSecuritySettingsQuery()
+  const { data: history } = useLoginHistoryQuery()
+  const saveMutation = useSaveSecuritySettingsMutation()
+  const [value, setValue] = useState<string | null>(null)
+
+  const proxies = value ?? security?.trusted_proxies ?? ""
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ScrollText className="size-4" />
+          {t("security.title")}
+        </CardTitle>
+        <CardDescription>{t("security.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="space-y-1.5">
+          <Label htmlFor="trusted-proxies">{t("security.trustedProxies")}</Label>
+          <div className="flex gap-2">
+            <Input
+              id="trusted-proxies"
+              value={proxies}
+              placeholder="10.0.0.0/24, 172.18.0.2"
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saveMutation.isPending || value === null || value === security?.trusted_proxies}
+              onClick={() =>
+                saveMutation.mutate(proxies, {
+                  onSuccess: () => {
+                    setValue(null)
+                    toast.success(t("security.saved"))
+                  },
+                  onError: showError(t),
+                })
+              }
+            >
+              {saveMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+              {t("common.save")}
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-xs">{t("security.trustedProxiesHelp")}</p>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{t("security.history")}</p>
+          {history && history.length > 0 ? (
+            <ul className="divide-border divide-y text-sm">
+              {history.map((attempt, index) => (
+                <li key={`${attempt.created_at}-${index}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5">
+                  <span className="text-muted-foreground tabular-nums">{formatDateTime(attempt.created_at)}</span>
+                  <span className="font-mono text-xs">{attempt.ip || "—"}</span>
+                  <span className="min-w-0 flex-1 truncate">{attempt.username || "—"}</span>
+                  <Badge variant={attempt.success ? "secondary" : "destructive"}>
+                    {attempt.success
+                      ? t("security.success")
+                      : t(`security.reasons.${attempt.reason ?? "password"}` as MessageKey)}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-muted-foreground text-sm">{t("security.historyEmpty")}</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AccountSection() {
   const { t } = useI18n()
   const { data: user, isLoading } = useCurrentUserQuery(true)
@@ -394,6 +476,7 @@ export function AccountSection() {
       <UsernameCard username={user.username} />
       <PasswordCard />
       <TwoFactorCard enabled={user.two_factor_enabled} />
+      <SecurityCard />
     </div>
   )
 }

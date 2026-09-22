@@ -1,5 +1,37 @@
 import { getLanguage, getLocale } from "@/i18n"
 
+// Fuseau d'affichage choisi dans les préférences (vide = celui du navigateur).
+// Stocké en module : les formats servent aussi hors composants React.
+let displayTimeZone = ""
+
+export function setDisplayTimeZone(timezone: string): void {
+  displayTimeZone = timezone
+}
+
+function dateOptions(base: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions {
+  return displayTimeZone ? { ...base, timeZone: displayTimeZone } : base
+}
+
+/** Date renvoyée par l'API. Les valeurs sans fuseau sont de l'UTC (convention
+ * de toutes les tables, voir backend) : sans ce "Z", le navigateur les lisait
+ * comme de l'heure locale et affichait l'heure du conteneur, souvent décalée. */
+export function parseApiDate(iso: string | null | undefined): Date | null {
+  if (!iso) return null
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(iso)
+  const date = new Date(hasZone ? iso : `${iso}Z`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function safeFormat(date: Date, options: Intl.DateTimeFormatOptions): string {
+  try {
+    return date.toLocaleString(getLocale(), dateOptions(options))
+  } catch {
+    // Fuseau inconnu du navigateur : on retombe sur le sien plutôt que de
+    // casser l'affichage.
+    return date.toLocaleString(getLocale(), options)
+  }
+}
+
 const BYTE_UNITS = {
   fr: ["o", "Ko", "Mo", "Go", "To"],
   en: ["B", "KB", "MB", "GB", "TB"],
@@ -18,23 +50,21 @@ export function formatBytes(bytes: number | null | undefined): string {
 }
 
 export function formatDate(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(getLocale(), { day: "2-digit", month: "2-digit", year: "numeric" })
+  const date = parseApiDate(iso)
+  return date ? safeFormat(date, { day: "2-digit", month: "2-digit", year: "numeric" }) : null
 }
 
 export function formatDateTime(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString(getLocale(), {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  const date = parseApiDate(iso)
+  return date
+    ? safeFormat(date, {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null
 }
 
 const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -47,9 +77,8 @@ const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 
 // "il y a 3 jours" / "3 days ago", dans la langue de l'interface.
 export function formatRelativeTime(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return null
+  const date = parseApiDate(iso)
+  if (date === null) return null
   const seconds = Math.round((date.getTime() - Date.now()) / 1000)
   const formatter = new Intl.RelativeTimeFormat(getLocale(), { numeric: "auto" })
   for (const [unit, size] of RELATIVE_UNITS) {

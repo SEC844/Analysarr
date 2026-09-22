@@ -38,6 +38,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("media", "root_path"),
     ("scanrun", "scope"),
     ("torrentfile", "torrent_hash"),
+    ("scanrun", "non_hardlink_count"),
 ]
 
 
@@ -106,6 +107,13 @@ _SETTINGS_NEW_COLUMNS = [
     ("notify_on_actions", "BOOLEAN NOT NULL DEFAULT 1"),
     ("widget_api_key_hash", "VARCHAR"),
     ("torrent_client", "VARCHAR NOT NULL DEFAULT 'qbittorrent'"),
+    ("update_notified_version", "VARCHAR"),
+    ("automation_guard_percent", "INTEGER NOT NULL DEFAULT 20"),
+    ("automations_paused_at", "DATETIME"),
+    ("automations_paused_reason", "VARCHAR"),
+    ("trusted_proxies", "VARCHAR NOT NULL DEFAULT ''"),
+    ("trash_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("trash_retention_days", "INTEGER NOT NULL DEFAULT 7"),
 ]
 
 
@@ -172,6 +180,7 @@ def init_db() -> None:
     from app.models.arr_instance import ArrInstance  # noqa: F401
     from app.models.automation import Automation  # noqa: F401
     from app.models.notification_channel import NotificationChannel  # noqa: F401
+    from app.models.auth import LoginAttempt  # noqa: F401
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.auth import User  # noqa: F401
     from app.models.media import (  # noqa: F401
@@ -186,12 +195,22 @@ def init_db() -> None:
         Torrent,
     )
     from app.models.settings import Settings  # noqa: F401
+    from app.models.trash import TrashAction, TrashItem  # noqa: F401
 
     _reset_media_cache_if_stale()
+    _drop_legacy_trash()
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
     _ensure_columns("user", _USER_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
     _migrate_legacy_notifications()
+
+
+def _drop_legacy_trash() -> None:
+    """Première forme de la corbeille : une ligne par fichier, sans torrent ni
+    suivi Sonarr/Radarr (jamais publiée hors de la branche dev). Remplacée par
+    `trashaction` + `trashitem`, voir services/trash.py."""
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS trashentry"))
 
 
 def get_session() -> Iterator[Session]:

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/logo"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { useAppInfoQuery } from "@/hooks/use-app"
+import { useAutomationGuardQuery } from "@/hooks/use-automations"
 import { useLogoutMutation } from "@/hooks/use-auth"
 import { useServicesStatusQuery } from "@/hooks/use-services"
 import { useI18n } from "@/i18n"
@@ -14,12 +15,16 @@ import { summarizeServices } from "@/lib/services"
 import { cn } from "@/lib/utils"
 
 const APPLICATION_SETTINGS = "/settings?section=application"
+const AUTOMATIONS_SETTINGS = "/settings?section=automations"
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useI18n()
   const logoutMutation = useLogoutMutation()
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
+
+  const { data: guard } = useAutomationGuardQuery()
+  const automationsPaused = guard?.paused ?? false
 
   const { data: services } = useServicesStatusQuery()
   const { firstDownSection } = summarizeServices(services)
@@ -29,14 +34,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Mise à jour disponible : le lien mène à l'onglet Application.
   const settingsTarget = firstDownSection
     ? `/settings?section=${firstDownSection}`
-    : updateAvailable
-      ? APPLICATION_SETTINGS
-      : "/settings"
+    : automationsPaused
+      ? AUTOMATIONS_SETTINGS
+      : updateAvailable
+        ? APPLICATION_SETTINGS
+        : "/settings"
   // Le lien Réglages mène toujours à la section utile : service en défaut
   // d'abord, sinon l'onglet Application quand une mise à jour attend.
   const navLinks = [
-    { to: "/", label: t("nav.home"), serviceDown: false },
-    { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0 },
+    { to: "/", label: t("nav.home"), serviceDown: false, paused: false },
+    { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0, paused: automationsPaused },
   ]
 
   return (
@@ -82,6 +89,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {link.label}
                   {link.serviceDown && (
                     <PulseDot tone="danger" label={t("servicesStatus.someDown", { count: downCount })} />
+                  )}
+                  {/* Un service injoignable reste prioritaire : une seule
+                      pastille à la fois, la plus grave. */}
+                  {!link.serviceDown && link.paused && (
+                    <PulseDot tone="warning" label={t("automations.guard.pausedTitle")} />
                   )}
                 </NavLink>
               ))}

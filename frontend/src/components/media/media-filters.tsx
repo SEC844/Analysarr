@@ -1,10 +1,15 @@
-import { Search, X } from "lucide-react"
+import { Filter, Search, X } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { useI18n, type MessageKey } from "@/i18n"
-import type { MediaListParams, MediaSort } from "@/types/media"
+import { ALERT_STATUSES, type MediaListParams, type MediaSort, type MediaStatus, type WatchFilter } from "@/types/media"
 
 interface MediaFiltersProps {
   value: MediaListParams
@@ -18,21 +23,14 @@ const TYPE_OPTIONS: [string, MessageKey][] = [
   ["movie", "filters.movies"],
   ["series", "filters.series"],
 ]
-const STATUS_OPTIONS: [string, MessageKey][] = [
-  ["all", "filters.allStatuses"],
-  ["sain", "status.sain"],
-  ["doublon", "status.doublon"],
-  ["orphelin_qbit", "status.orphelin_qbit"],
-  ["non_hardlink", "status.non_hardlink"],
-  ["tracker_unique", "status.tracker_unique"],
-  ["manquant_emby", "status.manquant_emby"],
-  ["manquant_qbit", "status.manquant_qbit"],
-  ["import_rate", "status.import_rate"],
-  ["telechargement_bloque", "status.telechargement_bloque"],
+// État : la lecture la plus utile au quotidien — ce qui va bien, ce qui demande
+// une action. Le détail par statut vit dans le panneau « Filtres ».
+const HEALTH_OPTIONS: [string, MessageKey][] = [
+  ["all", "filters.allHealth"],
+  ["sain", "filters.healthy"],
+  ["alerte", "filters.alert"],
 ]
-// "any" (et non "all", déjà une valeur de filtre : "vu par tous").
-const WATCH_OPTIONS: [string, MessageKey][] = [
-  ["any", "watch.filterAny"],
+const WATCH_OPTIONS: [WatchFilter, MessageKey][] = [
   ["never", "watch.filterNever"],
   ["in_progress", "watch.filterInProgress"],
   ["all", "watch.filterAllWatched"],
@@ -45,10 +43,73 @@ const SORT_OPTIONS: [string, MessageKey][] = [
   ["cleanup", "watch.sortCleanup"],
 ]
 
+function toggle<T extends string>(list: T[] | undefined, item: T, checked: boolean): T[] | undefined {
+  const next = checked ? [...(list ?? []), item] : (list ?? []).filter((value) => value !== item)
+  return next.length > 0 ? next : undefined
+}
+
+/** Statuts et visionnage en cases à cocher : un média peut en porter
+ * plusieurs, les croiser est tout l'intérêt (issue #35). */
+function DetailedFilters({ value, onChange }: { value: MediaListParams; onChange: (value: MediaListParams) => void }) {
+  const { t } = useI18n()
+  const statuses = value.status ?? []
+  const watches = value.watch ?? []
+
+  return (
+    <div className="min-w-0 space-y-4">
+      <div className="space-y-2">
+        <p className="text-sm font-medium">{t("filters.status")}</p>
+        <div className="grid gap-1.5 sm:grid-cols-2">
+          {ALERT_STATUSES.map((status) => (
+            <label key={status} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={statuses.includes(status)}
+                onCheckedChange={(checked) => onChange({ ...value, status: toggle(statuses, status, checked === true) })}
+              />
+              <span className="truncate">{t(`status.${status}` as MessageKey)}</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex items-center justify-between gap-4 pt-1">
+          <Label htmlFor="filters-match" className="font-normal">
+            {t("filters.matchAll")}
+          </Label>
+          <Switch
+            id="filters-match"
+            checked={value.match === "all"}
+            onCheckedChange={(checked) => onChange({ ...value, match: checked ? "all" : undefined })}
+          />
+        </div>
+        <p className="text-muted-foreground text-xs">{t("filters.matchAllHelp")}</p>
+      </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <p className="text-sm font-medium">{t("watch.filter")}</p>
+        <div className="grid gap-1.5 sm:grid-cols-2">
+          {WATCH_OPTIONS.map(([option, key]) => (
+            <label key={option} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={watches.includes(option)}
+                onCheckedChange={(checked) => onChange({ ...value, watch: toggle(watches, option, checked === true) })}
+              />
+              <span className="truncate">{t(key)}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function MediaFilters({ value, defaultSort, onChange }: MediaFiltersProps) {
   const { t } = useI18n()
+  const detailedCount = (value.status?.length ?? 0) + (value.watch?.length ?? 0)
   const hasActiveFilters = Boolean(
-    value.status || value.media_type || value.watch || value.search || (value.sort && value.sort !== defaultSort),
+    detailedCount > 0 ||
+      value.health ||
+      value.media_type ||
+      value.search ||
+      (value.sort && value.sort !== defaultSort),
   )
   const labelOf = (options: [string, MessageKey][]) => (v: string) => {
     const key = options.find(([option]) => option === v)?.[1]
@@ -58,19 +119,19 @@ export function MediaFilters({ value, defaultSort, onChange }: MediaFiltersProps
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative">
-        <Search className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2" />
+        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
         <Input
           placeholder={t("filters.searchPlaceholder")}
           value={value.search ?? ""}
           onChange={(e) => onChange({ ...value, search: e.target.value || undefined })}
-          className={value.search ? "w-56 pl-8 pr-8" : "w-56 pl-8"}
+          className={value.search ? "w-56 pr-8 pl-8" : "w-56 pl-8"}
         />
         {value.search && (
           <button
             type="button"
             onClick={() => onChange({ ...value, search: undefined })}
             aria-label={t("filters.clearSearch")}
-            className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+            className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2"
           >
             <X className="size-4" />
           </button>
@@ -94,30 +155,14 @@ export function MediaFilters({ value, defaultSort, onChange }: MediaFiltersProps
       </Select>
 
       <Select
-        value={value.status ?? "all"}
-        onValueChange={(v) => onChange({ ...value, status: v === "all" ? undefined : (v as MediaListParams["status"]) })}
+        value={value.health ?? "all"}
+        onValueChange={(v) => onChange({ ...value, health: v === "all" ? undefined : (v as "sain" | "alerte") })}
       >
-        <SelectTrigger className="w-44">
-          <SelectValue placeholder={t("filters.status")}>{labelOf(STATUS_OPTIONS)}</SelectValue>
+        <SelectTrigger className="w-40">
+          <SelectValue placeholder={t("filters.health")}>{labelOf(HEALTH_OPTIONS)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {STATUS_OPTIONS.map(([option, key]) => (
-            <SelectItem key={option} value={option}>
-              {t(key)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={value.watch ?? "any"}
-        onValueChange={(v) => onChange({ ...value, watch: v === "any" ? undefined : (v as MediaListParams["watch"]) })}
-      >
-        <SelectTrigger className="w-44">
-          <SelectValue placeholder={t("watch.filter")}>{labelOf(WATCH_OPTIONS)}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {WATCH_OPTIONS.map(([option, key]) => (
+          {HEALTH_OPTIONS.map(([option, key]) => (
             <SelectItem key={option} value={option}>
               {t(key)}
             </SelectItem>
@@ -138,6 +183,17 @@ export function MediaFilters({ value, defaultSort, onChange }: MediaFiltersProps
         </SelectContent>
       </Select>
 
+      <Popover>
+        <PopoverTrigger render={<Button type="button" variant="outline" />}>
+          <Filter className="size-4" />
+          {t("filters.more")}
+          {detailedCount > 0 && <Badge variant="secondary">{detailedCount}</Badge>}
+        </PopoverTrigger>
+        <PopoverContent className="w-80 max-w-[calc(100vw-2rem)]">
+          <DetailedFilters value={value} onChange={onChange} />
+        </PopoverContent>
+      </Popover>
+
       {hasActiveFilters && (
         <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ sort: defaultSort })}>
           <X className="size-4" />
@@ -147,3 +203,5 @@ export function MediaFilters({ value, defaultSort, onChange }: MediaFiltersProps
     </div>
   )
 }
+
+export type { MediaStatus }

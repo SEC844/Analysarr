@@ -3,11 +3,13 @@ import { Route, Routes } from "react-router-dom"
 import { toast } from "sonner"
 
 import { AppShell } from "@/components/layout/app-shell"
+import { StarPrompt } from "@/components/star-prompt"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useAppInfoQuery } from "@/hooks/use-app"
+import { useAppInfoQuery, usePreferences } from "@/hooks/use-app"
 import { useAuthStatusQuery } from "@/hooks/use-auth"
 import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n } from "@/i18n"
+import { setDisplayTimeZone } from "@/lib/format"
 import { LoginPage } from "@/pages/login-page"
 import { MediaDetailPage } from "@/pages/media-detail-page"
 import { MediaListPage } from "@/pages/media-list-page"
@@ -20,6 +22,10 @@ function FullPageState({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  // Fuseau d'affichage : posé avant tout rendu, les formats de dates servent
+  // aussi hors composants React (voir lib/format.ts).
+  const preferences = usePreferences()
+  setDisplayTimeZone(preferences.timezone)
   const { t, language, setLanguage, setMediaServer } = useI18n()
   const authStatus = useAuthStatusQuery()
   const authenticated = authStatus.data?.authenticated ?? false
@@ -114,6 +120,9 @@ function App() {
         <Route path="/media/:id" element={<MediaDetailPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
+      {/* Invitation à mettre une étoile : jamais à l'arrivée, jamais deux fois
+          (voir components/star-prompt.tsx). */}
+      <StarPrompt />
     </AppShell>
   )
 }

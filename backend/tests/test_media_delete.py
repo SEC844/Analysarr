@@ -2,7 +2,6 @@ import asyncio
 import os
 
 import httpx
-from sqlmodel import select
 
 from app.models.media import Media, MediaFile, MediaRequest, MediaType
 from app.schemas.media import MediaDeleteSelection
@@ -56,7 +55,7 @@ def test_partial_series_selection_never_deletes_the_series(fake_http, session, s
     assert not result.media_deleted and os.path.exists(files[2].path)
 
 
-def test_seer_request_is_kept_when_library_deletion_fails(fake_http, session, settings, tmp_path):
+def test_a_failed_library_deletion_is_reported(fake_http, session, settings, tmp_path):
     radarr_calls, seer_calls = [], []
     fake_http["http://radarr"] = recorder(radarr_calls, status=500)
     fake_http["http://seer"] = recorder(seer_calls, status=204)
@@ -65,28 +64,12 @@ def test_seer_request_is_kept_when_library_deletion_fails(fake_http, session, se
     session.add(MediaRequest(media_id=media.id, seer_request_id=1, seer_media_id=100, status="approved"))
     session.commit()
 
-    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True, remove_from_seer=True)
+    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True)
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
-    assert seer_calls == []  # le média existe toujours : sa demande ne doit pas disparaître
+    assert seer_calls == []  # Analysarr ne touche jamais aux demandes Seer
     assert os.path.exists(files[0].path)
     assert any(not step.success for step in result.steps)
-
-
-def test_seer_request_is_removed_after_successful_deletion(fake_http, session, settings, tmp_path):
-    seer_calls = []
-    fake_http["http://seer"] = recorder(seer_calls, status=204)
-    settings.seer_enabled, settings.seer_url, settings.seer_api_key = True, "http://seer", "k"
-    media, files = add_media(session, tmp_path, MediaType.movie)
-    session.add(MediaRequest(media_id=media.id, seer_request_id=1, seer_media_id=100, status="approved"))
-    session.commit()
-    media_id = media.id
-
-    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_seer=True)
-    asyncio.run(execute_media_delete(session, media, settings, selection))
-
-    assert seer_calls == [("DELETE", "/api/v1/media/100", {})]
-    assert session.exec(select(MediaRequest).where(MediaRequest.media_id == media_id)).all() == []
 
 
 def test_selection_is_limited_to_the_media_files(fake_http, session, settings, tmp_path):
@@ -97,3 +80,21 @@ def test_selection_is_limited_to_the_media_files(fake_http, session, settings, t
     asyncio.run(execute_media_delete(session, media, settings, selection))
 
     assert os.path.exists(other_files[0].path)  # un id d'un autre média est ignoré
+
+
+def test_a_file_already_gone_is_not_an_error(fake_http, session, settings, tmp_path):
+    """Sonarr supprime ses fichiers en tâche de fond : le nôtre peut avoir
+    disparu entre la vérification et la suppression. L'objectif est atteint."""
+    fake_http["http://sonarr"] = recorder([], status=404)
+    media, files = add_media(session, tmp_path, MediaType.series, files=2, sonarr_id=7)
+    for f in files:
+        f.arr_file_id = 900 + f.id
+        session.add(f)
+    session.commit()
+    os.remove(files[0].path)
+
+    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files])
+    result = asyncio.run(execute_media_delete(session, media, settings, selection))
+
+    # 404 côté Sonarr = fichier déjà retiré de son côté : aucune erreur affichée.
+    assert all(step.success for step in result.steps), [s.error for s in result.steps]

@@ -8,6 +8,7 @@ format, quel que soit le client configuré."""
 
 import os
 from typing import Any
+from urllib.parse import quote
 
 
 class TorrentAuthError(Exception):
@@ -43,6 +44,39 @@ class TorrentClient:
 
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         raise NotImplementedError
+
+    async def export_torrent(self, torrent_hash: str) -> bytes | None:
+        """Fichier .torrent du torrent, quand le client sait l'exporter
+        (qBittorrent). `None` sinon : la corbeille se rabat alors sur un lien
+        magnet construit à partir du hash et des trackers."""
+        return None
+
+    async def add_torrent(
+        self,
+        *,
+        torrent: bytes | None = None,
+        magnet: str | None = None,
+        save_path: str | None = None,
+        category: str | None = None,
+        paused: bool = False,
+    ) -> None:
+        """Ajoute un torrent dont les données sont DÉJÀ sur le disque (voir
+        services/trash.py) : le client vérifie les fichiers en place et reprend
+        le seed, sans rien retélécharger."""
+        raise NotImplementedError
+
+
+def magnet_for(torrent_hash: str, name: str | None, trackers: list[str]) -> str:
+    """Lien magnet de repli pour les clients sans export .torrent. Les URL de
+    trackers viennent du client lui-même (passkey comprise) : c'est ce qui
+    permet de retrouver les métadonnées du torrent à la restauration."""
+    magnet = f"magnet:?xt=urn:btih:{torrent_hash}"
+    if name:
+        magnet += f"&dn={quote(name, safe='')}"
+    for url in trackers:
+        if url.startswith(("http://", "https://", "udp://")):
+            magnet += f"&tr={quote(url, safe='')}"
+    return magnet
 
 
 def content_path_for(save_path: str | None, file_paths: list[str]) -> str | None:

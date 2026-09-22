@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
+import { AutomationsPausedBanner } from "@/components/automations/automations-paused-banner"
 import { GRID_SIZE_CLASSES, GridSizeToggle, type GridSize } from "@/components/media/grid-size-toggle"
 import { MediaCard } from "@/components/media/media-card"
 import { MediaFilters } from "@/components/media/media-filters"
@@ -12,17 +13,24 @@ import { useMediaListQuery } from "@/hooks/use-media"
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration"
 import { useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
-import type { MediaListParams, MediaSort } from "@/types/media"
+import type { MediaListParams, MediaSort, MediaStatus, WatchFilter } from "@/types/media"
 
 // Les filtres vivent dans l'URL (pas un simple useState) : ils survivent ainsi
 // à un retour arrière depuis la fiche détail, et une bibliothèque filtrée
 // reste partageable/bookmarkable. Le tri par défaut (Réglages → Préférences)
 // n'apparaît pas dans l'URL.
+function listOf<T extends string>(params: URLSearchParams, key: string): T[] | undefined {
+  const values = (params.get(key) ?? "").split(",").filter(Boolean) as T[]
+  return values.length > 0 ? values : undefined
+}
+
 function paramsToFilters(params: URLSearchParams, defaultSort: MediaSort): MediaListParams {
   return {
-    status: (params.get("status") as MediaListParams["status"]) ?? undefined,
+    status: listOf<MediaStatus>(params, "status"),
+    match: params.get("match") === "all" ? "all" : undefined,
+    health: (params.get("health") as MediaListParams["health"]) ?? undefined,
     media_type: (params.get("type") as MediaListParams["media_type"]) ?? undefined,
-    watch: (params.get("watch") as MediaListParams["watch"]) ?? undefined,
+    watch: listOf<WatchFilter>(params, "watch"),
     search: params.get("q") ?? undefined,
     sort: (params.get("sort") as MediaSort) ?? defaultSort,
   }
@@ -30,9 +38,11 @@ function paramsToFilters(params: URLSearchParams, defaultSort: MediaSort): Media
 
 function filtersToParams(filters: MediaListParams, defaultSort: MediaSort): URLSearchParams {
   const params = new URLSearchParams()
-  if (filters.status) params.set("status", filters.status)
+  if (filters.status?.length) params.set("status", filters.status.join(","))
+  if (filters.match) params.set("match", filters.match)
+  if (filters.health) params.set("health", filters.health)
   if (filters.media_type) params.set("type", filters.media_type)
-  if (filters.watch) params.set("watch", filters.watch)
+  if (filters.watch?.length) params.set("watch", filters.watch.join(","))
   if (filters.search) params.set("q", filters.search)
   if (filters.sort && filters.sort !== defaultSort) params.set("sort", filters.sort)
   return params
@@ -63,6 +73,12 @@ export function MediaListPage() {
           <ScanButton />
           <GridSizeToggle value={gridSize} onChange={setGridOverride} />
         </div>
+      </div>
+
+      {/* Automatisations suspendues par le garde-fou : visible dès l'accueil,
+          sinon la pause passerait inaperçue jusqu'à l'ouverture des réglages. */}
+      <div className="mb-6 empty:mb-0">
+        <AutomationsPausedBanner />
       </div>
 
       <div className="mb-6">

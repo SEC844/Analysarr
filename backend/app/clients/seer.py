@@ -36,17 +36,3 @@ class SeerClient:
                 if len(page) < _PAGE_SIZE or (isinstance(total, int) and skip >= total):
                     break
         return requests
-
-    async def _delete(self, path: str) -> None:
-        async with self._client() as client:
-            resp = await client.delete(path)
-            # Déjà absent côté Seer : l'objectif (plus de demande) est atteint.
-            if resp.status_code != 404:
-                resp.raise_for_status()
-
-    async def delete_media(self, media_id: int) -> None:
-        """Supprime la fiche du média et ses demandes : il redevient demandable."""
-        await self._delete(f"/api/v1/media/{int(media_id)}")
-
-    async def delete_request(self, request_id: int) -> None:
-        await self._delete(f"/api/v1/request/{int(request_id)}")

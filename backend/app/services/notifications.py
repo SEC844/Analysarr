@@ -49,7 +49,6 @@ _pending: set[asyncio.Task] = set()
 # Icône du projet (même dépôt que le code), pour l'avatar Discord.
 ICON_URL = "https://raw.githubusercontent.com/SEC844/Analysarr/main/unraid/analysarr.png"
 
-CHANNEL_KINDS = ("discord", "ntfy", "gotify")
 MAX_CHANNELS = 20
 
 # Événements notifiables, chacun activable canal par canal.
@@ -61,25 +60,17 @@ NOTIFICATION_EVENTS = (
     "non_hardlink_detected",
     "import_failed_detected",
     "stalled_download_detected",
+    "untracked_detected",
     "delete_selection",
     "import_retry",
     "cascade_delete",
     "hardlink_repair",
     "cross_seed_search",
+    "arr_link",
     "automation",
+    "update_available",
+    "automations_paused",
 )
-# Sélection par défaut d'un nouveau canal : ce qui demande une action ou
-# signale un problème, jamais le simple résumé de scan (trop fréquent).
-DEFAULT_EVENTS = (
-    "scan_failed",
-    "orphan_detected",
-    "duplicate_detected",
-    "import_failed_detected",
-    "delete_selection",
-    "cascade_delete",
-    "hardlink_repair",
-)
-
 DISCORD_WEBHOOK_PREFIXES = (
     "https://discord.com/api/webhooks/",
     "https://discordapp.com/api/webhooks/",
@@ -103,6 +94,7 @@ _TEXT = {
         "cascade_delete": "Nettoyage effectué",
         "hardlink_repair": "Hardlinks réparés",
         "cross_seed_search": "Recherche cross-seed",
+        "arr_link": "Média rattaché à Sonarr/Radarr",
         "automation": "Automatisation exécutée",
         "type": "Type",
         "freed": "Espace libéré",
@@ -129,12 +121,28 @@ _TEXT = {
         "import_failed_detected_summary": "Sonarr/Radarr n'a pas réussi à ranger ces téléchargements dans la bibliothèque.",
         "stalled_download_detected": "Téléchargements en souffrance",
         "stalled_download_detected_summary": "Ces téléchargements n'avancent plus (bloqués, sans source ou en erreur).",
+        "untracked_detected": "Médias non suivis",
+        "untracked_detected_summary": "Ces médias sont dans la bibliothèque mais aucun Sonarr/Radarr ne les suit.",
         "import_retry": "Import relancé",
         "affected_media": "Médias concernés",
         "test": "Notification de test",
         "test_body": "Les notifications d'Analysarr fonctionnent : les événements choisis pour ce canal arriveront ici.",
         "rule": "Règle",
         "trigger": "Déclencheur",
+        "automations_paused": "Automatisations mises en pause",
+        "automations_paused_summary": "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues jusqu'à une reprise manuelle.",
+        "guard_status": "Statut concerné",
+        "guard_change": "Médias concernés",
+        "guard_share": "Part de la bibliothèque",
+        "statuses": {
+            "doublon": "Doublon",
+            "orphelin_qbit": "Orphelin",
+            "non_hardlink": "Non hardlinké",
+        },
+        "update_available": "Mise à jour disponible",
+        "update_available_summary": "Une nouvelle version d'Analysarr est publiée.",
+        "installed_version": "Version installée",
+        "latest_version": "Dernière version",
     },
     "en": {
         "colon": ": ",
@@ -145,6 +153,7 @@ _TEXT = {
         "cascade_delete": "Cleanup completed",
         "hardlink_repair": "Hardlinks repaired",
         "cross_seed_search": "Cross-seed search",
+        "arr_link": "Media linked to Sonarr/Radarr",
         "automation": "Automation ran",
         "type": "Type",
         "freed": "Space freed",
@@ -171,12 +180,28 @@ _TEXT = {
         "import_failed_detected_summary": "Sonarr/Radarr could not move these downloads into the library.",
         "stalled_download_detected": "Stalled downloads",
         "stalled_download_detected_summary": "These downloads are not progressing any more (stalled, no source, or failing).",
+        "untracked_detected": "Untracked media",
+        "untracked_detected_summary": "These media are in the library but no Sonarr/Radarr tracks them.",
         "import_retry": "Import retried",
         "affected_media": "Media affected",
         "test": "Test notification",
         "test_body": "Analysarr notifications are working: the events selected for this channel will show up here.",
         "rule": "Rule",
         "trigger": "Trigger",
+        "automations_paused": "Automations paused",
+        "automations_paused_summary": "A scan flipped an unusual share of the library: rules are suspended until you resume them.",
+        "guard_status": "Status involved",
+        "guard_change": "Media involved",
+        "guard_share": "Share of the library",
+        "statuses": {
+            "doublon": "Duplicate",
+            "orphelin_qbit": "Orphan",
+            "non_hardlink": "Not hardlinked",
+        },
+        "update_available": "Update available",
+        "update_available_summary": "A new version of Analysarr has been released.",
+        "installed_version": "Installed version",
+        "latest_version": "Latest version",
     },
 }
 
@@ -224,6 +249,12 @@ def channel_events(channel: NotificationChannel) -> tuple[str, ...]:
     except ValueError:
         return ()
     return tuple(event for event in events if event in NOTIFICATION_EVENTS)
+
+
+def event_has_subscriber(session: Session, event: str) -> bool:
+    """Au moins un canal actif abonné à cet événement. Sert à ne planifier une
+    vérification périodique que si quelqu'un l'attend."""
+    return any(target.wants(event) for target in channel_targets(session))
 
 
 def channel_targets(session: Session, only_enabled: bool = True) -> list[ChannelTarget]:
@@ -308,7 +339,9 @@ def action_notification(
     if failures:
         fields.append((text["failed"], str(failures)))
     return Notification(
-        title=text[action],
+        # `get` et non `text[action]` : une action sans libellé doit rester une
+        # notification fade, jamais une erreur 500 (bug réel sur `arr_link`).
+        title=text.get(action, action),
         description=f"{media.title} ({media.year})" if media.year else media.title,
         level="success" if not failures else "warning" if success else "error",
         fields=fields,
@@ -370,6 +403,43 @@ def detection_notification(language: str, event: str, medias: list[tuple[str, in
         fields=fields,
         details_label=text["details"],
         details=details,
+        colon=text["colon"],
+    )
+
+
+def automations_paused_notification(
+    language: str, *, status: str, previous: int, current: int, percent: int
+) -> Notification:
+    """Basculement massif détecté par un scan : les automatisations sont
+    suspendues (voir services/automation_guard.py)."""
+    text = _TEXT[language]
+    return Notification(
+        title=text["automations_paused"],
+        description=text["automations_paused_summary"],
+        level="warning",
+        fields=[
+            (text["guard_status"], text["statuses"].get(status, status)),
+            (text["guard_change"], f"{previous} → {current}"),
+            (text["guard_share"], f"{percent} %"),
+        ],
+        colon=text["colon"],
+    )
+
+
+def update_available_notification(
+    language: str, current: str, latest: str, release_url: str | None
+) -> Notification:
+    """Nouvelle version publiée. L'URL vient de `services/updates.py`, qui
+    n'accepte qu'un lien vers la page des releases du dépôt officiel."""
+    text = _TEXT[language]
+    description = text["update_available_summary"]
+    if release_url:
+        description = f"{description}\n{release_url}"
+    return Notification(
+        title=text["update_available"],
+        description=description,
+        level="info",
+        fields=[(text["installed_version"], current), (text["latest_version"], latest)],
         colon=text["colon"],
     )
 

@@ -4,18 +4,24 @@ import type {
   ChangePasswordRequest,
   ChangeUsernameRequest,
   CurrentUser,
+  LoginAttempt,
   LoginRequest,
   RecoveryCodes,
+  SecuritySettings,
   SetupRequest,
   TwoFactorDisableRequest,
   TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
-import type { Automation, AutomationRunResult, AutomationWrite } from "@/types/automations"
+import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
+import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
 import type { ServicesStatus } from "@/types/services"
 import type {
+  ArrLinkPreview,
+  ArrLinkRequest,
+  ArrLinkResult,
   CrossSeedSearchResult,
   DeleteExecuteResult,
   DeletePreview,
@@ -133,6 +139,21 @@ export function disableTwoFactor(payload: TwoFactorDisableRequest): Promise<Curr
   return request<CurrentUser>("/api/auth/2fa/disable", { method: "POST", body: JSON.stringify(payload) })
 }
 
+export function getLoginHistory(): Promise<LoginAttempt[]> {
+  return request<LoginAttempt[]>("/api/auth/login-history")
+}
+
+export function getSecuritySettings(): Promise<SecuritySettings> {
+  return request<SecuritySettings>("/api/auth/security")
+}
+
+export function saveSecuritySettings(trusted_proxies: string): Promise<SecuritySettings> {
+  return request<SecuritySettings>("/api/auth/security", {
+    method: "PUT",
+    body: JSON.stringify({ trusted_proxies }),
+  })
+}
+
 export function getAppInfo(): Promise<AppInfo> {
   return request<AppInfo>("/api/app/info")
 }
@@ -220,6 +241,46 @@ export function runAutomation(id: number): Promise<AutomationRunResult> {
   return request<AutomationRunResult>(`/api/automations/${id}/run`, { method: "POST" })
 }
 
+export function getAutomationGuard(): Promise<AutomationGuard> {
+  return request<AutomationGuard>("/api/automations/guard")
+}
+
+export function saveAutomationGuard(percent: number): Promise<AutomationGuard> {
+  return request<AutomationGuard>("/api/automations/guard", { method: "PUT", body: JSON.stringify({ percent }) })
+}
+
+/** Reprise manuelle après une mise en pause automatique. */
+export function resumeAutomations(): Promise<AutomationGuard> {
+  return request<AutomationGuard>("/api/automations/guard/resume", { method: "POST" })
+}
+
+// --- Corbeille ---------------------------------------------------------------
+export function getTrash(): Promise<TrashAction[]> {
+  return request<TrashAction[]>("/api/trash")
+}
+
+export function getTrashSettings(): Promise<TrashSettings> {
+  return request<TrashSettings>("/api/trash/settings")
+}
+
+export function saveTrashSettings(payload: { enabled: boolean; retention_days: number }): Promise<TrashSettings> {
+  return request<TrashSettings>("/api/trash/settings", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+/** Restauration d'une suppression entière : fichiers, torrents, Sonarr/Radarr
+ * et Seer d'un seul coup (jamais élément par élément). */
+export function restoreTrashAction(id: number): Promise<TrashRestoreResult> {
+  return request<TrashRestoreResult>(`/api/trash/${id}/restore`, { method: "POST" })
+}
+
+export function deleteTrashAction(id: number): Promise<void> {
+  return request<void>(`/api/trash/${id}`, { method: "DELETE" })
+}
+
+export function emptyTrash(): Promise<void> {
+  return request<void>("/api/trash", { method: "DELETE" })
+}
+
 export function getWidgetKey(): Promise<WidgetKeyRead> {
   return request<WidgetKeyRead>("/api/settings/widget-key")
 }
@@ -247,9 +308,13 @@ export function clearActionHistory(): Promise<void> {
 
 export function listMedia(params: MediaListParams): Promise<MediaListResponse> {
   const search = new URLSearchParams()
-  if (params.status) search.set("status", params.status)
+  // Filtres multiples : valeurs séparées par des virgules, comme les attend
+  // l'API (listes fermées côté serveur).
+  if (params.status?.length) search.set("status", params.status.join(","))
+  if (params.match) search.set("match", params.match)
+  if (params.health) search.set("health", params.health)
   if (params.media_type) search.set("media_type", params.media_type)
-  if (params.watch) search.set("watch", params.watch)
+  if (params.watch?.length) search.set("watch", params.watch.join(","))
   if (params.search) search.set("search", params.search)
   if (params.sort) search.set("sort", params.sort)
   const qs = search.toString()
@@ -322,6 +387,16 @@ export function hardlinkRepairExecute(id: number): Promise<HardlinkRepairResult>
 
 export function startScan(scope: ScanScope = "full"): Promise<{ started: boolean; message?: string }> {
   return request(`/api/scan?scope=${scope}`, { method: "POST" })
+}
+
+/** Ce qu'Analysarr propose pour rattacher un média non suivi (candidats
+ * vérifiés, dossiers racine et profils de l'instance). */
+export function getArrLinkPreview(id: number): Promise<ArrLinkPreview> {
+  return request<ArrLinkPreview>(`/api/media/${id}/arr-link`)
+}
+
+export function linkMediaToArr(id: number, payload: ArrLinkRequest): Promise<ArrLinkResult> {
+  return request<ArrLinkResult>(`/api/media/${id}/arr-link`, { method: "POST", body: JSON.stringify(payload) })
 }
 
 export function rescanMedia(id: number): Promise<MediaRescanResult> {

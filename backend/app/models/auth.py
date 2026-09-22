@@ -55,3 +55,19 @@ class Session(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
     expires_at: datetime
     last_seen_at: datetime = Field(default_factory=_utcnow)
+
+
+class LoginAttempt(SQLModel, table=True):
+    """Tentative de connexion (réussie ou non) au compte administrateur.
+    Table bornée, voir services/login_log.py."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+
+    username: str = ""
+    # Adresse vue par l'application : celle du proxy tant qu'aucun proxy de
+    # confiance n'est déclaré (voir services/security.py::client_ip).
+    ip: str = ""
+    success: bool = False
+    # password | otp | locked | rate_limited | unknown_user
+    reason: Optional[str] = None

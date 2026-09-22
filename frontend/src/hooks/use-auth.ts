@@ -7,8 +7,11 @@ import {
   enableTwoFactor,
   getAuthStatus,
   getCurrentUser,
+  getLoginHistory,
+  getSecuritySettings,
   login,
   logout,
+  saveSecuritySettings,
   setupAdmin,
   setupTwoFactor,
 } from "@/lib/api"
@@ -36,6 +39,23 @@ export function useCurrentUserQuery(enabled: boolean) {
     queryKey: CURRENT_USER_QUERY_KEY,
     queryFn: getCurrentUser,
     enabled,
+  })
+}
+
+/** Journal des connexions : rafraîchi à l'ouverture de la section. */
+export function useLoginHistoryQuery() {
+  return useQuery({ queryKey: ["auth", "login-history"], queryFn: getLoginHistory })
+}
+
+export function useSecuritySettingsQuery() {
+  return useQuery({ queryKey: ["auth", "security"], queryFn: getSecuritySettings })
+}
+
+export function useSaveSecuritySettingsMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (trustedProxies: string) => saveSecuritySettings(trustedProxies),
+    onSuccess: (data) => queryClient.setQueryData(["auth", "security"], data),
   })
 }
 

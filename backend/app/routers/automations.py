@@ -11,8 +11,29 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.automation import Automation
 from app.models.settings import Settings
-from app.schemas.automations import AutomationRead, AutomationRunResult, AutomationWrite
-from app.services.automations import TRIGGER_STATUSES, eligible_medias, as_rule, rule_conditions, run_rule
+from app.schemas.automations import (
+    AutomationGuard,
+    AutomationGuardWrite,
+    AutomationRead,
+    AutomationRunResult,
+    AutomationWrite,
+)
+from app.services.automation_guard import (
+    MIN_THRESHOLD_PERCENT,
+    is_paused,
+    paused_reason,
+    resume_automations,
+    threshold_percent,
+    watched_statuses,
+)
+from app.services.automations import (
+    TRIGGER_STATUSES,
+    applicable_conditions,
+    as_rule,
+    eligible_medias,
+    rule_conditions,
+    run_rule,
+)
 from app.services.notifications import channel_targets
 
 router = APIRouter()
@@ -35,6 +56,29 @@ def _to_read(automation: Automation) -> AutomationRead:
     )
 
 
+def _guard(session: Session, settings: Settings | None) -> AutomationGuard:
+    reason = paused_reason(settings) or {}
+    return AutomationGuard(
+        percent=threshold_percent(settings),
+        min_percent=MIN_THRESHOLD_PERCENT,
+        active=bool(watched_statuses(session)),
+        paused=is_paused(settings),
+        paused_at=settings.automations_paused_at if settings else None,
+        status=reason.get("status"),
+        previous=reason.get("previous"),
+        current=reason.get("current"),
+        total=reason.get("total"),
+        changed_percent=reason.get("percent"),
+    )
+
+
+def _settings(session: Session) -> Settings:
+    settings = session.get(Settings, 1)
+    if settings is None:
+        raise HTTPException(400, "Configuration manquante.")
+    return settings
+
+
 def _get(automation_id: int, session: Session) -> Automation:
     automation = session.get(Automation, automation_id)
     if automation is None:
@@ -47,13 +91,46 @@ def _apply(automation: Automation, payload: AutomationWrite) -> None:
         raise HTTPException(400, "Chaque automatisation doit avoir un nom.")
     if payload.action == "repair_hardlinks" and payload.trigger != "non_hardlink_detected":
         raise HTTPException(400, "La réparation des hardlinks ne s'applique qu'aux torrents non hardlinkés.")
+    if payload.action == "link_to_arr" and payload.trigger != "untracked_detected":
+        raise HTTPException(400, "Le rattachement ne s'applique qu'aux médias non suivis par Sonarr/Radarr.")
     automation.name = payload.name.strip()
     automation.enabled = payload.enabled
     automation.trigger = payload.trigger
     automation.action = payload.action
-    automation.conditions = json.dumps(payload.conditions.model_dump(exclude_none=True))
+    # Conditions hors sujet pour ce déclencheur : effacées plutôt que gardées
+    # sans effet (une condition de ratio n'existe pas pour un import bloqué).
+    allowed = applicable_conditions(payload.trigger)
+    conditions = {
+        key: value
+        for key, value in payload.conditions.model_dump(exclude_none=True).items()
+        if key == "media_types" or key in allowed
+    }
+    automation.conditions = json.dumps(conditions)
     automation.max_actions = payload.max_actions
     automation.dry_run = payload.dry_run
+
+
+@router.get("/guard", response_model=AutomationGuard)
+def read_guard(session: Session = Depends(get_session)) -> AutomationGuard:
+    return _guard(session, session.get(Settings, 1))
+
+
+@router.put("/guard", response_model=AutomationGuard)
+def update_guard(payload: AutomationGuardWrite, session: Session = Depends(get_session)) -> AutomationGuard:
+    settings = _settings(session)
+    settings.automation_guard_percent = payload.percent
+    session.add(settings)
+    session.commit()
+    return _guard(session, settings)
+
+
+@router.post("/guard/resume", response_model=AutomationGuard)
+def resume_guard(session: Session = Depends(get_session)) -> AutomationGuard:
+    """Reprise manuelle après une mise en pause : c'est l'utilisateur qui
+    confirme que le basculement était légitime (voir automation_guard.py)."""
+    settings = _settings(session)
+    resume_automations(session, settings)
+    return _guard(session, settings)
 
 
 @router.get("", response_model=list[AutomationRead])
