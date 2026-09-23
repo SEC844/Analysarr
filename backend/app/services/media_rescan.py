@@ -74,6 +74,16 @@ class MediaRescanResult:
             self.statuses = []
 
 
+def _media_server(settings: Settings) -> EmbyClient:
+    """Serveur multimédia configuré : l'analyse d'un média n'a pas de sens sans
+    lui. RuntimeError, et non une AttributeError sur None : la route la traduit
+    en message lisible au lieu d'une erreur 500 (bug réel)."""
+    emby = media_server_client(settings)
+    if emby is None:
+        raise RuntimeError("Serveur multimédia non configuré.")
+    return emby
+
+
 async def rescan_media(session: Session, settings: Settings, media: Media) -> MediaRescanResult:
     is_series = media.media_type == MediaType.series
     arr_id = media.sonarr_id if is_series else media.radarr_id
@@ -164,7 +174,7 @@ async def _rescan_untracked(
     if await _adopt_arr_entry(session, settings, media, is_series):
         return await rescan_media(session, settings, media)
 
-    emby = media_server_client(settings)
+    emby = _media_server(settings)
     items = await emby.get_items_by_ids([media.emby_item_id]) if media.emby_item_id else []
     if not items:
         _delete_media(session, media)
@@ -268,7 +278,7 @@ async def _rebuild_files(
 ) -> list[MediaFile]:
     """Refait les fichiers de bibliothèque du média à partir du serveur
     multimédia et de Sonarr/Radarr, exactement comme le scan complet."""
-    emby = media_server_client(settings)
+    emby = _media_server(settings)
     rows: list[MediaFile] = []
 
     if is_series:
