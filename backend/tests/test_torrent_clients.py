@@ -10,6 +10,7 @@ from app.clients.torrent import torrent_client, torrent_client_configured, torre
 from app.clients.torrent_base import TorrentAuthError
 from app.clients.transmission import TransmissionClient
 from app.schemas.settings import ConnectionTestRequest
+
 # Alias : un nom commençant par test_ serait collecté comme test par pytest.
 from app.services.connection_test import test_torrent_client as check_torrent_client
 
@@ -63,7 +64,13 @@ def deluge_handler(calls: list[tuple[str, list]], connected: bool = True, login:
 def transmission_handler(calls: list[dict], session_id: str | None = "session-1", status: int = 200):
     def handler(req: httpx.Request) -> httpx.Response:
         body = json.loads(req.content)
-        calls.append({"method": body["method"], "arguments": body["arguments"], "session": req.headers.get("X-Transmission-Session-Id")})
+        calls.append(
+            {
+                "method": body["method"],
+                "arguments": body["arguments"],
+                "session": req.headers.get("X-Transmission-Session-Id"),
+            }
+        )
         if status != 200:
             return httpx.Response(status)
         if session_id and req.headers.get("X-Transmission-Session-Id") != session_id:
@@ -93,7 +100,11 @@ def test_deluge_returns_the_common_torrent_shape(fake_http):
     assert torrent["save_path"] == "/data/torrents/complete"
     assert torrent["content_path"].replace("\\", "/") == "/data/torrents/complete/Matrix.1999.1080p"
     assert (torrent["size"], torrent["ratio"], torrent["num_seeds"], torrent["num_leechs"]) == (100, 1.5, 3, 1)
-    assert (torrent["added_on"], torrent["completion_on"], torrent["category"]) == (1_700_000_000, 1_700_000_100, "films")
+    assert (torrent["added_on"], torrent["completion_on"], torrent["category"]) == (
+        1_700_000_000,
+        1_700_000_100,
+        "films",
+    )
     assert files == [{"name": "Matrix.1999.1080p/matrix.mkv", "size": 100}]
     assert trackers == [{"url": "https://tracker.example/announce", "status": None}]
     # Un seul appel de statuts sert aussi aux fichiers et aux trackers.
@@ -178,7 +189,10 @@ def test_each_client_declares_its_own_required_credentials(settings, kind, usern
 
     assert torrent_client_configured(settings) is configured
     assert isinstance(torrent_client(settings), client_type)
-    assert torrent_client_name(settings) == {"qbittorrent": "qBittorrent", "deluge": "Deluge", "transmission": "Transmission"}[kind]
+    assert (
+        torrent_client_name(settings)
+        == {"qbittorrent": "qBittorrent", "deluge": "Deluge", "transmission": "Transmission"}[kind]
+    )
 
 
 def test_connection_test_covers_every_client(fake_http):

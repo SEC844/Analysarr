@@ -24,11 +24,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, col, delete, select
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client, torrent_client_configured
-from app.models.media import ImportIssue, Media, MediaFile, MediaType, MediaRequest, MediaWatch, Torrent
+from app.models.ids import row_id
+from app.models.media import ImportIssue, Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.services.arr_instances import arr_target_for, arr_targets
 from app.services.hardlink import stat_inode
@@ -46,7 +47,6 @@ from app.services.scan import (
     compute_statuses,
     current_files_size,
 )
-from app.services.trackers import extract_tracker_domain, status_label
 from app.services.torrent_match import (
     FetchedTorrents,
     MediaView,
@@ -56,6 +56,7 @@ from app.services.torrent_match import (
     normalize_release_words,
     normalize_words,
 )
+from app.services.trackers import extract_tracker_domain, status_label
 from app.services.watch_stats import parse_emby_date, refresh_media_watch
 
 __all__ = ["MediaRescanResult", "rescan_media"]
@@ -194,10 +195,10 @@ async def _rescan_untracked(
     media.root_path = built.root_path
     media.tmdb_id, media.tvdb_id, media.imdb_id = built.media.tmdb_id, built.media.tvdb_id, built.media.imdb_id
 
-    session.exec(delete(MediaFile).where(MediaFile.media_id == media.id))
+    session.exec(delete(MediaFile).where(col(MediaFile.media_id) == media.id))
     files: list[MediaFile] = []
     for row in built.files:
-        row.media_id = media.id
+        row.media_id = row_id(media)
         session.add(row)
         files.append(row)
     session.commit()
@@ -216,11 +217,11 @@ async def _rescan_untracked(
 
 
 def _delete_media(session: Session, media: Media) -> None:
-    session.exec(delete(ImportIssue).where(ImportIssue.media_id == media.id))
-    session.exec(delete(MediaRequest).where(MediaRequest.media_id == media.id))
-    session.exec(delete(MediaWatch).where(MediaWatch.media_id == media.id))
-    session.exec(delete(Torrent).where(Torrent.media_id == media.id))
-    session.exec(delete(MediaFile).where(MediaFile.media_id == media.id))
+    session.exec(delete(ImportIssue).where(col(ImportIssue.media_id) == media.id))
+    session.exec(delete(MediaRequest).where(col(MediaRequest.media_id) == media.id))
+    session.exec(delete(MediaWatch).where(col(MediaWatch.media_id) == media.id))
+    session.exec(delete(Torrent).where(col(Torrent.media_id) == media.id))
+    session.exec(delete(MediaFile).where(col(MediaFile.media_id) == media.id))
     session.delete(media)
     session.commit()
 
@@ -259,10 +260,10 @@ async def _rebuild_import_issues(
     except Exception:  # noqa: BLE001 - informatif
         records = []
 
-    session.exec(delete(ImportIssue).where(ImportIssue.media_id == media.id))
+    session.exec(delete(ImportIssue).where(col(ImportIssue.media_id) == media.id))
     rows = issue_rows_for(records)
     for row in rows:
-        row.media_id = media.id
+        row.media_id = row_id(media)
         session.add(row)
     session.commit()
     return rows
@@ -318,7 +319,7 @@ async def _rebuild_files(
                     flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], episode_file)
                 else:
                     flags = [bool(s.get("Path") and s.get("Path") in current_paths) for s in sources]
-                for source, is_current in zip(sources, flags):
+                for source, is_current in zip(sources, flags, strict=True):
                     rows.append(_file_row(media, source, label, is_current, episode_file_id, episode_id))
             media.missing_emby_episodes = ",".join(
                 _missing_emby_labels(downloaded, [r.episode_label for r in rows], spans)
@@ -335,14 +336,14 @@ async def _rebuild_files(
             _apply_media_server_item(media, item)
             sources = _without_other_instance_files(_media_sources(item), movie_file, [])
             flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], movie_file)
-            for source, is_current in zip(sources, flags):
+            for source, is_current in zip(sources, flags, strict=True):
                 rows.append(_file_row(media, source, None, is_current, (movie_file or {}).get("id"), None))
         else:
             _clear_media_server_item(media)
 
-    session.exec(delete(MediaFile).where(MediaFile.media_id == media.id))
+    session.exec(delete(MediaFile).where(col(MediaFile.media_id) == media.id))
     for row in rows:
-        row.media_id = media.id
+        row.media_id = row_id(media)
         session.add(row)
     session.commit()
     return rows
@@ -426,7 +427,7 @@ def _candidate_positions(
     settings: Settings,
     media: Media,
     listed: list[dict[str, Any]],
-    known_hashes: dict[str, int],
+    known_hashes: dict[str, int | None],
 ) -> list[int]:
     """Torrents à réexaminer pour CE média : les siens, ceux qui ne sont
     rattachés à aucun média, ceux dont le chemin part de son dossier racine, et
@@ -435,7 +436,7 @@ def _candidate_positions(
     titles = [normalize_words(media.title)]
     titles += [normalize_words(t) for t in (media.alt_titles or "").split("\n") if t]
     root = media.root_path if media.root_path else None
-    usable_root = bool(root) and is_usable_root(root, settings.qbittorrent_download_path)
+    usable_root = root is not None and is_usable_root(root, settings.qbittorrent_download_path)
 
     positions: list[int] = []
     for pos, raw in enumerate(listed):
@@ -467,7 +468,7 @@ async def _rebuild_torrents(
     """Rattache les torrents candidats à ce média. Le détail (fichiers,
     trackers) n'est demandé que pour eux."""
     if not torrent_client_configured(settings):
-        session.exec(delete(Torrent).where(Torrent.media_id == media.id))
+        session.exec(delete(Torrent).where(col(Torrent.media_id) == media.id))
         session.commit()
         return []
 
@@ -507,9 +508,9 @@ async def _rebuild_torrents(
     hash_to_index = {h: 0 for h, owner in known_hashes.items() if owner == media.id}
     attached = attach_torrents(settings, [view], fetched, hash_to_index)[0]
 
-    session.exec(delete(Torrent).where(Torrent.media_id == media.id))
+    session.exec(delete(Torrent).where(col(Torrent.media_id) == media.id))
     for torrent in attached:
-        torrent.media_id = media.id
+        torrent.media_id = row_id(media)
         session.add(torrent)
     session.commit()
     return attached

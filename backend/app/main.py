@@ -24,8 +24,8 @@ from app.routers.auth import is_request_authenticated
 from app.services.login_log import record_attempt
 from app.services.path_guard import MountUnavailableError
 from app.services.rate_limit import retry_after
-from app.services.security import client_ip, parse_trusted_proxies
 from app.services.scheduler import configure_scan_schedule, configure_trash_purge, refresh_update_watch, scheduler
+from app.services.security import client_ip, parse_trusted_proxies
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
 # statut/déconnexion) et le healthcheck Docker.
@@ -127,9 +127,8 @@ async def require_auth(request: Request, call_next):
         path in _PUBLIC_API_PATHS
         or any(path.startswith(p) for p in _PUBLIC_API_PREFIXES)
     ) and path not in _PROTECTED_AUTH_PATHS
-    if path.startswith("/api/") and not is_public:
-        if not is_request_authenticated(request):
-            return JSONResponse({"detail": "Non authentifié."}, status_code=401)
+    if path.startswith("/api/") and not is_public and not is_request_authenticated(request):
+        return JSONResponse({"detail": "Non authentifié."}, status_code=401)
     return await call_next(request)
 
 

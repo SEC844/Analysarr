@@ -2,7 +2,7 @@
 de la bibliothèque suspend les règles jusqu'à une reprise manuelle."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import select
 
@@ -31,7 +31,7 @@ def add_rule(session, *, trigger="orphan_detected", enabled=True) -> Automation:
 
 
 def add_run(session, *, media=100, duplicates=0, orphans=0, non_hardlink=0, scope="full", minutes_ago=10):
-    finished = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    finished = datetime.now(UTC) - timedelta(minutes=minutes_ago)
     run = ScanRun(
         status=ScanStatus.completed,
         scope=scope,

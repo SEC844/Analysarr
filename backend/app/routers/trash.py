@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.database import get_session
+from app.models.ids import row_id
 from app.models.settings import Settings
 from app.models.trash import TrashAction
 from app.schemas.trash import (
@@ -46,7 +47,7 @@ def _to_read(session: Session, action: TrashAction, reclaimable: int) -> TrashAc
         for item in items
     ]
     return TrashActionRead(
-        id=action.id,
+        id=row_id(action),
         created_at=action.created_at,
         action=action.action,
         media_title=action.media_title,
@@ -64,7 +65,7 @@ def _to_read(session: Session, action: TrashAction, reclaimable: int) -> TrashAc
 def _list(session: Session) -> list[TrashActionRead]:
     rows = actions(session)
     sizes = reclaimable_sizes(session, rows)
-    return [_to_read(session, action, sizes.get(action.id, 0)) for action in rows]
+    return [_to_read(session, action, sizes.get(row_id(action), 0)) for action in rows]
 
 
 def _get(action_id: int, session: Session) -> TrashAction:

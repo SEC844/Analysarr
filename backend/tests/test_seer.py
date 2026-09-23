@@ -11,7 +11,12 @@ ADMIN = {"id": 1, "displayName": "Admin"}
 
 
 def request(**overrides):
-    base = {"id": 10, "status": 2, "createdAt": "2026-03-12T10:00:00.000Z", "media": {"id": 100, "tmdbId": 603, "mediaType": "movie"}}
+    base = {
+        "id": 10,
+        "status": 2,
+        "createdAt": "2026-03-12T10:00:00.000Z",
+        "media": {"id": 100, "tmdbId": 603, "mediaType": "movie"},
+    }
     return base | overrides
 
 
@@ -49,7 +54,10 @@ def test_requests_pagination_stops_at_total(fake_http):
         assert req.headers["X-Api-Key"] == "k"
         skip = int(req.url.params["skip"])
         pages.append(skip)
-        return httpx.Response(200, json={"pageInfo": {"results": 150}, "results": [request(id=i) for i in range(skip, min(skip + 100, 150))]})
+        return httpx.Response(
+            200,
+            json={"pageInfo": {"results": 150}, "results": [request(id=i) for i in range(skip, min(skip + 100, 150))]},
+        )
 
     fake_http["http://seer"] = handler
     assert len(asyncio.run(SeerClient("http://seer", "k").get_requests())) == 150

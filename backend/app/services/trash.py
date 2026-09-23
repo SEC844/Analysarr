@@ -29,28 +29,30 @@ torrent reprend son seed avec ses données, mais son historique de partage est
 perdu — c'est dit tel quel dans l'interface."""
 
 import base64
+import contextlib
 import json
 import os
 import shutil
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.clients.torrent_base import TorrentAuthError, TorrentClient, magnet_for
-from app.services.companion_files import (
-    is_inside,
-    companions,
-    folders_of,
-    has_video,
-    leftovers,
-    prune_empty_dirs,
-)
+from app.models.ids import row_id
 from app.models.media import Media, Torrent
 from app.models.settings import Settings
 from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import DeleteStepResult
+from app.services.companion_files import (
+    companions,
+    folders_of,
+    has_video,
+    is_inside,
+    leftovers,
+    prune_empty_dirs,
+)
 
 TRASH_DIR_NAME = ".analysarr-trash"
 DEFAULT_RETENTION_DAYS = 7
@@ -71,7 +73,7 @@ def retention_days(settings: Settings | None) -> int:
 
 
 def _unique_destination(directory: str, name: str) -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     candidate = os.path.join(directory, f"{stamp}-{name}")
     index = 1
     while os.path.lexists(candidate):
@@ -180,10 +182,8 @@ def _remove_or_move(
     ouverte. Un fichier déjà absent n'est jamais une erreur — c'est le résultat
     voulu (Sonarr/Radarr peut l'avoir supprimé juste avant)."""
     if action is None or not is_enabled(settings):
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.remove(path)
-        except FileNotFoundError:
-            pass
         return None
     size = _size_of(path)
     try:
@@ -332,11 +332,13 @@ def capture_arr(
 
 
 def actions(session: Session) -> list[TrashAction]:
-    return list(session.exec(select(TrashAction).order_by(TrashAction.id.desc())).all())
+    return list(session.exec(select(TrashAction).order_by(col(TrashAction.id).desc())).all())
 
 
 def items_of(session: Session, action: TrashAction) -> list[TrashItem]:
-    return list(session.exec(select(TrashItem).where(TrashItem.action_id == action.id).order_by(TrashItem.id)).all())
+    return list(
+        session.exec(select(TrashItem).where(col(TrashItem.action_id) == action.id).order_by(col(TrashItem.id))).all()
+    )
 
 
 def payload_of(item: TrashItem) -> dict[str, Any]:
@@ -403,10 +405,10 @@ def reclaimable_sizes(session: Session, trash_actions: list[TrashAction]) -> dic
                         continue  # illisible : compté pour rien, la purge ne libérera rien de sûr
                     key = (stat.st_dev, stat.st_ino)
                     size, links, holders = units.get(key, (stat.st_size, stat.st_nlink, {}))
-                    holders[action.id] = holders.get(action.id, 0) + 1
+                    holders[row_id(action)] = holders.get(row_id(action), 0) + 1
                     units[key] = (size, links, holders)
 
-    sizes = {action.id: 0 for action in trash_actions}
+    sizes = {row_id(action): 0 for action in trash_actions}
     for size, links, holders in units.values():
         if sum(holders.values()) < links:
             continue  # un lien vit encore hors de la corbeille : rien à libérer
@@ -426,7 +428,7 @@ def purge_action(session: Session, action: TrashAction) -> None:
 
 
 def purge_expired(session: Session, settings: Settings | None) -> int:
-    limit = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=retention_days(settings))
+    limit = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=retention_days(settings))
     expired = session.exec(select(TrashAction).where(TrashAction.created_at < limit)).all()
     for action in expired:
         purge_action(session, action)
@@ -496,7 +498,10 @@ async def _restore_torrents(
             for item in items:
                 payload = payload_of(item)
                 try:
-                    for original, trashed in zip(payload.get("paths") or [], payload.get("trashed_paths") or []):
+                    # Relu en base : une liste plus courte que l'autre ne doit pas
+                    # empêcher de remettre en place ce qui a une paire.
+                    pairs = zip(payload.get("paths") or [], payload.get("trashed_paths") or [], strict=False)
+                    for original, trashed in pairs:
                         _restore_path(trashed, original)
                     exported = payload.get("torrent_b64")
                     await client.add_torrent(

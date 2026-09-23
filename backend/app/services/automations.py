@@ -13,12 +13,13 @@ personne ne regarde :
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.automation import Automation
+from app.models.ids import row_id
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.automations import AutomationConditions, AutomationRunResult, AutomationStep
@@ -59,7 +60,7 @@ def applicable_conditions(trigger: str) -> tuple[str, ...]:
 class AutomationRule:
     """Copie d'une règle : utilisable après la fermeture de la session."""
 
-    id: int
+    id: int | None  # None : règle pas encore enregistrée
     name: str
     trigger: str
     action: str
@@ -102,7 +103,7 @@ def _seeded_days(torrent: Torrent, now: datetime) -> float | None:
     reference = torrent.completed_on or torrent.added_on
     if reference is None:
         return None
-    return (now - reference.replace(tzinfo=timezone.utc)).total_seconds() / 86400
+    return (now - reference.replace(tzinfo=UTC)).total_seconds() / 86400
 
 
 def matches(rule: AutomationRule, media: Media, torrents: list[Torrent], now: datetime) -> bool:
@@ -113,9 +114,10 @@ def matches(rule: AutomationRule, media: Media, torrents: list[Torrent], now: da
         return False
 
     concerned = _concerned_torrents(rule.trigger, torrents)
-    if conditions.min_ratio is not None:
-        if not concerned or any((t.ratio or 0) < conditions.min_ratio for t in concerned):
-            return False
+    if conditions.min_ratio is not None and (
+        not concerned or any((t.ratio or 0) < conditions.min_ratio for t in concerned)
+    ):
+        return False
     if conditions.min_seed_days is not None:
         if not concerned:
             return False
@@ -129,7 +131,7 @@ def matches(rule: AutomationRule, media: Media, torrents: list[Torrent], now: da
 
 def eligible_medias(session: Session, rule: AutomationRule) -> list[tuple[Media, list[Torrent]]]:
     status = TRIGGER_STATUSES[rule.trigger]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     eligible: list[tuple[Media, list[Torrent]]] = []
     for media in session.exec(select(Media)).all():
         if status not in media.statuses.split(","):
@@ -140,7 +142,9 @@ def eligible_medias(session: Session, rule: AutomationRule) -> list[tuple[Media,
     return eligible
 
 
-async def _execute(rule: AutomationRule, session: Session, settings: Settings, media: Media) -> tuple[list[AutomationStep], int]:
+async def _execute(
+    rule: AutomationRule, session: Session, settings: Settings, media: Media
+) -> tuple[list[AutomationStep], int]:
     """Exécute l'action de la règle sur un média. Réutilise exactement le code
     des actions manuelles (imports différés : ces modules dépendent du scan)."""
     from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic
@@ -156,7 +160,10 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
         if rule.action == "cleanup":
             freed = build_delete_preview(session, media).total_reclaimable_bytes
             result = await execute_delete(session, media, settings)
-            steps = [AutomationStep(label=f"{media.title} — {s.label}", success=s.success, error=s.error) for s in result.steps]
+            steps = [
+                AutomationStep(label=f"{media.title} — {s.label}", success=s.success, error=s.error)
+                for s in result.steps
+            ]
             return steps, freed if all(s.success for s in result.steps) else 0
         if rule.action == "retry_import":
             # Relance l'import bloqué : aucune suppression, donc aucun risque
@@ -174,20 +181,24 @@ async def _execute(rule: AutomationRule, session: Session, settings: Settings, m
             # Tout le reste attend une confirmation humaine.
             preview = await build_link_preview(session, settings, media)
             candidate = pick_automatic(preview)
-            if candidate is None:
+            profile = preview.suggested_profile  # garanti par pick_automatic
+            if candidate is None or profile is None:
                 return [AutomationStep(label=media.title, success=False, error="Aucune correspondance certaine.")], 0
             title = await link_media(
                 session,
                 settings,
                 media,
                 candidate_key=candidate.key,
-                quality_profile_id=preview.suggested_profile,
+                quality_profile_id=profile,
             )
             return [AutomationStep(label=f"{media.title} — {title}", success=True)], 0
         if rule.action == "repair_hardlinks":
-            result = await execute_repair(session, media, settings)
-            steps = [AutomationStep(label=f"{media.title} — {s.label}", success=s.success, error=s.error) for s in result.steps]
-            return steps, result.freed_bytes
+            repair = await execute_repair(session, media, settings)
+            steps = [
+                AutomationStep(label=f"{media.title} — {s.label}", success=s.success, error=s.error)
+                for s in repair.steps
+            ]
+            return steps, repair.freed_bytes
         torrents = list(session.exec(select(Torrent).where(Torrent.media_id == media.id)).all())
         media_files = list(session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all())
         search = await trigger_cross_seed_search(settings, [t.hash for t in torrents], media_files, scope="episode")
@@ -216,7 +227,7 @@ async def run_rule(
         steps.extend(media_steps)
         freed_total += freed
 
-    automation.last_run_at = datetime.now(timezone.utc)
+    automation.last_run_at = datetime.now(UTC)
     automation.last_run_count = len(selected)
     session.add(automation)
     session.commit()
@@ -238,7 +249,7 @@ async def run_rule(
         )
 
     return AutomationRunResult(
-        automation_id=rule.id,
+        automation_id=row_id(automation),
         name=rule.name,
         matched=len(eligible),
         executed=len(selected),
@@ -258,4 +269,7 @@ async def run_automations(
     query = select(Automation).where(Automation.enabled == True)  # noqa: E712 - SQLModel n'accepte pas `is True`
     if trigger is not None:
         query = query.where(Automation.trigger == trigger)
-    return [await run_rule(session, settings, channels, automation) for automation in session.exec(query.order_by(Automation.id)).all()]
+    return [
+        await run_rule(session, settings, channels, automation)
+        for automation in session.exec(query.order_by(col(Automation.id))).all()
+    ]

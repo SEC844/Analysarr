@@ -260,7 +260,11 @@ async def build_link_preview(session: Session, settings: Settings, media: Media)
         candidates = await (_movie_candidates(target, media) if is_movie else _series_candidates(target, media))
         client = target.radarr() if is_movie else target.sonarr()
         rows = await client.get_root_folders()
-        profiles = [(row["id"], row.get("name") or str(row["id"])) for row in await client.get_quality_profiles() if row.get("id")]
+        profiles = [
+            (row["id"], row.get("name") or str(row["id"]))
+            for row in await client.get_quality_profiles()
+            if row.get("id")
+        ]
     except httpx.HTTPError as exc:
         raise ArrLinkError(f"{target.name} injoignable : {exc}") from exc
 

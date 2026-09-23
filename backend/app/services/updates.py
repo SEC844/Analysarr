@@ -20,7 +20,7 @@ dépôt officiel.
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -88,7 +88,7 @@ async def _fetch_latest(now: datetime) -> UpdateStatus:
 async def get_update_status(force: bool = False) -> UpdateStatus:
     global _cached, _expires_at
     async with _lock:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if _cached is not None and _expires_at is not None:
             fresh = _expires_at > now
             too_soon = force and now - _cached.checked_at < _FORCE_MIN_INTERVAL
@@ -107,7 +107,7 @@ def refresh_in_background() -> None:
     """Rafraîchit le cache sans faire attendre l'appelant. Sans effet si le
     cache est encore frais ou si un rafraîchissement est déjà en cours."""
     global _refresh_task
-    if not _is_stale(datetime.now(timezone.utc)):
+    if not _is_stale(datetime.now(UTC)):
         return
     if _refresh_task is not None and not _refresh_task.done():
         return

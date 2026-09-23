@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,11 +23,11 @@ class AutomationConditions(BaseModel):
     # Vide = films et séries.
     media_types: list[Literal["movie", "series"]] = []
     # Ancienneté minimale du seed, en jours, pour CHAQUE torrent concerné.
-    min_seed_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    min_seed_days: int | None = Field(default=None, ge=0, le=3650)
     # Ratio minimal de CHAQUE torrent concerné.
-    min_ratio: Optional[float] = Field(default=None, ge=0, le=1000)
+    min_ratio: float | None = Field(default=None, ge=0, le=1000)
     # Espace récupérable minimal du média.
-    min_reclaimable_bytes: Optional[int] = Field(default=None, ge=0)
+    min_reclaimable_bytes: int | None = Field(default=None, ge=0)
 
 
 class AutomationRead(BaseModel):
@@ -39,7 +39,7 @@ class AutomationRead(BaseModel):
     conditions: AutomationConditions
     max_actions: int
     dry_run: bool
-    last_run_at: Optional[datetime]
+    last_run_at: datetime | None
     last_run_count: int
 
 
@@ -64,14 +64,14 @@ class AutomationGuard(BaseModel):
     # protéger et l'interface ne l'affiche pas.
     active: bool = False
     paused: bool
-    paused_at: Optional[datetime] = None
+    paused_at: datetime | None = None
     # Motif de la pause, tel que détecté par le scan (le libellé est traduit
     # par l'interface) : statut concerné et compteurs avant/après.
-    status: Optional[str] = None
-    previous: Optional[int] = None
-    current: Optional[int] = None
-    total: Optional[int] = None
-    changed_percent: Optional[int] = None
+    status: str | None = None
+    previous: int | None = None
+    current: int | None = None
+    total: int | None = None
+    changed_percent: int | None = None
 
 
 class AutomationGuardWrite(BaseModel):
@@ -81,7 +81,7 @@ class AutomationGuardWrite(BaseModel):
 class AutomationStep(BaseModel):
     label: str
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class AutomationRunResult(BaseModel):

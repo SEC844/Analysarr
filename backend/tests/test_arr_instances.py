@@ -78,7 +78,9 @@ def test_a_deleted_instance_never_falls_back_to_the_primary(session, settings):
 def emby_handler(movies):
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/Items":
-            return httpx.Response(200, json={"Items": movies if req.url.params.get("IncludeItemTypes") == "Movie" else []})
+            return httpx.Response(
+                200, json={"Items": movies if req.url.params.get("IncludeItemTypes") == "Movie" else []}
+            )
         return httpx.Response(200, json=[])  # /Users
 
     return handler
@@ -112,7 +114,10 @@ def collect(fake_http, session, settings, radarr_files):
 def test_single_instance_still_flags_an_untracked_copy_as_duplicate(fake_http, session, settings):
     # Montages différents : Radarr voit /movies, le serveur multimédia /data/media/movies.
     [result] = collect(
-        fake_http, session, settings, {"http://radarr": {"id": 11, "path": "/movies/Matrix (1999)/Matrix.1080p.mkv", "size": 100}}
+        fake_http,
+        session,
+        settings,
+        {"http://radarr": {"id": 11, "path": "/movies/Matrix (1999)/Matrix.1080p.mkv", "size": 100}},
     )
     assert [(f.path, f.is_current, f.arr_file_id) for f in result.files] == [(HD, True, 11), (UHD, False, None)]
     assert "doublon" in result.media.statuses

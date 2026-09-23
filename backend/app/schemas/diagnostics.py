@@ -1,11 +1,10 @@
-from typing import Optional
 
 from pydantic import BaseModel
 
 
 class PathCheck(BaseModel):
     label: str
-    path: Optional[str]
+    path: str | None
     resolved: bool
 
 
@@ -20,7 +19,7 @@ class PathDiagnostics(BaseModel):
     # tous le même dossier racine inaccessible, plutôt qu'un préfixe global
     # comme "/data" qui serait vrai pour l'ensemble des chemins résolus ET
     # non résolus (peu informatif). None si aucun préfixe commun distinctif.
-    common_unresolved_prefix: Optional[str] = None
+    common_unresolved_prefix: str | None = None
 
 
 class DiagnosticsResult(BaseModel):
@@ -31,4 +30,4 @@ class DiagnosticsResult(BaseModel):
 class UnmatchedTorrent(BaseModel):
     hash: str
     name: str
-    save_path: Optional[str]
+    save_path: str | None

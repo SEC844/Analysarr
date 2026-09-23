@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +18,7 @@ class LoginRequest(BaseModel):
     password: str
     # Code de l'application d'authentification ou code de secours : requis
     # seulement si la double authentification est activée.
-    otp: Optional[str] = Field(default=None, max_length=32)
+    otp: str | None = Field(default=None, max_length=32)
 
 
 class CurrentUser(BaseModel):
@@ -68,7 +67,7 @@ class LoginAttemptRead(BaseModel):
     username: str
     ip: str
     success: bool
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class SecuritySettings(BaseModel):

@@ -22,9 +22,10 @@ explique le changement : aucune pause dans ce cas."""
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TypeGuard
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.activity import ActionLog
 from app.models.automation import Automation
@@ -88,7 +89,7 @@ def previous_full_run(session: Session, run: ScanRun) -> ScanRun | None:
     query = (
         select(ScanRun)
         .where(ScanRun.id != run.id, ScanRun.scope == "full", ScanRun.status == ScanStatus.completed)
-        .order_by(ScanRun.id.desc())
+        .order_by(col(ScanRun.id).desc())
         .limit(1)
     )
     return session.exec(query).first()
@@ -135,7 +136,7 @@ def detect_mass_change(session: Session, run: ScanRun, settings: Settings | None
 
 
 def pause_automations(session: Session, settings: Settings, change: MassChange) -> None:
-    settings.automations_paused_at = datetime.now(timezone.utc)
+    settings.automations_paused_at = datetime.now(UTC)
     settings.automations_paused_reason = change.as_json()
     session.add(settings)
     session.commit()
@@ -148,7 +149,7 @@ def resume_automations(session: Session, settings: Settings) -> None:
     session.commit()
 
 
-def is_paused(settings: Settings | None) -> bool:
+def is_paused(settings: Settings | None) -> TypeGuard[Settings]:
     return bool(settings and settings.automations_paused_at is not None)
 
 

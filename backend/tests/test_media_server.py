@@ -81,7 +81,9 @@ def test_jellyfin_never_sends_legacy_token_header(fake_http):
 )
 def test_connection_test_detects_wrong_server_choice(fake_http, kind, chosen, expected):
     fake_http[f"http://{kind}"] = media_server(kind, [])
-    result = asyncio.run(run_connection_test(ConnectionTestRequest(url=f"http://{kind}", api_key=KEY, media_server=chosen)))
+    result = asyncio.run(
+        run_connection_test(ConnectionTestRequest(url=f"http://{kind}", api_key=KEY, media_server=chosen))
+    )
     assert expected in result.message
     assert result.success == (kind == chosen)
 

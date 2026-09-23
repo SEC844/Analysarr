@@ -1,6 +1,5 @@
 import json
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +9,7 @@ from sqlmodel import Session, select
 from app.clients.emby import media_server_client
 from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.database import get_session
+from app.models.ids import row_id
 from app.models.media import ImportIssue, Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.schemas.activity import ActionStepRead
@@ -21,8 +21,8 @@ from app.schemas.media import (
     ArrQualityProfile,
     CrossSeedSearchResult,
     DeleteExecuteResult,
-    DeleteStepResult,
     DeletePreview,
+    DeleteStepResult,
     HardlinkRepairPreview,
     HardlinkRepairResult,
     ImportIssueRead,
@@ -39,18 +39,18 @@ from app.schemas.media import (
     TorrentRead,
     TrackerRead,
 )
+from app.services.action_log import MediaRef, record_action
 from app.services.arr_instances import instance_names
 from app.services.arr_link import ArrLinkError, build_link_preview, link_media
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
-from app.services.queue_issues import execute_import_retry
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.media_rescan import rescan_media
-from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
-from app.services.scan import MEDIA_STATUSES, is_healthy, launch_scan
-from app.services.action_log import MediaRef, record_action
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
+from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
+from app.services.queue_issues import execute_import_retry
+from app.services.scan import MEDIA_STATUSES, is_healthy, launch_scan
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
@@ -64,7 +64,7 @@ def _is_cross_seed(torrent: Torrent) -> bool:
 
 def _to_list_item(media: Media, seer_enabled: bool = False, names: dict[int, str] | None = None) -> MediaListItem:
     return MediaListItem(
-        id=media.id,
+        id=row_id(media),
         media_type=media.media_type.value,
         title=media.title,
         year=media.year,
@@ -114,12 +114,12 @@ def _idle_since(media: Media) -> datetime | None:
 
 @router.get("", response_model=MediaListResponse)
 def list_media(
-    health: Optional[str] = Query(None, description="sain | alerte"),
-    status: Optional[str] = Query(None, description="statuts séparés par des virgules"),
+    health: str | None = Query(None, description="sain | alerte"),
+    status: str | None = Query(None, description="statuts séparés par des virgules"),
     match: str = Query("any", description="any (au moins un statut) | all (tous)"),
-    media_type: Optional[str] = Query(None, description="movie | series"),
-    watch: Optional[str] = Query(None, description="never | in_progress | all, séparés par des virgules"),
-    search: Optional[str] = None,
+    media_type: str | None = Query(None, description="movie | series"),
+    watch: str | None = Query(None, description="never | in_progress | all, séparés par des virgules"),
+    search: str | None = None,
     sort: str = Query("title", description="title | year | size | last_played | cleanup"),
     session: Session = Depends(get_session),
 ) -> MediaListResponse:
@@ -142,14 +142,18 @@ def list_media(
         medias = [
             m
             for m in medias
-            if (set(wanted) <= set(m.statuses.split(",")) if match == "all" else bool(set(wanted) & set(m.statuses.split(","))))
+            if (
+                set(wanted) <= set(m.statuses.split(","))
+                if match == "all"
+                else bool(set(wanted) & set(m.statuses.split(",")))
+            )
         ]
 
     watches = _selected(watch, WATCH_FILTERS)
     if watches:
         medias = [m for m in medias if any(_matches_watch_filter(m, value) for value in watches)]
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if sort == "year":
         medias.sort(key=lambda m: m.year or 0, reverse=True)
     elif sort == "size":
@@ -205,7 +209,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         requests=build_requests_read(session, media) if seer_enabled else [],
         import_issues=[
             ImportIssueRead(
-                id=i.id,
+                id=row_id(i),
                 kind=i.kind,
                 title=i.title,
                 state=i.state,
@@ -225,12 +229,14 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         tvdb_id=media.tvdb_id,
         imdb_id=media.imdb_id,
         files=[
-            MediaFileRead(id=f.id, path=f.path, size=f.size, episode_label=f.episode_label, is_current=f.is_current)
+            MediaFileRead(
+                id=row_id(f), path=f.path, size=f.size, episode_label=f.episode_label, is_current=f.is_current
+            )
             for f in files
         ],
         torrents=[
             TorrentRead(
-                id=t.id,
+                id=row_id(t),
                 hash=t.hash,
                 name=t.name,
                 save_path=t.save_path,
@@ -270,9 +276,10 @@ async def get_poster(media_id: int, session: Session = Depends(get_session)) -> 
         if result is None:
             raise HTTPException(404, "Jaquette introuvable.")
         content = result[0]
-        content_type = safe_image_type(result[1])
-        if content_type is None:
+        image_type = safe_image_type(result[1])
+        if image_type is None:
             raise HTTPException(404, "Jaquette introuvable.")
+        content_type = image_type
         write_cached_poster(media.emby_item_id, media.poster_image_tag, content, content_type)
 
     # L'URL est déjà propre à cette version précise de la jaquette (voir
@@ -499,7 +506,9 @@ async def hardlink_repair_execute(media_id: int, session: Session = Depends(get_
     return result
 
 
-def _log_and_notify(session: Session, settings: Settings, action: str, ref: MediaRef, steps: list, freed: int | None = None) -> None:
+def _log_and_notify(
+    session: Session, settings: Settings, action: str, ref: MediaRef, steps: list, freed: int | None = None
+) -> None:
     """Toute action effectuée est tracée dans l'historique et, si activé,
     notifiée (Discord/ntfy/Gotify) avec la jaquette du média. L'espace libéré
     n'est retenu que si aucune étape n'a échoué : il serait sinon surestimé."""

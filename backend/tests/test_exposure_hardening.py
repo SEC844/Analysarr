@@ -85,7 +85,9 @@ def test_trusted_proxies_are_validated_and_protected(admin_client, session):
 
     with TestClient(app) as anonymous:  # sans cookie de session
         assert anonymous.get("/api/auth/security").status_code == 401
-    assert admin_client.put("/api/auth/security", json={"trusted_proxies": "10.0.0.0/24, 192.168.1.5"}).status_code == 200
+    assert (
+        admin_client.put("/api/auth/security", json={"trusted_proxies": "10.0.0.0/24, 192.168.1.5"}).status_code == 200
+    )
     session.expire_all()
     assert session.get(Settings, 1).trusted_proxies == "10.0.0.0/24, 192.168.1.5"
 

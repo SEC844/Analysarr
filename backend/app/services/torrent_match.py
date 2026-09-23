@@ -12,7 +12,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_name
@@ -53,7 +53,7 @@ def epoch_to_datetime(value: Any) -> datetime | None:
     """Les clients torrent renvoient -1 (voire 0) pour un horodatage non défini."""
     if not isinstance(value, (int, float)) or value <= 0:
         return None
-    return datetime.fromtimestamp(value, tz=timezone.utc)
+    return datetime.fromtimestamp(value, tz=UTC)
 
 
 # Tags de release à ignorer pour le rattachement par similarité de titre
@@ -216,7 +216,7 @@ def attach_torrents(
     # Index des inodes des fichiers de bibliothèque actuels -> média. Signal le
     # plus fiable pour repérer un torrent protégé, quel que soit son chemin de
     # stockage réel — notamment les copies cross-seed.
-    library_inode_to_index: dict[tuple[int, int], int] = {}
+    library_inode_to_index: dict[tuple[int, int | None], int] = {}
     for i, view in enumerate(views):
         for f in view.files:
             if f.inode is not None:
@@ -224,7 +224,7 @@ def attach_torrents(
 
     indices: list[int | None] = [None] * len(fetched)
     protected: list[bool] = [False] * len(fetched)
-    inode_to_index: dict[tuple[int, int], int] = dict(library_inode_to_index)
+    inode_to_index: dict[tuple[int, int | None], int] = dict(library_inode_to_index)
     unresolved: list[int] = []
 
     # Passe 1 : inode de bibliothèque actuel (n'importe lequel des fichiers du
@@ -339,7 +339,7 @@ def persist_files(session, fetched: "FetchedTorrents") -> None:
     from app.models.media import TorrentFile
 
     session.exec(delete(TorrentFile))
-    for row, paths in zip(fetched.rows, fetched.file_paths):
+    for row, paths in zip(fetched.rows, fetched.file_paths, strict=True):
         for path, size in paths:
             session.add(TorrentFile(torrent_hash=row.hash.lower(), path=path, size=size))
     session.commit()

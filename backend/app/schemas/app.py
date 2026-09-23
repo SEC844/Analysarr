@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,13 +10,13 @@ class UpdateStatus(BaseModel):
     """Résultat de la dernière vérification de mise à jour (GitHub Releases)."""
 
     checked_at: datetime
-    latest_version: Optional[str] = None
-    release_url: Optional[str] = None
-    published_at: Optional[datetime] = None
+    latest_version: str | None = None
+    release_url: str | None = None
+    published_at: datetime | None = None
     # False si la version courante n'est pas une version publiée (build "dev")
     # ou si la vérification a échoué.
     update_available: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class UiPreferences(BaseModel):
@@ -45,19 +45,19 @@ class UiPreferences(BaseModel):
     # d'invitation). `star_prompt_at` date la première ouverture puis chaque
     # report, pour espacer l'invitation sans jamais l'afficher à l'arrivée.
     star_prompt_state: Literal["pending", "later", "done"] = "pending"
-    star_prompt_at: Optional[str] = None
+    star_prompt_at: str | None = None
 
 
 class AppInfo(BaseModel):
     version: str
-    revision: Optional[str]
-    build_date: Optional[str]
+    revision: str | None
+    build_date: str | None
     repository_url: str
-    language: Optional[Language]
+    language: Language | None
     update_check_enabled: bool
     # None tant qu'aucune vérification n'a eu lieu (désactivée et jamais
     # lancée manuellement).
-    update: Optional[UpdateStatus]
+    update: UpdateStatus | None
     ui: UiPreferences
 
 
@@ -65,4 +65,4 @@ class AppPreferencesWrite(BaseModel):
     language: Language
     update_check_enabled: bool
     # None : préférences d'affichage inchangées.
-    ui: Optional[UiPreferences] = None
+    ui: UiPreferences | None = None

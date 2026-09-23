@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +13,7 @@ class ChannelRead(BaseModel):
     events: list[str]
     # Adresse renvoyée uniquement pour Gotify : celle de Discord (webhook) et
     # de ntfy (nom du sujet) sont des secrets.
-    url: Optional[str] = None
+    url: str | None = None
     url_set: bool
     token_set: bool
 
@@ -24,11 +24,11 @@ class ChannelWrite(BaseModel):
     enabled: bool = True
     events: list[str] = []
     # À la création : obligatoire. À la mise à jour : vide = valeur conservée.
-    url: Optional[str] = Field(default=None, max_length=2048)
-    token: Optional[str] = Field(default=None, max_length=256)
+    url: str | None = Field(default=None, max_length=2048)
+    token: str | None = Field(default=None, max_length=256)
 
 
 class ChannelTestResult(BaseModel):
     ok: bool
     # Message d'erreur réduit (code HTTP ou type d'erreur), jamais l'URL.
-    error: Optional[str] = None
+    error: str | None = None

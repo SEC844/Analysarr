@@ -7,11 +7,13 @@ aussi le suivi Sonarr/Radarr pour éviter un retéléchargement automatique."""
 
 import os
 import stat as stat_module
+from collections.abc import Sequence
 
 import httpx
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, col, delete, select
 
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_configured
+from app.models.ids import row_id
 from app.models.media import Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent, TorrentFile
 from app.models.settings import Settings
 from app.models.trash import TrashAction, TrashItem
@@ -24,7 +26,9 @@ from app.schemas.media import (
     MediaDeleteSelectionResult,
 )
 from app.services.arr_instances import ArrTarget, arr_target_for
+from app.services.hardlink import resolve_torrent_files
 from app.services.path_guard import ensure_paths_available
+from app.services.scan import compute_statuses, current_files_size
 from app.services.trash import (
     capture_arr,
     clean_media_folders,
@@ -34,8 +38,6 @@ from app.services.trash import (
     trash_torrent,
     undo_items,
 )
-from app.services.hardlink import resolve_torrent_files
-from app.services.scan import compute_statuses, current_files_size
 
 
 async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
@@ -69,22 +71,22 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
             units.append(DiskUnit(size=st.st_size, links=st.st_nlink))
         return [unit_by_inode[key]]
 
-    file_items = [DeleteFootprintItem(id=f.id, units=unit_for(f.path, f.size)) for f in files]
+    file_items = [DeleteFootprintItem(id=row_id(f), units=unit_for(f.path, f.size)) for f in files]
 
     torrent_files: dict[int, list[tuple[str, int | None]]] = {}
     if torrents and torrent_client_configured(settings):
         try:
             async with torrent_client(settings) as qbit:
                 for t in torrents:
-                    torrent_files[t.id] = await resolve_torrent_files(qbit, t)
+                    torrent_files[row_id(t)] = await resolve_torrent_files(qbit, t)
         except (TorrentAuthError, httpx.HTTPError):
             torrent_files.clear()  # repli ci-dessous sur content_path
 
     torrent_items: list[DeleteFootprintItem] = []
     for t in torrents:
-        paths = torrent_files.get(t.id) or await resolve_torrent_files(None, t)
+        paths = torrent_files.get(row_id(t)) or await resolve_torrent_files(None, t)
         unit_ids = [i for path, size in paths for i in unit_for(path, size)] if paths else unit_for(None, t.size)
-        torrent_items.append(DeleteFootprintItem(id=t.id, units=unit_ids))
+        torrent_items.append(DeleteFootprintItem(id=row_id(t), units=unit_ids))
 
     return MediaDeleteFootprint(units=units, torrents=torrent_items, files=file_items)
 
@@ -113,7 +115,7 @@ def torrent_paths(session: Session, torrent: Torrent) -> list[str]:
 
 
 async def _delete_torrents(
-    torrents: list[Torrent],
+    torrents: Sequence[Torrent],
     settings: Settings,
     steps: list[DeleteStepResult],
     session: Session,
@@ -149,7 +151,7 @@ def _already_gone(exc: Exception) -> bool:
 
 
 async def _delete_movie_files(
-    files: list[MediaFile],
+    files: Sequence[MediaFile],
     target: ArrTarget | None,
     steps: list[DeleteStepResult],
     session: Session,
@@ -204,11 +206,8 @@ async def _remove_media_from_arr(
     `target` : instance qui suit CE média (voir services/arr_instances.py).
     Renvoie False si elle n'est pas configurée (ou a été supprimée) ou si le
     média lui est inconnu (repli sur la suppression fichier par fichier)."""
-    if target is None:
-        return False
-    if media.media_type == MediaType.movie and not media.radarr_id:
-        return False
-    if media.media_type != MediaType.movie and not media.sonarr_id:
+    arr_id = media.radarr_id if media.media_type == MediaType.movie else media.sonarr_id
+    if target is None or not arr_id:
         return False
     service = target.name
 
@@ -239,9 +238,9 @@ async def _remove_media_from_arr(
 
     try:
         if media.media_type == MediaType.movie:
-            await target.radarr().delete_movie(media.radarr_id, delete_files=action is None)
+            await target.radarr().delete_movie(arr_id, delete_files=action is None)
         else:
-            await target.sonarr().delete_series(media.sonarr_id, delete_files=action is None)
+            await target.sonarr().delete_series(arr_id, delete_files=action is None)
     except httpx.HTTPError as exc:
         # Rien n'est supprimé du disque si Sonarr/Radarr refuse : l'utilisateur
         # voit l'erreur et peut réessayer sans avoir perdu ses fichiers.
@@ -266,7 +265,7 @@ async def _remove_media_from_arr(
 
 
 async def _delete_episode_files(
-    files: list[MediaFile],
+    files: Sequence[MediaFile],
     target: ArrTarget | None,
     remove_from_arr: bool,
     steps: list[DeleteStepResult],
@@ -337,14 +336,16 @@ async def execute_media_delete(
 ) -> MediaDeleteSelectionResult:
     torrents = (
         session.exec(
-            select(Torrent).where(Torrent.media_id == media.id, Torrent.id.in_(selection.torrent_ids))
+            select(Torrent).where(col(Torrent.media_id) == media.id, col(Torrent.id).in_(selection.torrent_ids))
         ).all()
         if selection.torrent_ids
         else []
     )
     files = (
         session.exec(
-            select(MediaFile).where(MediaFile.media_id == media.id, MediaFile.id.in_(selection.media_file_ids))
+            select(MediaFile).where(
+                col(MediaFile.media_id) == media.id, col(MediaFile.id).in_(selection.media_file_ids)
+            )
         ).all()
         if selection.media_file_ids
         else []
@@ -396,8 +397,8 @@ async def execute_media_delete(
         # chaque scan, voir database.py) plutôt que de rester affichée vide,
         # "manquant_emby" + "manquant_qbit" pour toujours jusqu'au prochain
         # scan complet.
-        session.exec(delete(MediaWatch).where(MediaWatch.media_id == media.id))
-        session.exec(delete(MediaRequest).where(MediaRequest.media_id == media.id))
+        session.exec(delete(MediaWatch).where(col(MediaWatch.media_id) == media.id))
+        session.exec(delete(MediaRequest).where(col(MediaRequest.media_id) == media.id))
         session.delete(media)
         session.commit()
         return MediaDeleteSelectionResult(steps=steps, media_deleted=True)

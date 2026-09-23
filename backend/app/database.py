@@ -1,6 +1,6 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
@@ -178,22 +178,24 @@ def _migrate_legacy_notifications() -> None:
 def init_db() -> None:
     from app.models.activity import ActionLog  # noqa: F401
     from app.models.arr_instance import ArrInstance  # noqa: F401
-    from app.models.automation import Automation  # noqa: F401
-    from app.models.notification_channel import NotificationChannel  # noqa: F401
-    from app.models.auth import LoginAttempt  # noqa: F401
+    from app.models.auth import (
+        LoginAttempt,  # noqa: F401
+        User,  # noqa: F401
+    )
     from app.models.auth import Session as AuthSession  # noqa: F401
-    from app.models.auth import User  # noqa: F401
+    from app.models.automation import Automation  # noqa: F401
     from app.models.media import (  # noqa: F401
         EmbyUser,
         ImportIssue,
-        TorrentFile,
         Media,
         MediaFile,
         MediaRequest,
         MediaWatch,
         ScanRun,
         Torrent,
+        TorrentFile,
     )
+    from app.models.notification_channel import NotificationChannel  # noqa: F401
     from app.models.settings import Settings  # noqa: F401
     from app.models.trash import TrashAction, TrashItem  # noqa: F401
 

@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from app.clients.seer import SeerClient
 from app.models.media import EmbyUser, Media, MediaRequest, MediaType
 from app.models.settings import Settings
 from app.schemas.media import MediaRequestRead, SeerUserRead
@@ -20,8 +21,15 @@ _STATUSES = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "comple
 RequestKey = tuple[str, int]  # ("movie", tmdbId) | ("tv", tvdbId)
 
 
+def seer_client(settings: Settings | None) -> SeerClient | None:
+    """Client Seer, ou None si Seer est désactivé ou incomplet."""
+    if settings is None or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
+        return None
+    return SeerClient(settings.seer_url, settings.seer_api_key)
+
+
 def seer_configured(settings: Settings | None) -> bool:
-    return bool(settings and settings.seer_enabled and settings.seer_url and settings.seer_api_key)
+    return seer_client(settings) is not None
 
 
 def _user_name(user: dict[str, Any]) -> str | None:
@@ -45,7 +53,8 @@ def parse_request(raw: dict[str, Any]) -> tuple[RequestKey, dict[str, Any]] | No
 
     requested_by = raw.get("requestedBy") or {}
     modified_by = raw.get("modifiedBy") or None
-    status = _STATUSES.get(raw.get("status"), "pending")
+    status_code = raw.get("status")
+    status = _STATUSES.get(status_code, "pending") if isinstance(status_code, int) else "pending"
     auto_approved = status in ("approved", "completed", "failed") and (
         modified_by is None or modified_by.get("id") == requested_by.get("id")
     )

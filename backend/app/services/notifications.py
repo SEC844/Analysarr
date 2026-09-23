@@ -22,14 +22,16 @@
 import asyncio
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.clients.emby import EmbyClient, media_server_client
+from app.models.ids import row_id
 from app.models.notification_channel import NotificationChannel
 from app.models.settings import Settings
 from app.services.poster_cache import read_cached_poster, safe_image_type
@@ -84,10 +86,28 @@ _NTFY_PRIORITY = {"success": "default", "warning": "high", "error": "high", "inf
 _GOTIFY_PRIORITY = {"success": 5, "warning": 7, "error": 8, "info": 5}
 _IMAGE_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
 
-_TEXT = {
+# Unités de taille et libellés des statuts : à part des textes, pour que
+# chaque table garde un seul type de valeur.
+_UNITS: dict[str, tuple[str, ...]] = {
+    "fr": ("o", "Ko", "Mo", "Go", "To"),
+    "en": ("B", "KB", "MB", "GB", "TB"),
+}
+_STATUS_LABELS: dict[str, dict[str, str]] = {
+    "fr": {
+        "doublon": "Doublon",
+        "orphelin_qbit": "Orphelin",
+        "non_hardlink": "Non hardlinké",
+    },
+    "en": {
+        "doublon": "Duplicate",
+        "orphelin_qbit": "Orphan",
+        "non_hardlink": "Not hardlinked",
+    },
+}
+
+_TEXT: dict[str, dict[str, str]] = {
     "fr": {
         "colon": " : ",
-        "units": ("o", "Ko", "Mo", "Go", "To"),
         "movie": "Film",
         "series": "Série",
         "delete_selection": "Suppression effectuée",
@@ -118,7 +138,10 @@ _TEXT = {
         "non_hardlink_detected": "Nouveaux torrents non hardlinkés",
         "non_hardlink_detected_summary": "Le contenu est bien seedé, mais sans hardlink vers la bibliothèque.",
         "import_failed_detected": "Imports bloqués",
-        "import_failed_detected_summary": "Sonarr/Radarr n'a pas réussi à ranger ces téléchargements dans la bibliothèque.",
+        "import_failed_detected_summary": (
+            "Sonarr/Radarr n'a pas réussi à ranger ces "
+            "téléchargements dans la bibliothèque."
+        ),
         "stalled_download_detected": "Téléchargements en souffrance",
         "stalled_download_detected_summary": "Ces téléchargements n'avancent plus (bloqués, sans source ou en erreur).",
         "untracked_detected": "Médias non suivis",
@@ -126,19 +149,20 @@ _TEXT = {
         "import_retry": "Import relancé",
         "affected_media": "Médias concernés",
         "test": "Notification de test",
-        "test_body": "Les notifications d'Analysarr fonctionnent : les événements choisis pour ce canal arriveront ici.",
+        "test_body": (
+            "Les notifications d'Analysarr fonctionnent : les "
+            "événements choisis pour ce canal arriveront ici."
+        ),
         "rule": "Règle",
         "trigger": "Déclencheur",
         "automations_paused": "Automatisations mises en pause",
-        "automations_paused_summary": "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues jusqu'à une reprise manuelle.",
+        "automations_paused_summary": (
+            "Un scan a fait basculer une part anormale de la bibliothèque : les "
+            "règles sont suspendues jusqu'à une reprise manuelle."
+        ),
         "guard_status": "Statut concerné",
         "guard_change": "Médias concernés",
         "guard_share": "Part de la bibliothèque",
-        "statuses": {
-            "doublon": "Doublon",
-            "orphelin_qbit": "Orphelin",
-            "non_hardlink": "Non hardlinké",
-        },
         "update_available": "Mise à jour disponible",
         "update_available_summary": "Une nouvelle version d'Analysarr est publiée.",
         "installed_version": "Version installée",
@@ -146,7 +170,6 @@ _TEXT = {
     },
     "en": {
         "colon": ": ",
-        "units": ("B", "KB", "MB", "GB", "TB"),
         "movie": "Movie",
         "series": "Series",
         "delete_selection": "Deletion completed",
@@ -179,7 +202,10 @@ _TEXT = {
         "import_failed_detected": "Blocked imports",
         "import_failed_detected_summary": "Sonarr/Radarr could not move these downloads into the library.",
         "stalled_download_detected": "Stalled downloads",
-        "stalled_download_detected_summary": "These downloads are not progressing any more (stalled, no source, or failing).",
+        "stalled_download_detected_summary": (
+            "These downloads are not progressing any more "
+            "(stalled, no source, or failing)."
+        ),
         "untracked_detected": "Untracked media",
         "untracked_detected_summary": "These media are in the library but no Sonarr/Radarr tracks them.",
         "import_retry": "Import retried",
@@ -189,15 +215,13 @@ _TEXT = {
         "rule": "Rule",
         "trigger": "Trigger",
         "automations_paused": "Automations paused",
-        "automations_paused_summary": "A scan flipped an unusual share of the library: rules are suspended until you resume them.",
+        "automations_paused_summary": (
+            "A scan flipped an unusual share of the library: rules "
+            "are suspended until you resume them."
+        ),
         "guard_status": "Status involved",
         "guard_change": "Media involved",
         "guard_share": "Share of the library",
-        "statuses": {
-            "doublon": "Duplicate",
-            "orphelin_qbit": "Orphan",
-            "non_hardlink": "Not hardlinked",
-        },
         "update_available": "Update available",
         "update_available_summary": "A new version of Analysarr has been released.",
         "installed_version": "Installed version",
@@ -258,12 +282,12 @@ def event_has_subscriber(session: Session, event: str) -> bool:
 
 
 def channel_targets(session: Session, only_enabled: bool = True) -> list[ChannelTarget]:
-    query = select(NotificationChannel).order_by(NotificationChannel.id)
+    query = select(NotificationChannel).order_by(col(NotificationChannel.id))
     if only_enabled:
         query = query.where(NotificationChannel.enabled == True)  # noqa: E712 - SQLModel n'accepte pas `is True`
     return [
         ChannelTarget(
-            id=row.id, kind=row.kind, name=row.name, url=row.url, token=row.token, events=channel_events(row)
+            id=row_id(row), kind=row.kind, name=row.name, url=row.url, token=row.token, events=channel_events(row)
         )
         for row in session.exec(query).all()
     ]
@@ -285,14 +309,14 @@ def notification_language(settings: Settings | None) -> str:
 
 
 def format_bytes(value: int, language: str) -> str:
-    text = _TEXT[language]
+    units = _UNITS[language]
     size, unit = float(value), 0
-    while size >= 1024 and unit < len(text["units"]) - 1:
+    while size >= 1024 and unit < len(units) - 1:
         size /= 1024
         unit += 1
     # Même format que l'interface (lib/format.ts::formatBytes).
     number = f"{size:.0f}" if unit == 0 else f"{size:.1f}"
-    return f"{number} {text['units'][unit]}"
+    return f"{number} {units[unit]}"
 
 
 def _format_duration(seconds: int) -> str:
@@ -306,7 +330,7 @@ def _shorten(value: str, limit: int = 90) -> str:
     return value if len(value) <= limit else "…" + value[-(limit - 1) :]
 
 
-def _detail_lines(steps: list[Step], more: str) -> list[str]:
+def _detail_lines(steps: Sequence[Step], more: str) -> list[str]:
     lines = [
         ("✅ " if s.success else "❌ ") + _shorten(s.label) + (f" — {_shorten(s.error, 120)}" if s.error else "")
         for s in steps[:_MAX_DETAIL_LINES]
@@ -329,7 +353,7 @@ def action_notification(
     success: int,
     failures: int,
     freed_bytes: int | None,
-    steps: list[Step],
+    steps: Sequence[Step],
 ) -> Notification:
     text = _TEXT[language]
     fields = [(text["type"], media_label(language, media.media_type))]
@@ -418,7 +442,7 @@ def automations_paused_notification(
         description=text["automations_paused_summary"],
         level="warning",
         fields=[
-            (text["guard_status"], text["statuses"].get(status, status)),
+            (text["guard_status"], _STATUS_LABELS[language].get(status, status)),
             (text["guard_change"], f"{previous} → {current}"),
             (text["guard_share"], f"{percent} %"),
         ],
@@ -445,7 +469,7 @@ def update_available_notification(
 
 
 def automation_notification(
-    language: str, rule_name: str, trigger: str, steps: list[Step], *, freed_bytes: int | None = None
+    language: str, rule_name: str, trigger: str, steps: Sequence[Step], *, freed_bytes: int | None = None
 ) -> Notification:
     text = _TEXT[language]
     failures = sum(1 for s in steps if not s.success)
@@ -523,7 +547,7 @@ async def _send_discord(client: httpx.AsyncClient, url: str, n: Notification) ->
         "color": _COLORS[n.level],
         "fields": [{"name": name[:256], "value": value[:1024], "inline": True} for name, value in n.fields],
         "footer": {"text": "Analysarr"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     if n.details:
         embed["fields"].append({"name": n.details_label, "value": _details_text(n, 1024), "inline": False})
@@ -547,7 +571,10 @@ async def _send_ntfy(client: httpx.AsyncClient, url: str, token: str | None, n: 
         content, content_type = n.image
         filename = f"poster.{_IMAGE_EXT.get(content_type, 'jpg')}"
         resp = await client.put(
-            url, content=content, params={**params, "message": _plain_text(n, 1500), "filename": filename}, headers=headers
+            url,
+            content=content,
+            params={**params, "message": _plain_text(n, 1500), "filename": filename},
+            headers=headers,
         )
         # Serveur ntfy sans stockage des pièces jointes (option désactivée par
         # défaut en auto-hébergé) : on renvoie le message sans image.

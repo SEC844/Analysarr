@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
@@ -9,7 +8,7 @@ def _utcnow() -> datetime:
     # comparaison entre un datetime aware fraîchement créé et un datetime
     # relu depuis la base (toujours naïf) lève TypeError. Toutes les valeurs
     # ci-dessous restent en UTC, juste sans tzinfo, par cohérence.
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class User(SQLModel, table=True):
@@ -17,7 +16,7 @@ class User(SQLModel, table=True):
     multi-utilisateur en V1 — un tableau de bord self-hosted à usage
     personnel n'en a pas besoin, et ça garde l'auth simple à auditer."""
 
-    id: Optional[int] = Field(default=1, primary_key=True)
+    id: int | None = Field(default=1, primary_key=True)
 
     username: str
     password_hash: str
@@ -26,14 +25,14 @@ class User(SQLModel, table=True):
     # remis à zéro à la connexion réussie. locked_until bloque toute
     # tentative (même avec le bon mot de passe) jusqu'à expiration.
     failed_attempts: int = 0
-    locked_until: Optional[datetime] = None
+    locked_until: datetime | None = None
 
     # Double authentification (TOTP, services/totp.py). `totp_pending_secret` :
     # secret généré mais pas encore confirmé par un premier code valide.
-    totp_secret: Optional[str] = None
-    totp_pending_secret: Optional[str] = None
+    totp_secret: str | None = None
+    totp_pending_secret: str | None = None
     # Dernier pas de temps accepté : un code déjà utilisé ne peut pas être rejoué.
-    totp_last_step: Optional[int] = None
+    totp_last_step: int | None = None
     # Codes de secours à usage unique (hash sha256), liste JSON.
     recovery_codes: str = "[]"
 
@@ -48,7 +47,7 @@ class Session(SQLModel, table=True):
     contient le token en clair ; seul son hash est stocké ici, comme un mot
     de passe — lire la base ne suffit pas à voler une session active."""
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     user_id: int
     token_hash: str
 
@@ -61,7 +60,7 @@ class LoginAttempt(SQLModel, table=True):
     """Tentative de connexion (réussie ou non) au compte administrateur.
     Table bornée, voir services/login_log.py."""
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 
     username: str = ""
@@ -70,4 +69,4 @@ class LoginAttempt(SQLModel, table=True):
     ip: str = ""
     success: bool = False
     # password | otp | locked | rate_limited | unknown_user
-    reason: Optional[str] = None
+    reason: str | None = None

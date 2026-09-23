@@ -2,7 +2,7 @@ import os
 
 from sqlmodel import Session, select
 
-from app.clients.emby import EmbyClient
+from app.clients.emby import media_server_client
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_name
 from app.models.media import Torrent
 from app.models.settings import Settings
@@ -89,7 +89,9 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
         raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée : {exc}") from exc
 
     emby_checks: list[PathCheck] = []
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
+    emby = media_server_client(settings)
+    if emby is None:
+        raise RuntimeError("Serveur multimédia non configuré.")
     movies = await emby.get_library_items("Movie")
     for m in movies:
         for source in _media_sources(m):

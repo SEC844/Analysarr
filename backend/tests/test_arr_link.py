@@ -85,7 +85,9 @@ def sonarr_server(calls: list[tuple[str, str]], results: dict[str, list[dict]], 
         if path == "/api/v3/series/lookup":
             return httpx.Response(200, json=results.get(params.get("term", ""), []))
         if path == "/api/v3/rootfolder":
-            return httpx.Response(200, json=[{"path": "/data/tv", "unmappedFolders": [{"path": "/data/tv/Game of Thrones"}]}])
+            return httpx.Response(
+                200, json=[{"path": "/data/tv", "unmappedFolders": [{"path": "/data/tv/Game of Thrones"}]}]
+            )
         if path == "/api/v3/qualityprofile":
             return httpx.Response(200, json=PROFILES)
         if path == "/api/v3/series/import":

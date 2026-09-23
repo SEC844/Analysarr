@@ -1,16 +1,19 @@
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
+from app.clients.torrent import torrent_client_configured, torrent_client_kind
 from app.database import get_session
-from app.clients.torrent import torrent_client_configured
 from app.models.arr_instance import ArrInstance
+from app.models.ids import row_id
 from app.models.settings import Settings
 from app.schemas.settings import (
     ArrInstanceRead,
+    ArrKind,
     BrowseEntry,
     BrowseResult,
     ConnectionTestRequest,
@@ -79,7 +82,7 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
         sonarr=ServiceApiKeyRead(url=s.sonarr_url, api_key_set=bool(s.sonarr_api_key)),
         radarr=ServiceApiKeyRead(url=s.radarr_url, api_key_set=bool(s.radarr_api_key)),
         qbittorrent=QbittorrentRead(
-            client=s.torrent_client if s.torrent_client in ("qbittorrent", "deluge", "transmission") else "qbittorrent",
+            client=torrent_client_kind(s),
             url=s.qbittorrent_url,
             username=s.qbittorrent_username,
             password_set=bool(s.qbittorrent_password),
@@ -100,7 +103,10 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
             interval_minutes=s.scan_schedule_interval_minutes,
         ),
         arr_instances=[
-            ArrInstanceRead(id=i.id, kind=i.kind, name=i.name, url=i.url, api_key_set=bool(i.api_key)) for i in instances
+            ArrInstanceRead(
+                id=row_id(i), kind=cast(ArrKind, i.kind), name=i.name, url=i.url, api_key_set=bool(i.api_key)
+            )
+            for i in instances
         ],
     )
 
@@ -155,7 +161,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
 
     _apply_arr_instances(session, payload)
 
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.now(UTC)
 
     session.add(row)
     session.commit()
@@ -192,16 +198,17 @@ def _apply_arr_instances(session: Session, payload: SettingsWrite) -> None:
                 raise HTTPException(400, f"Clé API requise pour la nouvelle instance « {name} ».")
             row = ArrInstance(kind=item.kind, name=name, url=url, api_key=item.api_key)
         else:
-            row = existing.get(item.id)
-            if row is None or row.kind != item.kind:
+            found = existing.get(item.id)
+            if found is None or found.kind != item.kind:
                 raise HTTPException(400, f"Instance « {name} » introuvable : rechargez la page.")
-            kept.add(row.id)
+            row = found
+            kept.add(row_id(row))
         row.name, row.url = name, url
         if item.api_key:
             row.api_key = item.api_key
         session.add(row)
-    for row_id, row in existing.items():
-        if row_id not in kept:
+    for instance_id, row in existing.items():
+        if instance_id not in kept:
             session.delete(row)
 
 

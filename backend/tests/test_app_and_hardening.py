@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -17,7 +17,9 @@ def github_release(tag: str, html_url: str):
     return handler
 
 
-@pytest.mark.parametrize(("value", "expected"), [("v1.2.3", (1, 2, 3)), ("0.18.0", (0, 18, 0)), ("dev", None), ("1.2", None)])
+@pytest.mark.parametrize(
+    ("value", "expected"), [("v1.2.3", (1, 2, 3)), ("0.18.0", (0, 18, 0)), ("dev", None), ("1.2", None)]
+)
 def test_parse_version(value, expected):
     assert updates.parse_version(value) == expected
 
@@ -55,19 +57,38 @@ def test_ui_preferences_are_validated_and_kept(admin_client):
     assert info["ui"]["library_default_sort"] == "title"
 
     ui = info["ui"] | {"card_show_total_size": True, "library_default_sort": "cleanup"}
-    assert admin_client.put("/api/app/preferences", json={"language": "en", "update_check_enabled": False, "ui": ui}).status_code == 200
+    assert (
+        admin_client.put(
+            "/api/app/preferences", json={"language": "en", "update_check_enabled": False, "ui": ui}
+        ).status_code
+        == 200
+    )
     # Sans `ui`, les préférences d'affichage restent inchangées.
     kept = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).json()
     assert kept["ui"]["card_show_total_size"] and kept["ui"]["library_default_sort"] == "cleanup"
 
     bad = ui | {"library_default_sort": "'; DROP TABLE media; --"}
-    assert admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": bad}).status_code == 422
-    assert admin_client.put("/api/app/preferences", json={"language": "de", "update_check_enabled": False}).status_code == 422
+    assert (
+        admin_client.put(
+            "/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": bad}
+        ).status_code
+        == 422
+    )
+    assert (
+        admin_client.put("/api/app/preferences", json={"language": "de", "update_check_enabled": False}).status_code
+        == 422
+    )
 
 
 @pytest.mark.parametrize(
     ("content_type", "expected"),
-    [("image/jpeg", "image/jpeg"), ("image/png; charset=binary", "image/png"), ("image/svg+xml", None), ("text/html", None), (None, None)],
+    [
+        ("image/jpeg", "image/jpeg"),
+        ("image/png; charset=binary", "image/png"),
+        ("image/svg+xml", None),
+        ("text/html", None),
+        (None, None),
+    ],
 )
 def test_only_raster_images_are_served(content_type, expected):
     assert safe_image_type(content_type) == expected
@@ -93,7 +114,7 @@ def test_pages_are_revalidated_and_api_responses_never_cached(client):
 def test_as_utc_keeps_naive_database_dates_in_utc():
     from app.services.watch_stats import as_utc
 
-    assert as_utc(datetime(2026, 1, 1)).tzinfo == timezone.utc
+    assert as_utc(datetime(2026, 1, 1)).tzinfo == UTC
 
 
 def test_page_open_refreshes_in_background_without_blocking(fake_http, monkeypatch):
@@ -113,7 +134,7 @@ def test_page_open_refreshes_in_background_without_blocking(fake_http, monkeypat
         assert first.latest_version == "0.19.1" and len(calls) == 1
         assert await updates.status_for_page(True) is first and len(calls) == 1  # cache frais
 
-        updates._expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        updates._expires_at = datetime.now(UTC) - timedelta(seconds=1)
         assert await updates.status_for_page(True) is first and len(calls) == 1  # réponse immédiate
         await updates._refresh_task  # le rafraîchissement, lui, s'est bien lancé
         assert len(calls) == 2
@@ -127,7 +148,10 @@ def test_disabled_update_check_makes_no_outbound_request(fake_http, admin_client
         raise AssertionError("aucune requête sortante quand la vérification est désactivée")
 
     fake_http["https://api.github.com"] = forbidden
-    assert admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code == 200
+    assert (
+        admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code
+        == 200
+    )
     assert admin_client.get("/api/app/info").json()["update"] is None
 
 
@@ -142,7 +166,9 @@ def test_star_prompt_state_is_stored_and_bounded(admin_client):
     assert saved.json()["ui"]["star_prompt_state"] == "done"
 
     bad = info["ui"] | {"star_prompt_state": "whatever"}
-    refused = admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": bad})
+    refused = admin_client.put(
+        "/api/app/preferences", json={"language": "fr", "update_check_enabled": False, "ui": bad}
+    )
     assert refused.status_code == 422
 
 

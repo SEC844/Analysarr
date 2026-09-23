@@ -55,10 +55,10 @@ async def get_user_avatar(user_id: str, session: Session = Depends(get_session))
     else:
         emby = _emby(session.get(Settings, 1))
         result = await emby.fetch_user_avatar(user.id) if emby else None
-        content_type = safe_image_type(result[1]) if result else None
-        if result is None or content_type is None:
+        image_type = safe_image_type(result[1]) if result else None
+        if result is None or image_type is None:
             raise HTTPException(404, "Avatar introuvable.")
-        content = result[0]
+        content, content_type = result[0], image_type
         write_cached_poster(cache_key, user.image_tag, content, content_type)
 
     # URL propre à la version de l'avatar (`?v=<tag>` côté frontend) : mise en

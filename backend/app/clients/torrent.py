@@ -7,12 +7,13 @@ dans les champs historiques `Settings.qbittorrent_*` (renommer les colonnes
 casserait les configurations existantes) ; `Settings.torrent_client` dit
 lequel des trois les utilise."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard
 
 from app.clients.deluge import DelugeClient
 from app.clients.qbittorrent import QbittorrentClient
 from app.clients.torrent_base import TorrentAuthError, TorrentClient
 from app.clients.transmission import TransmissionClient
+from app.schemas.settings import TorrentClientKind
 
 if TYPE_CHECKING:
     from app.models.settings import Settings
@@ -31,12 +32,14 @@ __all__ = [
 
 TORRENT_CLIENT_KINDS = ("qbittorrent", "deluge", "transmission")
 TORRENT_CLIENT_NAMES = {"qbittorrent": "qBittorrent", "deluge": "Deluge", "transmission": "Transmission"}
-DEFAULT_KIND = "qbittorrent"
+DEFAULT_KIND: TorrentClientKind = "qbittorrent"
 
 
-def torrent_client_kind(settings: "Settings | None") -> str:
+def torrent_client_kind(settings: "Settings | None") -> TorrentClientKind:
     kind = getattr(settings, "torrent_client", None) if settings is not None else None
-    return kind if kind in TORRENT_CLIENT_KINDS else DEFAULT_KIND
+    if kind == "deluge" or kind == "transmission":
+        return kind
+    return DEFAULT_KIND
 
 
 def torrent_client_name(settings: "Settings | None") -> str:
@@ -54,7 +57,7 @@ def credentials_required(kind: str) -> tuple[bool, bool]:
     return True, True
 
 
-def torrent_client_configured(settings: "Settings | None") -> bool:
+def torrent_client_configured(settings: "Settings | None") -> TypeGuard["Settings"]:
     if settings is None or not settings.qbittorrent_url:
         return False
     needs_username, needs_password = credentials_required(torrent_client_kind(settings))

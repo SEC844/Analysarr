@@ -57,8 +57,8 @@ def _reason(record: dict[str, Any]) -> str:
     messages: list[str] = []
     for entry in record.get("statusMessages") or []:
         title = (entry.get("title") or "").strip()
-        for message in entry.get("messages") or []:
-            message = (message or "").strip()
+        for raw in entry.get("messages") or []:
+            message = (raw or "").strip()
             if message and message not in messages:
                 messages.append(message)
         if not (entry.get("messages") or []) and title and title not in messages:
@@ -88,7 +88,9 @@ def _is_stalled(record: dict[str, Any]) -> bool:
         return False
     status = str(record.get("status") or "").lower()
     tracked = str(record.get("trackedDownloadStatus") or "").lower()
-    return status in {"warning", "error", "failed"} or tracked in {"warning", "error"} or bool(record.get("errorMessage"))
+    return (
+        status in {"warning", "error", "failed"} or tracked in {"warning", "error"} or bool(record.get("errorMessage"))
+    )
 
 
 def _kind(record: dict[str, Any]) -> str | None:

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -55,7 +55,7 @@ MAX_USERNAME_LENGTH = 64
 def _utcnow() -> datetime:
     # Naïf volontairement : cohérent avec app.models.auth._utcnow (voir son
     # commentaire) — SQLite relit toujours les datetimes sans tzinfo.
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _client_ip(request: Request, session: DbSession) -> str:
@@ -203,7 +203,9 @@ def login(
     if user.locked_until is not None and user.locked_until > now:
         remaining = int((user.locked_until - now).total_seconds() // 60) + 1
         record_attempt(session, username=payload.username, ip=ip, success=False, reason="locked")
-        raise HTTPException(429, f"Compte temporairement verrouillé après trop d'échecs. Réessayez dans {remaining} min.")
+        raise HTTPException(
+            429, f"Compte temporairement verrouillé après trop d'échecs. Réessayez dans {remaining} min."
+        )
 
     if not verify_password(payload.password, user.password_hash):
         _register_failure(user, now, session)

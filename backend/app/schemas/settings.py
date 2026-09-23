@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -8,38 +8,38 @@ MediaServer = Literal["emby", "jellyfin"]
 
 
 class ServiceApiKeyRead(BaseModel):
-    url: Optional[str] = None
+    url: str | None = None
     api_key_set: bool = False
 
 
 class QbittorrentRead(BaseModel):
     client: TorrentClientKind = "qbittorrent"
-    url: Optional[str] = None
-    username: Optional[str] = None
+    url: str | None = None
+    username: str | None = None
     password_set: bool = False
 
 
 class PathsRead(BaseModel):
-    emby_library_path: Optional[str] = None
-    qbittorrent_download_path: Optional[str] = None
+    emby_library_path: str | None = None
+    qbittorrent_download_path: str | None = None
 
 
 class CrossSeedRead(BaseModel):
     enabled: bool = False
-    url: Optional[str] = None
+    url: str | None = None
     api_key_set: bool = False
-    library_path: Optional[str] = None
+    library_path: str | None = None
 
 
 class SeerRead(BaseModel):
     enabled: bool = False
-    url: Optional[str] = None
+    url: str | None = None
     api_key_set: bool = False
 
 
 class ScheduleRead(BaseModel):
     enabled: bool = False
-    interval_minutes: Optional[int] = None
+    interval_minutes: int | None = None
 
 
 class WatchRead(BaseModel):
@@ -59,12 +59,12 @@ class ArrInstanceRead(BaseModel):
 
 class ArrInstanceWrite(BaseModel):
     # None : nouvelle instance.
-    id: Optional[int] = None
+    id: int | None = None
     kind: ArrKind
     name: str = Field(max_length=40)
     url: str = Field(max_length=2048)
     # Vide : conserve la clé enregistrée (obligatoire pour une nouvelle instance).
-    api_key: Optional[str] = Field(default=None, max_length=256)
+    api_key: str | None = Field(default=None, max_length=256)
 
 
 class SettingsRead(BaseModel):
@@ -89,58 +89,58 @@ class SettingsWrite(BaseModel):
     quand l'utilisateur ré-enregistre le formulaire sans la ressaisir)."""
 
     media_server: MediaServer = "emby"
-    emby_url: Optional[str] = None
-    emby_api_key: Optional[str] = None
+    emby_url: str | None = None
+    emby_api_key: str | None = None
 
-    sonarr_url: Optional[str] = None
-    sonarr_api_key: Optional[str] = None
+    sonarr_url: str | None = None
+    sonarr_api_key: str | None = None
 
-    radarr_url: Optional[str] = None
-    radarr_api_key: Optional[str] = None
+    radarr_url: str | None = None
+    radarr_api_key: str | None = None
 
     torrent_client: TorrentClientKind = "qbittorrent"
-    qbittorrent_url: Optional[str] = None
-    qbittorrent_username: Optional[str] = None
-    qbittorrent_password: Optional[str] = None
+    qbittorrent_url: str | None = None
+    qbittorrent_username: str | None = None
+    qbittorrent_password: str | None = None
 
-    emby_library_path: Optional[str] = None
-    qbittorrent_download_path: Optional[str] = None
+    emby_library_path: str | None = None
+    qbittorrent_download_path: str | None = None
 
     cross_seed_enabled: bool = False
-    cross_seed_url: Optional[str] = None
-    cross_seed_api_key: Optional[str] = None
-    cross_seed_library_path: Optional[str] = None
+    cross_seed_url: str | None = None
+    cross_seed_api_key: str | None = None
+    cross_seed_library_path: str | None = None
 
     seer_enabled: bool = False
-    seer_url: Optional[str] = None
-    seer_api_key: Optional[str] = None
+    seer_url: str | None = None
+    seer_api_key: str | None = None
 
     scan_schedule_enabled: bool = False
-    scan_schedule_interval_minutes: Optional[int] = None
+    scan_schedule_interval_minutes: int | None = None
 
     # Instances Sonarr/Radarr supplémentaires : la liste envoyée remplace la
     # liste enregistrée ; absente (None) = inchangée.
-    arr_instances: Optional[list[ArrInstanceWrite]] = Field(default=None, max_length=20)
+    arr_instances: list[ArrInstanceWrite] | None = Field(default=None, max_length=20)
 
     # Identifiants Emby exclus des statistiques de visionnage.
     excluded_emby_user_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(default=[], max_length=500)
 
 
 class ConnectionTestRequest(BaseModel):
-    url: Optional[str] = None
-    api_key: Optional[str] = None
+    url: str | None = None
+    api_key: str | None = None
     # Serveur multimédia uniquement : Emby ou Jellyfin.
-    media_server: Optional[MediaServer] = None
+    media_server: MediaServer | None = None
     # Client torrent uniquement.
-    torrent_client: Optional[TorrentClientKind] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
+    torrent_client: TorrentClientKind | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class WidgetKeyRead(BaseModel):
     enabled: bool
     # Renseignée uniquement dans la réponse à la génération : jamais relisible.
-    key: Optional[str] = None
+    key: str | None = None
 
 
 class ConnectionTestResult(BaseModel):
@@ -155,5 +155,5 @@ class BrowseEntry(BaseModel):
 
 class BrowseResult(BaseModel):
     path: str
-    parent: Optional[str]
+    parent: str | None
     directories: list[BrowseEntry]

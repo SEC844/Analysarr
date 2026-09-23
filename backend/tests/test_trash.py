@@ -4,7 +4,8 @@ demande Seer) est mise de côté et se restaure d'un bloc."""
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 from sqlmodel import select
@@ -154,8 +155,8 @@ def test_restoring_puts_files_and_torrent_back(session, settings, tmp_path, monk
     steps, complete = asyncio.run(restore_action(session, settings, action))
 
     assert complete and all(step.success for step in steps)
-    assert open(original_file, "rb").read() == b"contenu"
-    assert open(original_data, "rb").read() == b"donnees"
+    assert Path(original_file).read_bytes() == b"contenu"
+    assert Path(original_data).read_bytes() == b"donnees"
     assert client.added == [
         {
             "magnet": json.loads(json.dumps(client.added[0]["magnet"])),
@@ -203,7 +204,7 @@ def test_a_failed_step_keeps_the_action_in_the_trash(session, settings, tmp_path
     assert not complete and not steps[0].success
     session.expire_all()
     assert session.exec(select(TrashAction)).all() != []
-    assert open(row.path, "rb").read() == b"autre"
+    assert Path(row.path).read_bytes() == b"autre"
 
 
 def test_cleanup_sends_orphan_torrents_to_the_trash(session, settings, tmp_path, monkeypatch):
@@ -264,7 +265,7 @@ def test_retention_purges_whole_actions(session, settings, tmp_path):
     kept, expired = tmp_path / "recent.mkv", tmp_path / "vieux.mkv"
     for path in (kept, expired):
         path.write_bytes(b"x")
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     for path, age in ((kept, 2), (expired, 9)):
         action = TrashAction(media_title="Titre", created_at=now - timedelta(days=age))
         session.add(action)
@@ -382,7 +383,9 @@ def test_nothing_leaves_the_disk_if_sonarr_refuses(session, settings, tmp_path, 
     session.commit()
 
     result = asyncio.run(
-        execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True))
+        execute_media_delete(
+            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True)
+        )
     )
 
     assert any(not step.success for step in result.steps)

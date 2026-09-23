@@ -1,15 +1,15 @@
 import asyncio
 import json
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
+from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.database import engine, get_session
+from app.models.ids import row_id
 from app.models.media import ScanRun
 from app.models.settings import Settings
-from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.schemas.diagnostics import DiagnosticsResult, UnmatchedTorrent
 from app.schemas.media import ScanRunRead
 from app.services.diagnostics import (
@@ -30,7 +30,7 @@ STREAM_HEARTBEAT_SECONDS = 15
 
 def _to_read(run: ScanRun) -> ScanRunRead:
     return ScanRunRead(
-        id=run.id,
+        id=row_id(run),
         started_at=run.started_at,
         finished_at=run.finished_at,
         status=run.status.value,
@@ -57,16 +57,16 @@ async def start_scan(scope: str = Query("full", description=" | ".join(SCAN_SCOP
     return {"started": launch_scan(scope=scope)}
 
 
-@router.get("/status", response_model=Optional[ScanRunRead])
-def scan_status() -> Optional[ScanRunRead]:
+@router.get("/status", response_model=ScanRunRead | None)
+def scan_status() -> ScanRunRead | None:
     with Session(engine) as session:
-        run = session.exec(select(ScanRun).order_by(ScanRun.started_at.desc())).first()
+        run = session.exec(select(ScanRun).order_by(col(ScanRun.started_at).desc())).first()
         return _to_read(run) if run else None
 
 
 @router.get("/history", response_model=list[ScanRunRead])
 def scan_history(limit: int = 50, session: Session = Depends(get_session)) -> list[ScanRunRead]:
-    runs = session.exec(select(ScanRun).order_by(ScanRun.started_at.desc()).limit(limit)).all()
+    runs = session.exec(select(ScanRun).order_by(col(ScanRun.started_at).desc()).limit(limit)).all()
     return [_to_read(r) for r in runs]
 
 
@@ -85,7 +85,7 @@ async def scan_stream() -> StreamingResponse:
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=STREAM_HEARTBEAT_SECONDS)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": ping\n\n"
                     continue
                 yield f"data: {json.dumps(event)}\n\n"

@@ -116,7 +116,10 @@ def test_a_folder_keeping_a_video_is_left_alone(session, settings, tmp_path, mon
     media = Media(media_type=MediaType.series, title="Série")
     session.add(media)
     session.commit()
-    rows = [MediaFile(media_id=media.id, path=str(path), size=5, episode_label=f"S01E0{i + 1}") for i, path in enumerate((first, second))]
+    rows = [
+        MediaFile(media_id=media.id, path=str(path), size=5, episode_label=f"S01E0{i + 1}")
+        for i, path in enumerate((first, second))
+    ]
     session.add_all(rows)
     session.commit()
 

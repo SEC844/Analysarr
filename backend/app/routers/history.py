@@ -1,10 +1,11 @@
 import json
 
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, col, delete, select
 
 from app.database import get_session
 from app.models.activity import ActionLog
+from app.models.ids import row_id
 from app.models.media import Media
 from app.schemas.activity import ActionLogRead, ActionStepRead
 from app.services.action_log import MAX_ENTRIES
@@ -16,11 +17,11 @@ router = APIRouter()
 def list_actions(
     limit: int = Query(200, ge=1, le=MAX_ENTRIES), session: Session = Depends(get_session)
 ) -> list[ActionLogRead]:
-    entries = session.exec(select(ActionLog).order_by(ActionLog.id.desc()).limit(limit)).all()
+    entries = session.exec(select(ActionLog).order_by(col(ActionLog.id).desc()).limit(limit)).all()
     titles = dict(session.exec(select(Media.id, Media.title)).all())
     return [
         ActionLogRead(
-            id=e.id,
+            id=row_id(e),
             created_at=e.created_at,
             action=e.action,
             media_title=e.media_title,

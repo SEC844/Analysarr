@@ -63,7 +63,7 @@ def build_delete_preview(session: Session, media: Media) -> DeletePreview:
     # même ancienne version (même inode entre eux, même octet sur le disque) :
     # les supprimer tous ne libère l'espace qu'une seule fois, pas une fois
     # par torrent. Même logique que compute_statuses dans scan.py.
-    seen_inodes: set[tuple[int, int]] = set()
+    seen_inodes: set[tuple[int, int | None]] = set()
     for t in orphan_torrents:
         key = (t.inode, t.device) if t.inode is not None else None
         if key is not None:

@@ -4,7 +4,7 @@ import logging
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -16,12 +16,12 @@ from app.clients.torrent import (
     torrent_client_name,
 )
 from app.database import engine
-from app.clients.seer import SeerClient
+from app.models.ids import row_id
 from app.models.media import (
     EmbyUser,
+    ImportIssue,
     Media,
     MediaFile,
-    ImportIssue,
     MediaRequest,
     MediaType,
     MediaWatch,
@@ -45,6 +45,7 @@ from app.services.notifications import (
 )
 from app.services.queue_issues import IMPORT_KIND, STALLED_KIND, index_queue_issues, issue_rows_for
 from app.services.scan_scopes import SERVICE_SCOPES
+from app.services.seer import build_request_rows, index_requests, seer_client
 from app.services.torrent_match import (
     FetchedTorrents,
     MediaView,
@@ -52,7 +53,6 @@ from app.services.torrent_match import (
     fetch_torrents,
     persist_files,
 )
-from app.services.seer import build_request_rows, index_requests, seer_configured
 from app.services.watch_stats import (
     apply_aggregates,
     build_watch_rows,
@@ -152,7 +152,7 @@ def _provider_id(provider_ids: dict[str, Any] | None, *keys: str) -> str | None:
     return None
 
 
-def _episode_label(item: dict[str, Any]) -> str | None:
+def _episode_label(item: dict[str, Any]) -> str:
     season = item.get("ParentIndexNumber")
     episode = item.get("IndexNumber")
     if season is None or episode is None:
@@ -351,7 +351,7 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         session.add(run)
         session.commit()
         session.refresh(run)
-        run_id = run.id
+        run_id = row_id(run)
 
     await scan_events.publish({"type": "started", "run_id": run_id})
 
@@ -412,19 +412,19 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         for result in results:
             session.refresh(result.media)
             for f in result.files:
-                f.media_id = result.media.id
+                f.media_id = row_id(result.media)
                 session.add(f)
             for t in result.torrents:
-                t.media_id = result.media.id
+                t.media_id = row_id(result.media)
                 session.add(t)
             for w in result.watches:
-                w.media_id = result.media.id
+                w.media_id = row_id(result.media)
                 session.add(w)
             for r in result.requests:
-                r.media_id = result.media.id
+                r.media_id = row_id(result.media)
                 session.add(r)
             for issue in result.import_issues:
-                issue.media_id = result.media.id
+                issue.media_id = row_id(result.media)
                 session.add(issue)
         session.commit()
 
@@ -432,10 +432,12 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         # recalculent les hardlinks sans rappeler le client torrent.
         persist_files(session, fetched_torrents)
 
-        run = session.get(ScanRun, run_id)
-        assert run is not None
+        stored = session.get(ScanRun, run_id)
+        if stored is None:
+            raise RuntimeError(f"Analyse {run_id} introuvable en base")
+        run = stored
         run.status = ScanStatus.completed
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         run.media_count = len(results)
         run.duplicate_count = sum(1 for r in results if "doublon" in r.media.statuses.split(","))
         run.orphan_count = sum(1 for r in results if "orphelin_qbit" in r.media.statuses.split(","))
@@ -533,7 +535,7 @@ async def _fail_scan(
         if run:
             run.status = ScanStatus.failed
             run.error_message = message
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             session.add(run)
             session.commit()
     await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
@@ -611,7 +613,7 @@ async def build_movie_result(ctx: LibraryContext, target: ArrTarget, movie: dict
         ]
         sources = _without_other_instance_files(_media_sources(emby_item), movie_file, other_files)
         flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], movie_file)
-        for source, is_current in zip(sources, flags):
+        for source, is_current in zip(sources, flags, strict=True):
             path = source.get("Path")
             inode = stat_inode(path)
             result.files.append(
@@ -706,15 +708,15 @@ async def build_series_result(
             label = _episode_label(episode)
             sources_by_label.setdefault(label, []).extend(_media_sources(episode))
             span_by_label.setdefault(label, set()).update(_episode_span_labels(episode))
-        for label, sources in sources_by_label.items():
+        for label, label_sources in sources_by_label.items():
             sonarr_episode_id, sonarr_episode_file_id = sonarr_by_label.get(label, (None, None))
             episode_file = episode_files_by_id.get(sonarr_episode_file_id) if sonarr_episode_file_id else None
-            sources = _without_other_instance_files(sources, episode_file, other_files)
+            sources = _without_other_instance_files(label_sources, episode_file, other_files)
             if episode_file is not None:
                 flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], episode_file)
             else:
                 flags = [bool(s.get("Path") and s.get("Path") in current_paths) for s in sources]
-            for source, is_current in zip(sources, flags):
+            for source, is_current in zip(sources, flags, strict=True):
                 path = source.get("Path")
                 inode = stat_inode(path)
                 result.files.append(
@@ -874,9 +876,14 @@ async def _collect(
     """Instances Radarr/Sonarr : la principale d'abord, puis les
     supplémentaires (voir services/arr_instances.py). Chaque film/série suivi
     par une instance donne un média distinct."""
-    assert settings.emby_url and settings.emby_api_key
-    assert radarr_targets and sonarr_targets
-    assert torrent_client_configured(settings)
+    # Garanti par l'appelant (réglages complets) ; vérifié ici plutôt que par
+    # assert, que `python -O` supprimerait.
+    if not (settings.emby_url and settings.emby_api_key):
+        raise RuntimeError("Serveur multimédia non configuré")
+    if not (radarr_targets and sonarr_targets):
+        raise RuntimeError("Sonarr ou Radarr non configuré")
+    if not torrent_client_configured(settings):
+        raise RuntimeError("Client torrent non configuré")
 
     emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
 
@@ -991,7 +998,7 @@ async def _collect(
 
     hash_to_index: dict[str, int] = {}
     for target, movie in movie_entries:
-        index = radarr_id_to_index.get((target.instance_id, movie.get("id")))
+        index = radarr_id_to_index.get((target.instance_id, movie["id"])) if "id" in movie else None
         if index is None:
             continue
         try:
@@ -1004,7 +1011,7 @@ async def _collect(
                 hash_to_index[download_id.lower()] = index
 
     for target, series in series_entries:
-        index = sonarr_id_to_index.get((target.instance_id, series.get("id")))
+        index = sonarr_id_to_index.get((target.instance_id, series["id"])) if "id" in series else None
         if index is None:
             continue
         try:
@@ -1033,7 +1040,9 @@ async def _collect(
         )
         for r in results
     ]
-    for result, torrents_of_media in zip(results, attach_torrents(settings, views, fetched, hash_to_index)):
+    for result, torrents_of_media in zip(
+        results, attach_torrents(settings, views, fetched, hash_to_index), strict=True
+    ):
         result.torrents.extend(torrents_of_media)
 
     # --- Calcul des statuts -------------------------------------------
@@ -1073,10 +1082,11 @@ async def _collect(
     # --- Demandes Seer (optionnel) ---------------------------------------
     # Même principe que le visionnage : un Seer injoignable laisse les
     # demandes vides sans faire échouer le scan.
-    if seer_configured(settings):
+    seer = seer_client(settings)
+    if seer is not None:
         await progress("seer")
         try:
-            request_index = index_requests(await SeerClient(settings.seer_url, settings.seer_api_key).get_requests())
+            request_index = index_requests(await seer.get_requests())
         except (httpx.HTTPError, ValueError):
             request_index = {}
         for result in results:
@@ -1139,7 +1149,7 @@ def compute_statuses(
         # même ancienne version (même inode entre eux) : supprimer l'un d'eux
         # ne libère pas d'espace tant qu'un autre pointe encore vers ce même
         # fichier. On ne compte donc chaque inode qu'une seule fois.
-        seen_inodes: set[tuple[int, int]] = set()
+        seen_inodes: set[tuple[int, int | None]] = set()
         for t in orphan_torrents:
             key = (t.inode, t.device) if t.inode is not None else None
             if key is not None:

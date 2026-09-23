@@ -20,14 +20,15 @@ Les périmètres `full` et `library` passent par le scan complet
 que la liste des médias vient de Sonarr/Radarr.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, col, delete, select
 
-from app.clients.emby import EmbyClient, media_server_name
+from app.clients.emby import media_server_client, media_server_name
 from app.clients.torrent import torrent_client_configured, torrent_client_name
 from app.database import engine
+from app.models.ids import row_id
 from app.models.media import (
     EmbyUser,
     ImportIssue,
@@ -46,7 +47,7 @@ from app.services.events import scan_events
 from app.services.notifications import ChannelTarget, channel_targets
 from app.services.queue_issues import index_queue_issues, issue_rows_for
 from app.services.scan_scopes import SERVICE_SCOPES
-from app.services.seer import build_request_rows, index_requests, seer_configured
+from app.services.seer import build_request_rows, index_requests, seer_client, seer_configured
 from app.services.torrent_match import (
     MediaView,
     attach_torrents,
@@ -130,9 +131,9 @@ async def _refresh_torrents(session: Session, settings: Settings, medias: list[M
     session.exec(delete(Torrent))
     session.commit()
     matched = 0
-    for media, torrents in zip(medias, by_media):
+    for media, torrents in zip(medias, by_media, strict=True):
         for torrent in torrents:
-            torrent.media_id = media.id
+            torrent.media_id = row_id(media)
             session.add(torrent)
             matched += 1
     session.commit()
@@ -161,12 +162,12 @@ async def _refresh_queue(session: Session, settings: Settings, medias: list[Medi
     session.commit()
     for media in medias:
         kind = "radarr" if media.media_type == MediaType.movie else "sonarr"
-        arr_id = media.radarr_id if kind == "radarr" else media.sonarr_id
-        if arr_id is None:
+        media_arr_id = media.radarr_id if kind == "radarr" else media.sonarr_id
+        if media_arr_id is None:
             continue
-        records = issues_by_key.get((kind, media.arr_instance_id, arr_id), [])
+        records = issues_by_key.get((kind, media.arr_instance_id, media_arr_id), [])
         for row in issue_rows_for(records):
-            row.media_id = media.id
+            row.media_id = row_id(media)
             session.add(row)
     session.commit()
 
@@ -174,7 +175,9 @@ async def _refresh_queue(session: Session, settings: Settings, medias: list[Medi
 async def _refresh_watch(session: Session, settings: Settings, medias: list[Media]) -> None:
     """Relit les statistiques de visionnage. Échec silencieux : des stats
     vides valent mieux qu'une analyse en erreur."""
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
+    emby = media_server_client(settings)
+    if emby is None:
+        return
     try:
         users = users_from_api(await emby.get_users())
         data = await collect_watch_data(emby, users)
@@ -190,7 +193,7 @@ async def _refresh_watch(session: Session, settings: Settings, medias: list[Medi
     for media in medias:
         rows = build_watch_rows(media, users, data)
         for row in rows:
-            row.media_id = media.id
+            row.media_id = row_id(media)
             session.add(row)
         apply_aggregates(media, rows, excluded)
         session.add(media)
@@ -199,10 +202,11 @@ async def _refresh_watch(session: Session, settings: Settings, medias: list[Medi
 
 async def _refresh_seer(session: Session, settings: Settings, medias: list[Media]) -> None:
     """Relit les demandes Seer. Échec silencieux, comme pendant un scan."""
-    from app.clients.seer import SeerClient
-
+    seer = seer_client(settings)
+    if seer is None:
+        return
     try:
-        index = index_requests(await SeerClient(settings.seer_url, settings.seer_api_key).get_requests())
+        index = index_requests(await seer.get_requests())
     except Exception:  # noqa: BLE001 - informatif
         return
 
@@ -211,7 +215,7 @@ async def _refresh_seer(session: Session, settings: Settings, medias: list[Media
     for media in medias:
         rows = build_request_rows(media, index)
         for row in rows:
-            row.media_id = media.id
+            row.media_id = row_id(media)
             session.add(row)
         session.add(media)
     session.commit()
@@ -240,7 +244,8 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
     """Analyse d'un seul service. L'appelant détient déjà le verrou de scan
     (voir `services/scan.run_scan`) : une analyse par service et un scan
     complet ne tournent jamais en même temps."""
-    assert scope in SERVICE_SCOPES
+    if scope not in SERVICE_SCOPES:
+        raise ValueError(f"Périmètre d'analyse inconnu : {scope}")
 
     with Session(engine) as session:
         settings = session.get(Settings, 1)
@@ -251,7 +256,7 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
         session.add(run)
         session.commit()
         session.refresh(run)
-        run_id = run.id
+        run_id = row_id(run)
 
     await scan_events.publish({"type": "started", "run_id": run_id, "scope": scope})
 
@@ -292,10 +297,12 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
                     _recompute_statuses(session, medias)
             session.commit()
 
-            run = session.get(ScanRun, run_id)
-            assert run is not None
+            stored = session.get(ScanRun, run_id)
+            if stored is None:
+                raise RuntimeError(f"Analyse {run_id} introuvable en base")
+            run = stored
             run.status = ScanStatus.completed
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             run.media_count = len(medias)
             run.duplicate_count = sum(1 for m in medias if "doublon" in m.statuses.split(","))
             run.orphan_count = sum(1 for m in medias if "orphelin_qbit" in m.statuses.split(","))
@@ -377,7 +384,9 @@ async def _refresh_service(session: Session, settings: Settings, scope: str) -> 
 
     wants_movies = scope in ("radarr", "media_server")
     wants_series = scope in ("sonarr", "media_server")
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
+    emby = media_server_client(settings)
+    if emby is None:
+        raise RuntimeError("Serveur multimédia non configuré.")
 
     movie_entries: list[tuple[Any, dict[str, Any]]] = []
     series_entries: list[tuple[Any, dict[str, Any]]] = []
@@ -490,14 +499,14 @@ def _persist_service_results(
             session.add(row)
             session.commit()
 
-        session.exec(delete(MediaFile).where(MediaFile.media_id == row.id))
+        session.exec(delete(MediaFile).where(col(MediaFile.media_id) == row.id))
         for f in result.files:
-            f.media_id = row.id
+            f.media_id = row_id(row)
             session.add(f)
         if refresh_queue:
-            session.exec(delete(ImportIssue).where(ImportIssue.media_id == row.id))
+            session.exec(delete(ImportIssue).where(col(ImportIssue.media_id) == row.id))
             for issue in result.import_issues:
-                issue.media_id = row.id
+                issue.media_id = row_id(row)
                 session.add(issue)
         session.commit()
 
@@ -511,7 +520,7 @@ def _persist_service_results(
             # les élaguer ici les ferait disparaître à chaque analyse.
             continue
         for table in (ImportIssue, MediaRequest, MediaWatch, Torrent, MediaFile):
-            session.exec(delete(table).where(table.media_id == row.id))
+            session.exec(delete(table).where(col(table.media_id) == row.id))
         session.delete(row)
     session.commit()
 
@@ -538,9 +547,9 @@ def _reattach_known_torrents(session: Session, settings: Settings, medias: list[
     session.exec(delete(Torrent))
     session.commit()
     matched = 0
-    for media, torrents in zip(medias, by_media):
+    for media, torrents in zip(medias, by_media, strict=True):
         for torrent in torrents:
-            torrent.media_id = media.id
+            torrent.media_id = row_id(media)
             session.add(torrent)
             matched += 1
     session.commit()

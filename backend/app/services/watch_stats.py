@@ -19,11 +19,11 @@ API Emby n'atteint jamais le navigateur)."""
 import asyncio
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, overload
 
 import httpx
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, col, delete, select
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.models.media import EmbyUser, Media, MediaType, MediaWatch
@@ -52,14 +52,18 @@ def parse_emby_date(value: Any) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+@overload
+def as_utc(value: datetime) -> datetime: ...
+@overload
+def as_utc(value: None) -> None: ...
 def as_utc(value: datetime | None) -> datetime | None:
     """SQLite rend des dates naïves : elles ont toujours été enregistrées en UTC."""
     if value is None:
         return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def excluded_user_ids(settings: Settings | None) -> set[str]:
@@ -220,7 +224,7 @@ async def refresh_media_watch(session: Session, media: Media, settings: Settings
     session.exec(delete(EmbyUser))
     for user in users:
         session.add(user)
-    session.exec(delete(MediaWatch).where(MediaWatch.media_id == media.id))
+    session.exec(delete(MediaWatch).where(col(MediaWatch.media_id) == media.id))
     rows = build_watch_rows(media, users, data)
     for row in rows:
         session.add(row)
@@ -253,7 +257,8 @@ def build_watch_stats(session: Session, media: Media, settings: Settings | None,
         ),
         key=lambda u: (not u.played, -u.progress, u.name.lower()),
     )
-    last = max((u for u in watch_users if u.last_played_at), key=lambda u: u.last_played_at, default=None)
+    played = [(u.last_played_at, u) for u in watch_users if u.last_played_at is not None]
+    last = max(played, key=lambda pair: pair[0])[1] if played else None
     return MediaWatchStats(
         available=bool(media.emby_item_id),
         live=live,

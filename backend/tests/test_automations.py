@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -39,7 +39,7 @@ def add_orphan(session, title="Matrix", *, ratio=2.0, seeded_days=30, size=1024,
         ratio=ratio,
         is_hardlinked=False,
         repairable=False,
-        completed_on=datetime.now(timezone.utc) - timedelta(days=seeded_days),
+        completed_on=datetime.now(UTC) - timedelta(days=seeded_days),
     )
     session.add(torrent)
     session.commit()
@@ -83,11 +83,17 @@ def test_conditions_filter_media_and_torrents(session):
 def test_conditions_never_assume_an_unknown_seed_date(session):
     media = add_orphan(session, "Sans date")
     torrent = session.exec(Torrent.__table__.select()).first()
-    session.exec(Torrent.__table__.update().where(Torrent.__table__.c.id == torrent.id).values(completed_on=None, added_on=None))
+    session.exec(
+        Torrent.__table__.update().where(Torrent.__table__.c.id == torrent.id).values(completed_on=None, added_on=None)
+    )
     session.commit()
 
     automation = Automation(
-        name="r", trigger="orphan_detected", action="cleanup", conditions=json.dumps({"min_seed_days": 1}), max_actions=5
+        name="r",
+        trigger="orphan_detected",
+        action="cleanup",
+        conditions=json.dumps({"min_seed_days": 1}),
+        max_actions=5,
     )
     assert eligible_medias(session, as_rule(automation)) == []
     assert media.title == "Sans date"
@@ -172,7 +178,10 @@ def test_automation_api_validates_and_previews(admin_client, session, settings):
     preview = admin_client.get(f"{AUTOMATIONS}/{automation['id']}/preview").json()
     assert preview["matched"] == 1 and preview["executed"] == 0 and preview["freed_bytes"] == 4096
 
-    assert admin_client.put(f"{AUTOMATIONS}/{automation['id']}", json={**body, "enabled": False}).json()["enabled"] is False
+    assert (
+        admin_client.put(f"{AUTOMATIONS}/{automation['id']}", json={**body, "enabled": False}).json()["enabled"]
+        is False
+    )
     assert admin_client.delete(f"{AUTOMATIONS}/{automation['id']}").status_code == 204
     assert admin_client.get(AUTOMATIONS).json() == []
 

@@ -11,7 +11,7 @@ générée dans Réglages → Widget :
 import hmac
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.config import APP_VERSION
 from app.database import get_session
@@ -52,7 +52,7 @@ def widget_status(request: Request, response: Response, session: Session = Depen
             if status in statuses:
                 statuses[status] += 1
 
-    last_run = session.exec(select(ScanRun).order_by(ScanRun.id.desc())).first()
+    last_run = session.exec(select(ScanRun).order_by(col(ScanRun.id).desc())).first()
     services = cached_services_status()
 
     return WidgetStatus(
@@ -67,7 +67,9 @@ def widget_status(request: Request, response: Response, session: Session = Depen
         reclaimable_bytes=sum(m.reclaimable_bytes for m in medias),
         total_size_bytes=sum(m.total_size for m in medias),
         last_scan=WidgetLastScan(
-            status=last_run.status.value, started_at=as_utc(last_run.started_at), finished_at=as_utc(last_run.finished_at)
+            status=last_run.status.value,
+            started_at=as_utc(last_run.started_at),
+            finished_at=as_utc(last_run.finished_at),
         )
         if last_run is not None
         else None,

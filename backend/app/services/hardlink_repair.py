@@ -4,6 +4,7 @@ import os
 from sqlmodel import Session, select
 
 from app.clients.torrent import torrent_client
+from app.models.ids import row_id
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
@@ -138,9 +139,9 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
 
                 items.append(
                     HardlinkRepairItem(
-                        media_file_id=current.id,
+                        media_file_id=row_id(current),
                         episode_label=current.episode_label,
-                        torrent_id=t.id,
+                        torrent_id=row_id(t),
                         torrent_name=t.name,
                         direction=direction,
                         source_path=source_path,
@@ -149,7 +150,7 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
                         size=size,
                     )
                 )
-                matched_torrent_ids.add(t.id)
+                matched_torrent_ids.add(row_id(t))
                 if media.media_type == MediaType.movie:
                     break  # un seul fichier actuel pour un film, inutile de continuer
 
@@ -267,7 +268,7 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
     repaired_torrent_ids: set[int] = set()
     repaired_media_file_ids: set[int] = set()
     repaired_torrent_target_path: dict[int, str] = {}
-    for item, step in zip(preview.items, steps):
+    for item, step in zip(preview.items, steps, strict=True):
         if not step.success:
             continue
         repaired_torrent_ids.add(item.torrent_id)
