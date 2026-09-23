@@ -109,6 +109,10 @@ services:
     ports:
       - "1818:1818"
     environment:
+      # Même utilisateur et même groupe que Sonarr, Radarr et votre client torrent.
+      PUID: 1000
+      PGID: 1000
+      UMASK: "002"
       DATABASE_PATH: /config/analysarr.db
     volumes:
       - ./analysarr:/config
@@ -116,6 +120,19 @@ services:
       # multimédia, qBittorrent, Sonarr et Radarr (voir « Chemins et hardlinks »).
       - /mnt/data:/data
 ```
+
+#### Droits des fichiers (`PUID`, `PGID`, `UMASK`)
+
+Analysarr crée et supprime des fichiers dans votre bibliothèque (réparation de hardlinks, corbeille).
+Il tourne sous l'utilisateur indiqué par `PUID`/`PGID` (`1000`/`1000` par défaut) et crée ses
+fichiers avec `UMASK` (`002` par défaut), jamais en root. **Mettez les mêmes valeurs que Sonarr,
+Radarr et votre client torrent**, sinon ils risquent de ne plus pouvoir gérer les fichiers touchés
+par Analysarr. Seul `/config` change de propriétaire au démarrage, jamais vos médias ni vos
+téléchargements.
+
+La base vit dans `/config`. Une installation existante dont la base est encore dans `/data` continue
+de l'utiliser (un avertissement dans les journaux explique comment la déplacer) : aucune action
+n'est nécessaire après une mise à jour.
 
 ### Unraid
 

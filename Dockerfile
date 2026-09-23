@@ -28,11 +28,21 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY --from=frontend-build /frontend/dist ./static
 
-# Ces deux variables sont les seules qui restent de la configuration Docker :
-# tout le reste (URLs, clés API, chemins...) se règle depuis l'assistant de
-# configuration au premier lancement, en base SQLite.
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 755 /usr/local/bin/entrypoint.sh
+
+# Seules variables de la configuration Docker : tout le reste (URLs, clés API,
+# chemins...) se règle depuis l'assistant au premier lancement, en base SQLite.
+# PUID/PGID/UMASK : identité sous laquelle tourne Analysarr (voir
+# docker/entrypoint.sh) — mettez les mêmes que Sonarr, Radarr et le client
+# torrent. DATABASE_PATH n'est volontairement PAS fixé ici : sans lui, la base
+# vit dans /config/analysarr.db, sauf pour une installation existante qui
+# l'avait dans /data (backend/app/config.py). Un ENV la rendrait toujours
+# « définie » et rendrait cette reprise impossible.
 ENV PORT=1818 \
-    DATABASE_PATH=/data/analysarr.db \
+    PUID=1000 \
+    PGID=1000 \
+    UMASK=002 \
     PYTHONUNBUFFERED=1
 
 # Identité du build, affichée dans Réglages → Application et utilisée pour
@@ -45,10 +55,11 @@ ENV APP_VERSION=${APP_VERSION} \
     APP_REVISION=${APP_REVISION} \
     APP_BUILD_DATE=${APP_BUILD_DATE}
 
-VOLUME ["/data"]
+VOLUME ["/config"]
 EXPOSE 1818
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import os,urllib.request,sys; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/api/health', timeout=3)" || exit 1
 
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

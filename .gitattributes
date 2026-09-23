@@ -1,0 +1,2 @@
+# Scripts exécutés dans le conteneur Linux : un CRLF casserait le shebang.
+*.sh text eol=lf

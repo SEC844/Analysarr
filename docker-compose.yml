@@ -12,8 +12,15 @@ services:
       # Sonarr, Radarr, qBittorrent, Seer, cross-seed...) se configure depuis
       # l'assistant au premier lancement (aucun .env requis).
       PORT: 1818
+      # Utilisateur et groupe sous lesquels tourne Analysarr : mettez les
+      # mêmes que Sonarr, Radarr et votre client torrent (Unraid : 99/100).
+      # Seul /config change de propriétaire au démarrage, jamais /data.
+      PUID: 1000
+      PGID: 1000
+      UMASK: "002"
       # Base SQLite (réglages + cache de scan), rangée hors des médias.
-      # Si vous utilisiez l'ancien exemple (base dans /data), gardez
+      # Une base encore dans /data (ancien exemple) est reprise telle quelle
+      # si cette variable est absente ; sinon gardez
       # DATABASE_PATH=/data/analysarr.db pour conserver votre configuration.
       DATABASE_PATH: /config/analysarr.db
     volumes:

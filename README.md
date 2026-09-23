@@ -109,6 +109,10 @@ services:
     ports:
       - "1818:1818"
     environment:
+      # Same user and group as Sonarr, Radarr and your torrent client.
+      PUID: 1000
+      PGID: 1000
+      UMASK: "002"
       DATABASE_PATH: /config/analysarr.db
     volumes:
       - ./analysarr:/config
@@ -116,6 +120,17 @@ services:
       # qBittorrent, Sonarr and Radarr (see "Paths and hardlinks").
       - /mnt/data:/data
 ```
+
+#### File permissions (`PUID`, `PGID`, `UMASK`)
+
+Analysarr creates and deletes files in your library (hardlink repair, trash). It runs as the user
+given by `PUID`/`PGID` (default `1000`/`1000`) and creates files with `UMASK` (default `002`), never
+as root. **Use the same values as Sonarr, Radarr and your torrent client**, otherwise they may no
+longer be able to manage the files Analysarr touches. Only `/config` is re-owned at startup; your
+media and downloads never are.
+
+The database lives in `/config`. An existing install that still has its database in `/data` keeps
+using it (a warning in the logs explains how to move it): no action is required after an update.
 
 ### Unraid
 
