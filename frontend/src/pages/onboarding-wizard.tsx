@@ -28,7 +28,7 @@ import {
 // dans les Réglages).
 type StepId = CoreStep | "crossSeed" | "seer" | "summary"
 
-const STEPS: { id: StepId; core: boolean }[] = [
+const STEPS = [
   { id: "mediaServer", core: true },
   { id: "sonarr", core: true },
   { id: "radarr", core: true },
@@ -37,7 +37,7 @@ const STEPS: { id: StepId; core: boolean }[] = [
   { id: "crossSeed", core: false },
   { id: "seer", core: false },
   { id: "summary", core: false },
-]
+] as const satisfies readonly { id: StepId; core: boolean }[]
 
 const API_KEY_SERVICES = { mediaServer: "emby", sonarr: "sonarr", radarr: "radarr" } as const
 
@@ -49,7 +49,7 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
 
   const missing = missingCoreConfig(form, existing)
   const canFinish = missing.length === 0
-  const current = STEPS[step]
+  const current = STEPS[step] ?? STEPS[0]
   const isLast = step === STEPS.length - 1
   const clientName = TORRENT_CLIENT_NAMES[form.torrent_client]
   // Les trois services à clé API partagent la même carte.

@@ -54,6 +54,6 @@ describe("request", () => {
 
     await getAppInfo()
 
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: "no-store" })
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ cache: "no-store" })
   })
 })

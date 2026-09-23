@@ -20,7 +20,7 @@ const BRANDS: Partial<Record<ChannelKind, { color: string; path: string }>> = {
 
 const GOTIFY_COLOR = "#0ea5e9"
 
-export function channelColor(kind: ChannelKind): string {
+function channelColor(kind: ChannelKind): string {
   return BRANDS[kind]?.color ?? GOTIFY_COLOR
 }
 

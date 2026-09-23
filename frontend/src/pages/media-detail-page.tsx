@@ -79,8 +79,8 @@ function SeasonGroup({ title, children }: { title: ReactNode; children: ReactNod
 
 // Numéro de saison extrait de "S01E02" ; null pour un fichier sans épisode identifié.
 function seasonNumber(episodeLabel: string | null): number | null {
-  const match = episodeLabel?.match(/^S(\d+)/)
-  return match ? parseInt(match[1], 10) : null
+  const season = episodeLabel?.match(/^S(\d+)/)?.[1]
+  return season ? parseInt(season, 10) : null
 }
 
 function groupBySeason(files: MediaFileRead[]): { season: number | null; files: MediaFileRead[] }[] {
@@ -167,7 +167,7 @@ export function MediaDetailPage() {
             // dédupliqué, avec le nombre total d'échecs.
             const details = [...new Set(result.errors.map((e) => e.split(" : ").slice(1).join(" : ") || e))]
             toast.error(
-              t("media.crossSeedErrors", { count: result.errors.length, detail: details[0] }) +
+              t("media.crossSeedErrors", { count: result.errors.length, detail: details[0] ?? "" }) +
                 (details.length > 1 ? t("media.crossSeedMoreErrors", { count: details.length - 1 }) : ""),
             )
           }

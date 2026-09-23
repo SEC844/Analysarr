@@ -40,7 +40,7 @@ import {
 const GIGABYTE = 1024 ** 3
 // La réparation des hardlinks n'a de sens que sur les torrents non hardlinkés
 // (même règle côté backend).
-const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, AutomationAction[]> = {
+const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, readonly [AutomationAction, ...AutomationAction[]]> = {
   orphan_detected: ["cleanup", "cross_seed_search", "notify_only"],
   duplicate_detected: ["cleanup", "notify_only"],
   non_hardlink_detected: ["repair_hardlinks", "cross_seed_search", "notify_only"],

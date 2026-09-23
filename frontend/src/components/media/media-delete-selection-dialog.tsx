@@ -23,7 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { watchProgressLabel } from "@/components/media/watch-stats"
+import { watchProgressLabel } from "@/components/media/watch-progress"
 import { usePreferences } from "@/hooks/use-app"
 import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation, useMediaWatchQuery } from "@/hooks/use-media"
 import { useTrashSettingsQuery } from "@/hooks/use-trash"
@@ -75,7 +75,8 @@ function groupBySeason(files: MediaFileRead[], t: Translate): [string, MediaFile
 // Un seul élément dans une section : ligne simple, sans niveau d'arbre.
 function section(key: string, label: string, icon: ReactNode, children: TreeNode[]): TreeNode | null {
   if (children.length === 0) return null
-  const node = children.length === 1 && children[0].children.length === 0 ? children[0] : group(key, label, children)
+  const only = children.length === 1 ? children[0] : undefined
+  const node = only && only.children.length === 0 ? only : group(key, label, children)
   return { ...node, icon }
 }
 
