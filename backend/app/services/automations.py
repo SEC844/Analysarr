@@ -12,6 +12,7 @@ personne ne regarde :
 - chaque exécution est tracée dans l'historique et notifiable."""
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -24,7 +25,14 @@ from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.automations import AutomationConditions, AutomationRunResult, AutomationStep
 from app.services.action_log import MediaRef, record_action
+from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic
+from app.services.cascade_delete import build_delete_preview, execute_delete
+from app.services.cross_seed import trigger_cross_seed_search
+from app.services.hardlink_repair import execute_repair
 from app.services.notifications import ChannelTarget, automation_notification, notification_language, notify
+from app.services.queue_issues import execute_import_retry
+
+logger = logging.getLogger(__name__)
 
 # Statut (calculé au scan) qui rend un média éligible à chaque déclencheur.
 TRIGGER_STATUSES = {
@@ -74,6 +82,7 @@ def rule_conditions(automation: Automation) -> AutomationConditions:
         return AutomationConditions.model_validate(json.loads(automation.conditions or "{}"))
     except (ValueError, TypeError):
         # Conditions illisibles : la règle ne filtre rien plutôt que d'échouer.
+        logger.warning("Conditions illisibles pour l'automatisation %s", automation.id)
         return AutomationConditions()
 
 
@@ -147,11 +156,6 @@ async def _execute(
 ) -> tuple[list[AutomationStep], int]:
     """Exécute l'action de la règle sur un média. Réutilise exactement le code
     des actions manuelles (imports différés : ces modules dépendent du scan)."""
-    from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic
-    from app.services.cascade_delete import build_delete_preview, execute_delete
-    from app.services.cross_seed import trigger_cross_seed_search
-    from app.services.hardlink_repair import execute_repair
-    from app.services.queue_issues import execute_import_retry
 
     if rule.action == "notify_only":
         return [AutomationStep(label=media.title, success=True)], 0

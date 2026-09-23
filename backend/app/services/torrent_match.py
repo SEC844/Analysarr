@@ -9,24 +9,33 @@ puis héritage entre copies cross-seed, puis similarité de titre.
 """
 
 import json
+import logging
 import os
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
+from sqlmodel import Session, delete, select
+
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_name
-from app.models.media import MediaFile, MediaType, Torrent
+from app.models.media import MediaFile, MediaType, Torrent, TorrentFile
 from app.models.settings import Settings
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
 from app.services.trackers import extract_tracker_domain, status_label
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "FetchedTorrents",
     "MediaView",
+    "add_fetched",
     "attach_torrents",
     "fetch_torrents",
     "is_usable_root",
+    "optional_read",
     "persist_files",
     "torrents_from_cache",
 ]
@@ -135,73 +144,108 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
     try:
         async with torrent_client(settings) as client:
             torrents = await client.get_torrents()
-            trackers_by_hash: dict[str, list[dict[str, Any]]] = {}
-            files_by_hash: dict[str, list[dict[str, Any]]] = {}
-            for t in torrents:
-                try:
-                    trackers_by_hash[t["hash"]] = await client.get_trackers(t["hash"])
-                except Exception:  # noqa: BLE001 - un tracker illisible ne doit pas arrêter l'analyse
-                    trackers_by_hash[t["hash"]] = []
-                try:
-                    files_by_hash[t["hash"]] = await client.get_files(t["hash"])
-                except Exception:  # noqa: BLE001
-                    files_by_hash[t["hash"]] = []
+            details = [
+                (
+                    await optional_read(client.get_trackers, t["hash"], "Trackers"),
+                    await optional_read(client.get_files, t["hash"], "Fichiers"),
+                )
+                for t in torrents
+            ]
     except TorrentAuthError as exc:
         raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée pendant le scan : {exc}") from exc
 
     fetched = FetchedTorrents()
-    for t in torrents:
-        content_path = t.get("content_path") or t.get("save_path")
-        save_path = t.get("save_path")
-
-        file_entries: list[tuple[str, int | None]] = []
-        for f in files_by_hash.get(t["hash"], []):
-            rel = f.get("name")
-            if rel and save_path:
-                file_entries.append((os.path.join(save_path, rel), f.get("size")))
-        if not file_entries and content_path:
-            # repli si l'API des fichiers a échoué ou n'a rien renvoyé
-            file_entries.append((content_path, t.get("size")))
-
-        resolved_inodes: list[tuple[int, int]] = []
-        file_details: list[tuple[str, int | None]] = []
-        for path, size in file_entries:
-            inode = stat_inode(path)
-            if inode is not None:
-                resolved_inodes.append(inode)
-            file_details.append((os.path.basename(path), size))
-
-        first_inode = resolved_inodes[0] if resolved_inodes else None
-        domains = []
-        for tr in trackers_by_hash.get(t["hash"], []):
-            domain = extract_tracker_domain(tr.get("url", ""))
-            if domain:
-                domains.append({"domain": domain, "status": status_label(tr.get("status", -1))})
-
-        fetched.rows.append(
-            Torrent(
-                media_id=0,
-                hash=t["hash"],
-                name=t.get("name", ""),
-                save_path=save_path,
-                content_path=t.get("content_path"),
-                category=t.get("category") or None,
-                size=t.get("size"),
-                inode=first_inode[0] if first_inode else None,
-                device=first_inode[1] if first_inode else None,
-                ratio=t.get("ratio"),
-                seeders=t.get("num_seeds"),
-                leechers=t.get("num_leechs"),
-                added_on=epoch_to_datetime(t.get("added_on")),
-                completed_on=epoch_to_datetime(t.get("completion_on")),
-                trackers_json=json.dumps(domains),
-            )
-        )
-        fetched.content_paths.append(content_path)
-        fetched.file_inodes.append(resolved_inodes)
-        fetched.file_details.append(file_details)
-        fetched.file_paths.append(file_entries)
+    for t, (trackers, files) in zip(torrents, details, strict=True):
+        add_fetched(fetched, t, trackers, files)
     return fetched
+
+
+async def optional_read(
+    read: Callable[[str], Awaitable[list[dict[str, Any]]]], torrent_hash: str, what: str
+) -> list[dict[str, Any]]:
+    try:
+        return await read(torrent_hash)
+    except (httpx.HTTPError, ValueError, RuntimeError, TorrentAuthError):
+        # Un torrent illisible ne doit pas arrêter l'analyse : sans ses
+        # fichiers, son hardlink n'est simplement pas évalué.
+        logger.warning("%s illisibles pour le torrent %s", what, torrent_hash, exc_info=True)
+        return []
+
+
+def add_fetched(
+    fetched: FetchedTorrents, t: dict[str, Any], trackers: list[dict[str, Any]], files: list[dict[str, Any]]
+) -> None:
+    content_path = t.get("content_path") or t.get("save_path")
+    save_path = t.get("save_path")
+
+    file_entries: list[tuple[str, int | None]] = []
+    for f in files:
+        rel = f.get("name")
+        if rel and save_path:
+            file_entries.append((os.path.join(save_path, rel), f.get("size")))
+    if not file_entries and content_path:
+        # repli si l'API des fichiers a échoué ou n'a rien renvoyé
+        file_entries.append((content_path, t.get("size")))
+
+    resolved_inodes, file_details = _resolve_files(file_entries)
+    first_inode = resolved_inodes[0] if resolved_inodes else None
+    fetched.rows.append(
+        Torrent(
+            media_id=0,
+            hash=t["hash"],
+            name=t.get("name", ""),
+            save_path=save_path,
+            content_path=t.get("content_path"),
+            category=t.get("category") or None,
+            size=t.get("size"),
+            inode=first_inode[0] if first_inode else None,
+            device=first_inode[1] if first_inode else None,
+            ratio=t.get("ratio"),
+            seeders=t.get("num_seeds"),
+            leechers=t.get("num_leechs"),
+            added_on=epoch_to_datetime(t.get("added_on")),
+            completed_on=epoch_to_datetime(t.get("completion_on")),
+            trackers_json=json.dumps(_tracker_domains(trackers)),
+        )
+    )
+    fetched.content_paths.append(content_path)
+    fetched.file_inodes.append(resolved_inodes)
+    fetched.file_details.append(file_details)
+    fetched.file_paths.append(file_entries)
+
+
+def _resolve_files(
+    file_entries: list[tuple[str, int | None]],
+) -> tuple[list[tuple[int, int]], list[tuple[str, int | None]]]:
+    """Inodes lisibles de chaque fichier, relus sur le disque, et (nom, taille)
+    de chaque fichier."""
+    resolved_inodes: list[tuple[int, int]] = []
+    details: list[tuple[str, int | None]] = []
+    for path, size in file_entries:
+        inode = stat_inode(path)
+        if inode is not None:
+            resolved_inodes.append(inode)
+        details.append((os.path.basename(path), size))
+    return resolved_inodes, details
+
+
+def _tracker_domains(trackers: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Domaine lisible et état de chaque tracker (passkeys masquées)."""
+    domains = []
+    for tr in trackers:
+        domain = extract_tracker_domain(tr.get("url", ""))
+        if domain:
+            domains.append({"domain": domain, "status": status_label(tr.get("status", -1))})
+    return domains
+
+
+@dataclass
+class _Attachment:
+    """Média retenu pour chaque torrent (position dans `views`) et protection
+    par un hardlink vers un fichier de bibliothèque actuel."""
+
+    indices: list[int | None]
+    protected: list[bool]
 
 
 def attach_torrents(
@@ -222,122 +266,163 @@ def attach_torrents(
             if f.inode is not None:
                 library_inode_to_index[(f.inode, f.device)] = i
 
-    indices: list[int | None] = [None] * len(fetched)
-    protected: list[bool] = [False] * len(fetched)
-    inode_to_index: dict[tuple[int, int | None], int] = dict(library_inode_to_index)
+    attachment = _Attachment(indices=[None] * len(fetched), protected=[False] * len(fetched))
+    unresolved = _attach_known(settings, views, fetched, hash_to_index, library_inode_to_index, attachment)
+    _attach_shared_inodes(fetched, unresolved, library_inode_to_index, attachment)
+    _attach_by_title(views, fetched, [pos for pos in unresolved if attachment.indices[pos] is None], attachment)
+    return _torrents_by_media(views, fetched, attachment)
+
+
+def _attach_known(
+    settings: Settings,
+    views: list[MediaView],
+    fetched: FetchedTorrents,
+    hash_to_index: dict[str, int],
+    library_inode_to_index: dict[tuple[int, int | None], int],
+    attachment: _Attachment,
+) -> list[int]:
+    """Passe 1 : inode de bibliothèque actuel (n'importe lequel des fichiers du
+    torrent), puis historique Sonarr/Radarr, puis chemin racine du média.
+    Renvoie les positions des torrents restés sans média."""
     unresolved: list[int] = []
-
-    # Passe 1 : inode de bibliothèque actuel (n'importe lequel des fichiers du
-    # torrent), puis historique Sonarr/Radarr, puis chemin racine du média.
     for pos, torrent_row in enumerate(fetched.rows):
-        index = None
-        for key in fetched.file_inodes[pos]:
-            index = library_inode_to_index.get(key)
-            if index is not None:
-                break
+        index = next(
+            (library_inode_to_index[key] for key in fetched.file_inodes[pos] if key in library_inode_to_index), None
+        )
         is_protected = index is not None
-
         if index is None:
             index = hash_to_index.get(torrent_row.hash.lower())
         if index is None:
-            content_path = fetched.content_paths[pos]
-            for i, view in enumerate(views):
-                if (
-                    view.root_path
-                    and is_usable_root(view.root_path, settings.qbittorrent_download_path)
-                    and content_path
-                    and content_path.startswith(view.root_path)
-                ):
-                    index = i
-                    break
+            index = _index_by_root(settings, views, fetched.content_paths[pos])
+        if index is None:
+            unresolved.append(pos)
+            continue
+        attachment.indices[pos] = index
+        attachment.protected[pos] = is_protected
+    return unresolved
 
+
+def _index_by_root(settings: Settings, views: list[MediaView], content_path: str | None) -> int | None:
+    """Média dont le dossier racine contient le torrent — sauf racine trop
+    générique (voir `is_usable_root`)."""
+    if not content_path:
+        return None
+    for i, view in enumerate(views):
+        if (
+            view.root_path
+            and is_usable_root(view.root_path, settings.qbittorrent_download_path)
+            and content_path.startswith(view.root_path)
+        ):
+            return i
+    return None
+
+
+def _attach_shared_inodes(
+    fetched: FetchedTorrents,
+    unresolved: list[int],
+    library_inode_to_index: dict[tuple[int, int | None], int],
+    attachment: _Attachment,
+) -> None:
+    """Passe 2 : copies cross-seed d'un torrent déjà rattaché — aucune trace
+    dans l'historique, mais au moins un fichier (même inode) en commun. Jamais
+    protégées : la passe 1 les aurait déjà marquées."""
+    inode_to_index = dict(library_inode_to_index)
+    for pos, index in enumerate(attachment.indices):
         if index is not None:
-            indices[pos] = index
-            protected[pos] = is_protected
             for key in fetched.file_inodes[pos]:
                 inode_to_index.setdefault(key, index)
-        else:
-            unresolved.append(pos)
-
-    # Passe 2 : copies cross-seed d'un torrent déjà rattaché — aucune trace
-    # dans l'historique, mais au moins un fichier (même inode) en commun.
     for pos in unresolved:
         for key in fetched.file_inodes[pos]:
             index = inode_to_index.get(key)
             if index is not None:
-                indices[pos] = index
-                protected[pos] = False  # sinon la passe 1 l'aurait déjà marqué protégé
+                attachment.indices[pos] = index
+                attachment.protected[pos] = False
                 break
 
-    # Passe 3 : repli par similarité de titre, jamais marqué protégé.
-    still_unresolved = [pos for pos in unresolved if indices[pos] is None]
-    if still_unresolved:
-        media_titles: list[tuple[int, list[str]]] = []
-        for i, view in enumerate(views):
-            if view.title:
-                media_titles.append((i, normalize_words(view.title)))
-            for alt in view.alt_titles:
-                media_titles.append((i, normalize_words(alt)))
-        for pos in still_unresolved:
-            release_words = normalize_release_words(fetched.rows[pos].name)
-            if not release_words:
-                continue
-            best: tuple[int, int] | None = None  # (longueur du titre, index média)
-            for i, title_words in media_titles:
-                n = len(title_words)
-                if n == 0 or n > len(release_words) or release_words[:n] != title_words:
-                    continue
-                view = views[i]
-                if view.media_type == MediaType.movie and view.year:
-                    # Un titre court ("Dune") préfixe aussi bien le film que sa
-                    # suite : si UNE année apparaît dans le nom du torrent, elle
-                    # doit correspondre. Sans année dans le nom, le titre fait
-                    # seul foi.
-                    year_in_name = _YEAR_PATTERN.search(fetched.rows[pos].name)
-                    if year_in_name and int(year_in_name.group(1)) != view.year:
-                        continue
-                if best is None or n > best[0]:
-                    best = (n, i)
-            if best is not None:
-                indices[pos] = best[1]
-                protected[pos] = False
-                fetched.rows[pos].matched_by_name = True
 
+def _attach_by_title(
+    views: list[MediaView], fetched: FetchedTorrents, unresolved: list[int], attachment: _Attachment
+) -> None:
+    """Passe 3 : repli par similarité de titre, jamais marqué protégé."""
+    if not unresolved:
+        return
+    media_titles: list[tuple[int, list[str]]] = []
+    for i, view in enumerate(views):
+        if view.title:
+            media_titles.append((i, normalize_words(view.title)))
+        media_titles += [(i, normalize_words(alt)) for alt in view.alt_titles]
+    for pos in unresolved:
+        index = _best_title_match(views, media_titles, fetched.rows[pos].name)
+        if index is not None:
+            attachment.indices[pos] = index
+            attachment.protected[pos] = False
+            fetched.rows[pos].matched_by_name = True
+
+
+def _best_title_match(views: list[MediaView], media_titles: list[tuple[int, list[str]]], name: str) -> int | None:
+    """Média dont le titre est le plus long préfixe du nom de release."""
+    release_words = normalize_release_words(name)
+    if not release_words:
+        return None
+    best: tuple[int, int] | None = None  # (longueur du titre, index média)
+    for i, title_words in media_titles:
+        n = len(title_words)
+        if n == 0 or n > len(release_words) or release_words[:n] != title_words:
+            continue
+        if _year_conflicts(views[i], name):
+            continue
+        if best is None or n > best[0]:
+            best = (n, i)
+    return best[1] if best is not None else None
+
+
+def _year_conflicts(view: MediaView, name: str) -> bool:
+    """Un titre court ("Dune") préfixe aussi bien le film que sa suite : si UNE
+    année apparaît dans le nom du torrent, elle doit correspondre. Sans année
+    dans le nom, le titre fait seul foi."""
+    if view.media_type != MediaType.movie or not view.year:
+        return False
+    year_in_name = _YEAR_PATTERN.search(name)
+    return year_in_name is not None and int(year_in_name.group(1)) != view.year
+
+
+def _torrents_by_media(
+    views: list[MediaView], fetched: FetchedTorrents, attachment: _Attachment
+) -> list[list[Torrent]]:
     by_media: list[list[Torrent]] = [[] for _ in views]
     for pos, torrent_row in enumerate(fetched.rows):
-        index = indices[pos]
+        index = attachment.indices[pos]
         if index is None:
             continue
-        torrent_row.is_hardlinked = None if not fetched.file_inodes[pos] else protected[pos]
-
-        if torrent_row.is_hardlinked is False:
-            # Non hardlinké : vrai orphelin, ou simple copie non hardlinkée du
-            # fichier actuel ? Seul le contenu fait foi — même épisode/média ET
-            # même taille en octets qu'un fichier actuellement suivi.
-            view = views[index]
-            by_episode, current_single = resolve_current_files(view.files, view.media_type)
-            for name, size in fetched.file_details[pos]:
-                if size is None:
-                    continue
-                if view.media_type == MediaType.series:
-                    label = episode_label_from_filename(name)
-                    current = by_episode.get(label) if label else None
-                else:
-                    current = current_single
-                if current is not None and current.size == size:
-                    torrent_row.repairable = True
-                    break
-
+        # Aucun fichier lisible : on ne se prononce pas sur le hardlink.
+        torrent_row.is_hardlinked = None if not fetched.file_inodes[pos] else attachment.protected[pos]
+        if torrent_row.is_hardlinked is False and _same_content_as_library(views[index], fetched.file_details[pos]):
+            torrent_row.repairable = True
         by_media[index].append(torrent_row)
     return by_media
 
-def persist_files(session, fetched: "FetchedTorrents") -> None:
+
+def _same_content_as_library(view: MediaView, file_details: list[tuple[str, int | None]]) -> bool:
+    """Non hardlinké : vrai orphelin, ou simple copie non hardlinkée du fichier
+    actuel ? Seul le contenu fait foi — même épisode/média ET même taille en
+    octets qu'un fichier actuellement suivi."""
+    by_episode, current_single = resolve_current_files(view.files, view.media_type)
+    for name, size in file_details:
+        if size is None:
+            continue
+        if view.media_type == MediaType.series:
+            label = episode_label_from_filename(name)
+            current = by_episode.get(label) if label else None
+        else:
+            current = current_single
+        if current is not None and current.size == size:
+            return True
+    return False
+
+
+def persist_files(session: Session, fetched: FetchedTorrents) -> None:
     """Mémorise les fichiers de chaque torrent (table TorrentFile). Remplace
     tout : c'est un cache, reconstruit à chaque lecture du client torrent."""
-    from sqlmodel import delete
-
-    from app.models.media import TorrentFile
-
     session.exec(delete(TorrentFile))
     for row, paths in zip(fetched.rows, fetched.file_paths, strict=True):
         for path, size in paths:
@@ -345,14 +430,10 @@ def persist_files(session, fetched: "FetchedTorrents") -> None:
     session.commit()
 
 
-def torrents_from_cache(session) -> "FetchedTorrents":
+def torrents_from_cache(session: Session) -> FetchedTorrents:
     """Reconstruit les torrents connus depuis la base, en RELISANT les inodes
     sur le disque. Les chemins viennent du dernier passage sur le client
     torrent ; leur état de hardlink, lui, est réévalué maintenant."""
-    from sqlmodel import select
-
-    from app.models.media import Torrent, TorrentFile
-
     files_by_hash: dict[str, list[tuple[str, int | None]]] = {}
     for row in session.exec(select(TorrentFile)).all():
         files_by_hash.setdefault(row.torrent_hash, []).append((row.path, row.size))
@@ -364,14 +445,7 @@ def torrents_from_cache(session) -> "FetchedTorrents":
             content_path = torrent.content_path or torrent.save_path
             entries = [(content_path, torrent.size)] if content_path else []
 
-        resolved_inodes: list[tuple[int, int]] = []
-        details: list[tuple[str, int | None]] = []
-        for path, size in entries:
-            inode = stat_inode(path)
-            if inode is not None:
-                resolved_inodes.append(inode)
-            details.append((os.path.basename(path), size))
-
+        resolved_inodes, details = _resolve_files(entries)
         fetched.rows.append(
             Torrent(
                 media_id=0,

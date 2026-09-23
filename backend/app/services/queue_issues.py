@@ -24,6 +24,8 @@ from sqlmodel import select
 
 from app.clients.arr import ArrClient
 from app.models.media import ImportIssue, MediaType
+from app.schemas.media import DeleteStepResult
+from app.services.arr_instances import arr_target_for
 
 if TYPE_CHECKING:
     from sqlmodel import Session
@@ -268,8 +270,6 @@ async def execute_import_retry(session: "Session", media: "Media", settings: "Se
     Renvoie (étapes, nombre de fichiers envoyés à l'import). Les statuts ne
     sont pas recalculés ici : Sonarr/Radarr importe en tâche de fond, c'est le
     prochain scan qui constate le résultat."""
-    from app.schemas.media import DeleteStepResult  # import différé : évite un cycle
-    from app.services.arr_instances import arr_target_for
 
     issues = [
         issue

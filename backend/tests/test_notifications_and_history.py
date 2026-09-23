@@ -373,7 +373,7 @@ def test_a_published_version_is_notified_once(admin_client, settings, fake_http,
         await updates.notify_update_available()
         await asyncio.sleep(0)  # laisse partir l'envoi en tâche de fond
         await asyncio.gather(*notifications._pending)
-        updates._expires_at = None
+        updates._cache.expires_at = None
         await updates.notify_update_available()
         await asyncio.sleep(0)
         if notifications._pending:

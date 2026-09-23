@@ -57,7 +57,7 @@ class Media(SQLModel, table=True):
     # S05E08" — un import Emby manqué sur certains épisodes seulement, alors
     # que la série elle-même EST bien présente dans Emby (donc emby_item_id
     # est renseigné). Distinct de manquant_emby "série entière absente" :
-    # voir compute_statuses dans scan.py.
+    # voir services/scan/statuses.py.
     missing_emby_episodes: str = ""
 
     # Taille totale récupérable estimée (fichiers en doublon + torrents orphelins), en octets.

@@ -72,7 +72,7 @@ def library(session, settings, tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.hardlink_repair.torrent_client", lambda s: client)
     # Un `st_dev` Windows dépasse l'entier signé de SQLite ; seule l'égalité des
     # couples (inode, device) compte ici, pas la valeur du device lui-même.
-    for module in ("app.services.hardlink_repair", "app.services.scan"):
+    for module in ("app.services.hardlink_repair", "app.services.scan.library"):
         monkeypatch.setattr(f"{module}.stat_inode", _portable_stat_inode)
     return media, row, torrent, client
 

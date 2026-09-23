@@ -12,11 +12,6 @@ ignore = [
   # (str, Enum) -> StrEnum changerait str() des membres (« MediaType.movie »
   # devient « movie ») : aucun gain, un risque sur les valeurs écrites.
   "UP042",
-  # Exceptions avalées et caches en `global` : traités dans le commit suivant
-  # (refactoring du scan), qui retire ces trois exceptions.
-  "S110",
-  "S112",
-  "PLW0603",
 ]
 
 [tool.ruff.lint.per-file-ignores]

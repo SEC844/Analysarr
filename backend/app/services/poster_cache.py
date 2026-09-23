@@ -5,9 +5,12 @@ différent (jaquette changée côté Emby, capturé à chaque scan) ne matche
 jamais un fichier existant, donc jamais de contenu périmé servi. Les
 anciennes versions d'un même item sont supprimées à chaque écriture."""
 
+import logging
 import re
 
 from app.config import POSTER_CACHE_DIR
+
+logger = logging.getLogger(__name__)
 
 _UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]")
 _CONTENT_TYPE_BY_EXT = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
@@ -37,6 +40,8 @@ def read_cached_poster(emby_item_id: str, image_tag: str | None) -> tuple[bytes,
         try:
             content = path.read_bytes()
         except OSError:
+            # Cache illisible : l'image est redemandée au serveur multimédia.
+            logger.debug("Image du cache illisible : %s", path, exc_info=True)
             return None
         return content, _CONTENT_TYPE_BY_EXT.get(path.suffix, "application/octet-stream")
     return None

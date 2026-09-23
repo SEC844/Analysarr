@@ -7,22 +7,27 @@ relu, puis recalcule les statuts des médias concernés à partir du cache pour
 le reste. Aucun statut ne peut donc rester calculé sur des données à moitié
 rafraîchies.
 
-Périmètres étroits gérés ici (le média n'est jamais ajouté ni supprimé, seules
-ses données changent, et les identifiants de fiche restent valides) :
+Périmètres gérés ici :
 
+- `radarr`, `sonarr` : relisent la liste, les fichiers suivis et la file
+  d'attente de leur service ; seuls à pouvoir ajouter ou retirer un média,
+  puisque la liste des médias vient d'eux ;
+- `media_server` : relit les fichiers de bibliothèque des films et des séries ;
 - `torrents` : relit le client torrent, rattache et recalcule les statuts ;
 - `queue`    : relit la file d'attente Sonarr/Radarr (imports bloqués) ;
 - `watch`    : relit les statistiques de visionnage ;
 - `seer`     : relit les demandes Seer.
 
-Les périmètres `full` et `library` passent par le scan complet
-(`services/scan.py`) : eux seuls peuvent ajouter ou retirer des médias, parce
-que la liste des médias vient de Sonarr/Radarr.
+Les médias sont reconstruits avec le MÊME code que le scan complet
+(`services/scan/`), et les lignes sont mises à jour en place : les
+identifiants de fiche restent valides. Seul `full` passe par le scan complet.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlmodel import Session, col, delete, select
 
 from app.clients.emby import media_server_client, media_server_name
@@ -45,7 +50,14 @@ from app.models.settings import Settings
 from app.services.arr_instances import arr_targets
 from app.services.events import scan_events
 from app.services.notifications import ChannelTarget, channel_targets
-from app.services.queue_issues import index_queue_issues, issue_rows_for
+from app.services.queue_issues import issue_rows_for
+
+# Sous-modules du package de scan, jamais le package lui-même : il importe ce
+# module (dans run_scan) et n'est peut-être pas encore entièrement chargé.
+from app.services.scan.collect import build_results, library_context, queue_issues
+from app.services.scan.orchestrator import _fail_scan
+from app.services.scan.results import build_untracked_results
+from app.services.scan.statuses import compute_statuses, current_files_size, is_tracked_by_arr
 from app.services.scan_scopes import SERVICE_SCOPES
 from app.services.seer import build_request_rows, index_requests, seer_client, seer_configured
 from app.services.torrent_match import (
@@ -63,6 +75,8 @@ from app.services.watch_stats import (
     users_from_api,
 )
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["run_service_scan"]
 
 
@@ -75,12 +89,6 @@ def _recompute_statuses(session: Session, medias: list[Media]) -> None:
     de ce que la base contient MAINTENANT. Appelé à la fin de chaque analyse
     partielle : les statuts croisent plusieurs sources, ils ne peuvent pas
     rester figés parce qu'une seule a été relue."""
-    from app.services.scan import (  # import différé : évite un cycle
-        compute_statuses,
-        current_files_size,
-        is_tracked_by_arr,
-    )
-
     for media in medias:
         files = list(session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all())
         torrents = list(session.exec(select(Torrent).where(Torrent.media_id == media.id)).all())
@@ -144,19 +152,13 @@ async def _refresh_torrents(session: Session, settings: Settings, medias: list[M
 
 
 async def _refresh_queue(session: Session, settings: Settings, medias: list[Media]) -> None:
-    """Relit la file d'attente de chaque instance Sonarr/Radarr. Échec
-    silencieux par instance, comme pendant un scan complet."""
+    """Relit la file d'attente de chaque instance Sonarr/Radarr, avec le même
+    code que le scan complet (une instance illisible est ignorée)."""
     issues_by_key: dict[tuple[str, int | None, int], list[dict[str, Any]]] = {}
-    for kind in ("radarr", "sonarr"):
-        for target in arr_targets(session, settings, kind):
-            client = target.radarr() if kind == "radarr" else target.sonarr()
-            try:
-                records = await client.get_queue()
-            except Exception:  # noqa: BLE001 - informatif, ne doit jamais faire échouer l'analyse
-                continue
-            key = "movieId" if kind == "radarr" else "seriesId"
-            for arr_id, records_for_id in index_queue_issues(records, key).items():
-                issues_by_key.setdefault((kind, target.instance_id, arr_id), []).extend(records_for_id)
+    for kind, id_field in (("radarr", "movieId"), ("sonarr", "seriesId")):
+        found = await queue_issues(arr_targets(session, settings, kind), id_field)
+        for (instance_id, arr_id), records in found.items():
+            issues_by_key[(kind, instance_id, arr_id)] = records
 
     session.exec(delete(ImportIssue))
     session.commit()
@@ -181,7 +183,9 @@ async def _refresh_watch(session: Session, settings: Settings, medias: list[Medi
     try:
         users = users_from_api(await emby.get_users())
         data = await collect_watch_data(emby, users)
-    except Exception:  # noqa: BLE001 - informatif
+    except (httpx.HTTPError, ValueError):
+        # Les statistiques du dernier scan restent en place.
+        logger.warning("Statistiques de visionnage illisibles", exc_info=True)
         return
 
     session.exec(delete(MediaWatch))
@@ -207,7 +211,9 @@ async def _refresh_seer(session: Session, settings: Settings, medias: list[Media
         return
     try:
         index = index_requests(await seer.get_requests())
-    except Exception:  # noqa: BLE001 - informatif
+    except (httpx.HTTPError, ValueError):
+        # Les demandes du dernier scan restent en place.
+        logger.warning("Demandes Seer illisibles", exc_info=True)
         return
 
     session.exec(delete(MediaRequest))
@@ -242,7 +248,7 @@ def _missing_service(scope: str, settings: Settings) -> str | None:
 
 async def run_service_scan(scope: str, trigger: str = "manual") -> None:
     """Analyse d'un seul service. L'appelant détient déjà le verrou de scan
-    (voir `services/scan.run_scan`) : une analyse par service et un scan
+    (voir `services/scan/__init__.py::run_scan`) : une analyse par service et un scan
     complet ne tournent jamais en même temps."""
     if scope not in SERVICE_SCOPES:
         raise ValueError(f"Périmètre d'analyse inconnu : {scope}")
@@ -260,7 +266,6 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
 
     await scan_events.publish({"type": "started", "run_id": run_id, "scope": scope})
 
-    from app.services.scan import _fail_scan  # import différé : évite un cycle
 
     if settings is None:
         await _fail_scan(run_id, "Aucune configuration enregistrée.", channels, settings)
@@ -368,89 +373,31 @@ def _copy_media_fields(row: Media, source: Media) -> None:
 
 
 async def _refresh_service(session: Session, settings: Settings, scope: str) -> tuple[int, int]:
-    """Relit un service et reconstruit les médias qu'il porte.
+    """Relit un service et reconstruit les médias qu'il porte, avec le MÊME
+    code que le scan complet (services/scan/collect.py).
 
     - `radarr` : les films, leur file d'attente et leurs fichiers ;
     - `sonarr` : les séries, idem ;
     - `media_server` : les fichiers de bibliothèque des films ET des séries.
     """
-    from app.services.scan import (
-        LibraryContext,
-        _index_items,
-        build_movie_result,
-        build_series_result,
-        build_untracked_results,
-    )
-
     wants_movies = scope in ("radarr", "media_server")
     wants_series = scope in ("sonarr", "media_server")
     emby = media_server_client(settings)
     if emby is None:
         raise RuntimeError("Serveur multimédia non configuré.")
 
-    movie_entries: list[tuple[Any, dict[str, Any]]] = []
-    series_entries: list[tuple[Any, dict[str, Any]]] = []
-    if wants_movies:
-        for target in arr_targets(session, settings, "radarr"):
-            movie_entries += [(target, movie) for movie in await target.radarr().get_movies()]
-    if wants_series:
-        for target in arr_targets(session, settings, "sonarr"):
-            series_entries += [(target, entry) for entry in await target.sonarr().get_series()]
-
-    ctx = LibraryContext(emby=emby)
-    emby_movies: list[dict[str, Any]] = []
-    emby_series: list[dict[str, Any]] = []
-    if wants_movies:
-        emby_movies = await emby.get_library_items("Movie")
-        ctx.emby_movies_by_tmdb = _index_items(emby_movies, "Tmdb")
-        ctx.emby_movies_by_imdb = _index_items(emby_movies, "Imdb")
-        for target, movie in movie_entries:
-            if movie.get("hasFile") and movie.get("movieFile") and movie.get("tmdbId"):
-                ctx.movie_files_by_tmdb.setdefault(str(movie["tmdbId"]), []).append((target, movie["movieFile"]))
-    if wants_series:
-        emby_series = await emby.get_library_items("Series")
-        ctx.emby_series_by_tvdb = _index_items(emby_series, "Tvdb")
-        ctx.emby_series_by_imdb = _index_items(emby_series, "Imdb")
-        ctx.emby_series_by_tmdb = _index_items(emby_series, "Tmdb")
-        for target, entry in series_entries:
-            if (entry.get("statistics") or {}).get("episodeFileCount") and entry.get("tvdbId"):
-                ctx.series_by_tvdb.setdefault(str(entry["tvdbId"]), []).append((target, entry["id"]))
-
-    episode_files_cache: dict[tuple[int | None, int], list[dict[str, Any]]] = {}
-
-    async def episode_files_for(target: Any, series_id: int) -> list[dict[str, Any]]:
-        key = (target.instance_id, series_id)
-        if key not in episode_files_cache:
-            try:
-                episode_files_cache[key] = await target.sonarr().get_episode_files(series_id)
-            except Exception:  # noqa: BLE001 - informatif, comme pendant un scan complet
-                episode_files_cache[key] = []
-        return episode_files_cache[key]
-
-    ctx.episode_files_for = episode_files_for
-
+    radarr_targets = arr_targets(session, settings, "radarr") if wants_movies else []
+    sonarr_targets = arr_targets(session, settings, "sonarr") if wants_series else []
+    movie_entries = [(target, movie) for target in radarr_targets for movie in await target.radarr().get_movies()]
+    series_entries = [(target, entry) for target in sonarr_targets for entry in await target.sonarr().get_series()]
+    emby_movies = await emby.get_library_items("Movie") if wants_movies else []
+    emby_series = await emby.get_library_items("Series") if wants_series else []
     # File d'attente : relue avec le service qui la porte, conservée sinon.
-    if scope in ("radarr", "sonarr"):
-        key = "movieId" if scope == "radarr" else "seriesId"
-        for target in arr_targets(session, settings, scope):
-            client = target.radarr() if scope == "radarr" else target.sonarr()
-            try:
-                records = await client.get_queue()
-            except Exception:  # noqa: BLE001 - informatif
-                continue
-            store = ctx.movie_issues if scope == "radarr" else ctx.series_issues
-            for arr_id, issues in index_queue_issues(records, key).items():
-                store.setdefault((target.instance_id, arr_id), []).extend(issues)
+    movie_issues = await queue_issues(radarr_targets, "movieId") if scope == "radarr" else {}
+    series_issues = await queue_issues(sonarr_targets, "seriesId") if scope == "sonarr" else {}
 
-    results = []
-    for target, movie in movie_entries:
-        built = await build_movie_result(ctx, target, movie)
-        if built is not None:
-            results.append(built)
-    for target, entry in series_entries:
-        built = await build_series_result(ctx, target, entry)
-        if built is not None:
-            results.append(built)
+    ctx = library_context(emby, emby_movies, emby_series, movie_entries, series_entries, movie_issues, series_issues)
+    results = await build_results(ctx, movie_entries, series_entries)
 
     # Les médias non suivis par Sonarr/Radarr viennent de la bibliothèque : seule
     # une analyse du serveur multimédia peut les reconstruire, et elle seule a le

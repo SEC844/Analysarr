@@ -13,7 +13,7 @@ from app.schemas.media import (
 )
 from app.services.media_delete import torrent_paths
 from app.services.path_guard import ensure_paths_available
-from app.services.scan import compute_statuses
+from app.services.scan.statuses import compute_statuses
 from app.services.trash import clean_media_folders, close_action, delete_or_trash, open_action, trash_torrent
 
 
@@ -44,7 +44,7 @@ def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile]
         duplicate_files.extend(candidates)
 
     # Un torrent "repairable" a le même contenu qu'un fichier actuellement
-    # suivi par la bibliothèque (voir compute_statuses/_collect dans scan.py) :
+    # suivi par la bibliothèque (voir services/scan/statuses.py et torrent_match.py) :
     # ce n'est pas un vrai orphelin, le supprimer perdrait le fichier même que
     # "Réparer les hardlinks" propose d'utiliser pour protéger le média.
     orphan_torrents = [t for t in torrents if t.is_hardlinked is False and not t.repairable]
@@ -62,7 +62,7 @@ def build_delete_preview(session: Session, media: Media) -> DeletePreview:
     # Plusieurs torrents orphelins peuvent être des copies cross-seed d'une
     # même ancienne version (même inode entre eux, même octet sur le disque) :
     # les supprimer tous ne libère l'espace qu'une seule fois, pas une fois
-    # par torrent. Même logique que compute_statuses dans scan.py.
+    # par torrent. Même logique que services/scan/statuses.py.
     seen_inodes: set[tuple[int, int | None]] = set()
     for t in orphan_torrents:
         key = (t.inode, t.device) if t.inode is not None else None

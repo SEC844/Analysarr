@@ -271,6 +271,8 @@ def channel_events(channel: NotificationChannel) -> tuple[str, ...]:
     try:
         events = json.loads(channel.events or "[]")
     except ValueError:
+        # Liste illisible en base : le canal ne reçoit plus rien plutôt que tout.
+        logger.warning("Événements illisibles pour le canal %s", channel.id)
         return ()
     return tuple(event for event in events if event in NOTIFICATION_EVENTS)
 
@@ -506,6 +508,8 @@ async def load_poster(client: EmbyClient | None, media: "MediaRef") -> tuple[byt
         try:
             cached = await client.fetch_poster(media.emby_item_id)
         except httpx.HTTPError:
+            # La notification part sans jaquette.
+            logger.debug("Jaquette indisponible pour %s", media.emby_item_id, exc_info=True)
             cached = None
     if cached is None:
         return None
@@ -652,6 +656,8 @@ def notify(
     try:
         task = asyncio.get_running_loop().create_task(deliver())
     except RuntimeError:
-        return  # hors boucle asyncio (ne devrait pas arriver dans l'application)
+        # Hors boucle asyncio : ne devrait pas arriver dans l'application.
+        logger.warning("Notification %s non envoyée : aucune boucle asyncio", event)
+        return
     _pending.add(task)
     task.add_done_callback(_pending.discard)

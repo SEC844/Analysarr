@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from typing import cast
@@ -35,6 +36,8 @@ from app.services.notifications import is_http_url
 from app.services.scheduler import configure_scan_schedule
 from app.services.security import generate_token, hash_token
 from app.services.watch_stats import excluded_user_ids, recompute_all_aggregates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -278,7 +281,9 @@ def browse_filesystem(path: str = Query("/", description="Chemin absolu à parco
             if os.path.isdir(full):
                 directories.append(BrowseEntry(name=name, path=full))
         except OSError:
-            continue  # lien symbolique cassé ou inaccessible : on l'ignore plutôt que d'échouer toute la liste
+            # Lien symbolique cassé ou inaccessible : ignoré plutôt que d'échouer toute la liste.
+            logger.debug("Entrée illisible dans %s : %s", normalized, name, exc_info=True)
+            continue
 
     parent = os.path.dirname(normalized.rstrip("/\\")) if normalized not in ("/", os.path.sep) else None
     return BrowseResult(path=normalized, parent=parent or None, directories=directories)

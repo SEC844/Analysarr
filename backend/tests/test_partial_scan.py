@@ -27,7 +27,7 @@ def fake_inodes(monkeypatch):
     def resolve(path):
         return table.get(path) if path else None
 
-    for module in ("app.services.torrent_match", "app.services.media_rescan", "app.services.scan"):
+    for module in ("app.services.torrent_match", "app.services.scan.library"):
         monkeypatch.setattr(f"{module}.stat_inode", resolve)
     return table
 

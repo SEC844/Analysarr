@@ -50,7 +50,7 @@ from app.services.media_rescan import rescan_media
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.queue_issues import execute_import_retry
-from app.services.scan import MEDIA_STATUSES, is_healthy, launch_scan
+from app.services.scan import MEDIA_STATUSES, is_healthy, is_scan_running, launch_scan
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
@@ -123,8 +123,22 @@ def list_media(
     sort: str = Query("title", description="title | year | size | last_played | cleanup"),
     session: Session = Depends(get_session),
 ) -> MediaListResponse:
-    medias = list(session.exec(select(Media)).all())
+    medias = _filtered(list(session.exec(select(Media)).all()), health, status, match, media_type, watch, search)
+    _sort(medias, sort)
+    seer_enabled = seer_configured(session.get(Settings, 1))
+    names = instance_names(session)
+    return MediaListResponse(items=[_to_list_item(m, seer_enabled, names) for m in medias], total=len(medias))
 
+
+def _filtered(
+    medias: list[Media],
+    health: str | None,
+    status: str | None,
+    match: str,
+    media_type: str | None,
+    watch: str | None,
+    search: str | None,
+) -> list[Media]:
     if media_type:
         medias = [m for m in medias if m.media_type.value == media_type]
     if search:
@@ -133,26 +147,24 @@ def list_media(
     if health in HEALTH_FILTERS:
         healthy = health == "sain"
         medias = [m for m in medias if is_healthy(m.statuses.split(",")) is healthy]
-
-    wanted = _selected(status, MEDIA_STATUSES)
+    wanted = set(_selected(status, MEDIA_STATUSES))
     if wanted:
-        # `all` : le média porte TOUS les statuts cochés (demande de l'issue
-        # #35, pour croiser « non hardlink » et « absent du serveur »).
-        # `any` (défaut) : il en porte au moins un.
-        medias = [
-            m
-            for m in medias
-            if (
-                set(wanted) <= set(m.statuses.split(","))
-                if match == "all"
-                else bool(set(wanted) & set(m.statuses.split(",")))
-            )
-        ]
-
+        medias = [m for m in medias if _has_statuses(m, wanted, match)]
     watches = _selected(watch, WATCH_FILTERS)
     if watches:
         medias = [m for m in medias if any(_matches_watch_filter(m, value) for value in watches)]
+    return medias
 
+
+def _has_statuses(media: Media, wanted: set[str], match: str) -> bool:
+    """`all` : le média porte TOUS les statuts cochés (demande de l'issue #35,
+    pour croiser « non hardlink » et « absent du serveur »). `any` (défaut) :
+    il en porte au moins un."""
+    statuses = set(media.statuses.split(","))
+    return wanted <= statuses if match == "all" else bool(wanted & statuses)
+
+
+def _sort(medias: list[Media], sort: str) -> None:
     now = datetime.now(UTC)
     if sort == "year":
         medias.sort(key=lambda m: m.year or 0, reverse=True)
@@ -163,21 +175,18 @@ def list_media(
         # anciennement ajouté au plus récent.
         medias.sort(key=lambda m: (m.last_played_at is not None, _idle_since(m) or now))
     elif sort == "cleanup":
-        # Candidats au nettoyage : poids × jours sans activité — un gros
-        # fichier jamais regardé depuis un an passe devant un petit fichier vu
-        # le mois dernier.
-        def cleanup_score(m: Media) -> float:
-            since = _idle_since(m)
-            idle_days = max((now - since).days, 1) if since else 1
-            return (m.total_size or 0) * idle_days
-
-        medias.sort(key=cleanup_score, reverse=True)
+        medias.sort(key=lambda m: _cleanup_score(m, now), reverse=True)
     else:
         medias.sort(key=lambda m: m.title.lower())
 
-    seer_enabled = seer_configured(session.get(Settings, 1))
-    names = instance_names(session)
-    return MediaListResponse(items=[_to_list_item(m, seer_enabled, names) for m in medias], total=len(medias))
+
+def _cleanup_score(media: Media, now: datetime) -> float:
+    """Candidats au nettoyage : poids × jours sans activité — un gros fichier
+    jamais regardé depuis un an passe devant un petit fichier vu le mois
+    dernier."""
+    since = _idle_since(media)
+    idle_days = max((now - since).days, 1) if since else 1
+    return (media.total_size or 0) * idle_days
 
 
 def _media_and_settings(media_id: int, session: Session) -> tuple[Media, Settings]:
@@ -437,8 +446,6 @@ async def rescan_one_media(media_id: int, session: Session = Depends(get_session
     """Analyse ciblée d'un seul média : Sonarr/Radarr, serveur multimédia,
     file d'attente et torrents de CE média uniquement. Ne touche à aucun autre
     média et conserve l'identifiant de la fiche."""
-    from app.services.scan import is_scan_running  # import différé : évite un cycle
-
     media, settings = _media_and_settings(media_id, session)
     if is_scan_running():
         raise HTTPException(409, "Une analyse est déjà en cours.")

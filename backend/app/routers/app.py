@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from typing import cast
 
@@ -12,6 +13,8 @@ from app.schemas.app import AppInfo, AppPreferencesWrite, Language, UiPreference
 from app.services.scheduler import refresh_update_watch
 from app.services.updates import get_update_status, status_for_page
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -20,6 +23,7 @@ def ui_preferences(settings: Settings | None) -> UiPreferences:
     try:
         return UiPreferences.model_validate_json(settings.ui_preferences) if settings else UiPreferences()
     except ValidationError:
+        logger.warning("Préférences d'affichage illisibles : valeurs par défaut")
         return UiPreferences()
 
 

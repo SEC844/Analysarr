@@ -146,7 +146,9 @@ def test_the_scan_pauses_the_automations_and_notifies(session, settings, monkeyp
         lambda *args, **kwargs: ran.append(True),
     )
     sent = []
-    monkeypatch.setattr(scan, "notify", lambda channels, event, notification, *a, **k: sent.append(event))
+    monkeypatch.setattr(
+        "app.services.scan.orchestrator.notify", lambda channels, event, notification, *a, **k: sent.append(event)
+    )
 
     asyncio.run(scan._run_automations([], latest.id))
 

@@ -31,6 +31,7 @@ perdu — c'est dit tel quel dans l'interface."""
 import base64
 import contextlib
 import json
+import logging
 import os
 import shutil
 from datetime import UTC, datetime, timedelta
@@ -39,12 +40,14 @@ from typing import Any
 import httpx
 from sqlmodel import Session, col, select
 
+from app.clients.torrent import torrent_client, torrent_client_configured
 from app.clients.torrent_base import TorrentAuthError, TorrentClient, magnet_for
 from app.models.ids import row_id
 from app.models.media import Media, Torrent
 from app.models.settings import Settings
 from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import DeleteStepResult
+from app.services.arr_instances import arr_target_by_id
 from app.services.companion_files import (
     companions,
     folders_of,
@@ -53,6 +56,8 @@ from app.services.companion_files import (
     leftovers,
     prune_empty_dirs,
 )
+
+logger = logging.getLogger(__name__)
 
 TRASH_DIR_NAME = ".analysarr-trash"
 DEFAULT_RETENTION_DAYS = 7
@@ -119,7 +124,8 @@ def _remove(path: str) -> None:
         else:
             os.remove(path)
     except FileNotFoundError:
-        pass  # déjà retiré à la main : l'objectif est atteint
+        # Déjà retiré à la main : l'objectif est atteint.
+        logger.debug("Déjà absent de la corbeille : %s", path)
 
 
 def _size_of(path: str) -> int:
@@ -134,6 +140,8 @@ def _size_of(path: str) -> int:
             try:
                 total += os.stat(os.path.join(directory, name)).st_size
             except OSError:
+                # Disparu entre deux lectures : compté pour rien.
+                logger.debug("Fichier illisible dans %s : %s", directory, name, exc_info=True)
                 continue
     return total
 
@@ -189,6 +197,8 @@ def _remove_or_move(
     try:
         trashed_path = move_to_trash(settings, path)
     except FileNotFoundError:
+        # Déjà absent : rien à mettre de côté.
+        logger.debug("Fichier déjà absent, rien à mettre de côté : %s", path)
         return None
     item = TrashItem(
         action_id=action.id,
@@ -255,6 +265,8 @@ def undo_items(session: Session, items: list[TrashItem]) -> None:
             try:
                 _restore_path(item.trashed_path, item.original_path)
             except (OSError, FileExistsError):
+                # Le fichier reste dans la corbeille, restaurable plus tard.
+                logger.warning("Impossible de remettre %s en place", item.original_path, exc_info=True)
                 continue
         if item.id is None:
             session.expunge(item)  # jamais enregistré : il suffit de l'oublier
@@ -345,6 +357,7 @@ def payload_of(item: TrashItem) -> dict[str, Any]:
     try:
         payload = json.loads(item.torrent_payload or "{}")
     except ValueError:
+        logger.warning("Données illisibles pour l'élément de corbeille %s", item.id)
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -402,7 +415,9 @@ def reclaimable_sizes(session: Session, trash_actions: list[TrashAction]) -> dic
                     try:
                         stat = os.stat(file_path)
                     except OSError:
-                        continue  # illisible : compté pour rien, la purge ne libérera rien de sûr
+                        # Illisible : compté pour rien, la purge ne libérera rien de sûr.
+                        logger.debug("Fichier illisible dans la corbeille : %s", file_path, exc_info=True)
+                        continue
                     key = (stat.st_dev, stat.st_ino)
                     size, links, holders = units.get(key, (stat.st_size, stat.st_nlink, {}))
                     holders[row_id(action)] = holders.get(row_id(action), 0) + 1
@@ -483,8 +498,6 @@ async def _restore_torrents(
     vérifie les fichiers présents et reprend le seed sans rien retélécharger."""
     if not items:
         return []
-    from app.clients.torrent import torrent_client, torrent_client_configured
-
     if not torrent_client_configured(settings):
         for item in items:
             steps.append(
@@ -525,11 +538,11 @@ async def _restore_arr(
 ) -> bool:
     if not action.arr_payload:
         return True
-    from app.services.arr_instances import arr_target_by_id
-
     try:
         payload = json.loads(action.arr_payload)
     except ValueError:
+        # Rien de lisible à recréer : la restauration des fichiers suit son cours.
+        logger.warning("Fiche Sonarr/Radarr illisible pour l'action de corbeille %s", action.id)
         return True
     service = "radarr" if payload.get("service") == "radarr" else "sonarr"
     target = arr_target_by_id(session, settings, service, payload.get("instance_id"))

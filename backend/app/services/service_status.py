@@ -50,7 +50,17 @@ class _Cached:
     status: ServicesStatus
 
 
-_cache: _Cached | None = None
+class _StatusCache:
+    """Dernier statut calculé. Un seul exemplaire, au niveau du module."""
+
+    def __init__(self) -> None:
+        self.entry: _Cached | None = None
+
+    def clear(self) -> None:
+        self.entry = None
+
+
+_cache = _StatusCache()
 
 
 def _checks(session: Session, settings: Settings | None) -> list[_Check]:
@@ -98,24 +108,25 @@ async def _run(check: _Check) -> ServiceStatusRead:
 
 
 async def services_status(session: Session, settings: Settings | None, refresh: bool = False) -> ServicesStatus:
-    global _cache
     checks = _checks(session, settings)
     signature = _signature(checks)
+    cached = _cache.entry
     if (
-        _cache is not None
-        and _cache.signature == signature
-        and _clock() - _cache.at < (MIN_REFRESH_SECONDS if refresh else CACHE_SECONDS)
+        cached is not None
+        and cached.signature == signature
+        and _clock() - cached.at < (MIN_REFRESH_SECONDS if refresh else CACHE_SECONDS)
     ):
-        return _cache.status
+        return cached.status
     results = await asyncio.gather(*(_run(check) for check in checks))
     status = ServicesStatus(checked_at=datetime.now(UTC), services=list(results))
-    _cache = _Cached(at=_clock(), signature=signature, status=status)
+    _cache.entry = _Cached(at=_clock(), signature=signature, status=status)
     return status
 
 
 def cached_services_status() -> ServicesStatus | None:
     """Dernier statut connu, sans aucune requête sortante : un appel public
     (widget) ne doit jamais pouvoir déclencher des connexions vers les services."""
-    if _cache is None or _clock() - _cache.at > STALE_SECONDS:
+    cached = _cache.entry
+    if cached is None or _clock() - cached.at > STALE_SECONDS:
         return None
-    return _cache.status
+    return cached.status

@@ -18,6 +18,7 @@ API Emby n'atteint jamais le navigateur)."""
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, overload
@@ -29,6 +30,8 @@ from app.clients.emby import EmbyClient, media_server_client
 from app.models.media import EmbyUser, Media, MediaType, MediaWatch
 from app.models.settings import Settings
 from app.schemas.media import MediaWatchStats, WatchUser
+
+logger = logging.getLogger(__name__)
 
 # Appels Emby simultanés au maximum (serveur local, mais pas de rafale inutile).
 _CONCURRENCY = 8
@@ -126,6 +129,8 @@ async def collect_watch_data(
             try:
                 return user.id, await fetch_user_watch(emby, user.id, movie_id=movie_id, series_id=series_id)
             except (httpx.HTTPError, ValueError, KeyError):
+                # Cet utilisateur manque aux statistiques, les autres restent justes.
+                logger.warning("Visionnage illisible pour l'utilisateur %s", user.id, exc_info=True)
                 return user.id, None
 
     pairs = await asyncio.gather(*(one(u) for u in users if not u.is_disabled))
@@ -208,6 +213,8 @@ async def refresh_media_watch(session: Session, media: Media, settings: Settings
     try:
         users = users_from_api(await emby.get_users())
     except (httpx.HTTPError, ValueError):
+        # Les chiffres du dernier scan restent affichés (live=false).
+        logger.debug("Visionnage en direct indisponible", exc_info=True)
         return False
 
     is_movie = media.media_type == MediaType.movie

@@ -42,10 +42,8 @@ _RealAsyncClient = httpx.AsyncClient
 def fresh_database():
     SQLModel.metadata.drop_all(engine)
     init_db()
-    updates._cached = None
-    updates._expires_at = None
-    updates._refresh_task = None
-    service_status._cache = None
+    updates._cache.clear()
+    service_status._cache.clear()
     rate_limit.reset()  # compteur global en mémoire : chaque test repart à zéro
 
 

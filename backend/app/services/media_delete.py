@@ -5,6 +5,7 @@ torrents et/ou quels fichiers de bibliothèque supprimer — un épisode, une
 saison entière, toute la série, ou le film — avec la possibilité d'arrêter
 aussi le suivi Sonarr/Radarr pour éviter un retéléchargement automatique."""
 
+import logging
 import os
 import stat as stat_module
 from collections.abc import Sequence
@@ -28,7 +29,7 @@ from app.schemas.media import (
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.hardlink import resolve_torrent_files
 from app.services.path_guard import ensure_paths_available
-from app.services.scan import compute_statuses, current_files_size
+from app.services.scan.statuses import compute_statuses, current_files_size
 from app.services.trash import (
     capture_arr,
     clean_media_folders,
@@ -38,6 +39,8 @@ from app.services.trash import (
     trash_torrent,
     undo_items,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
@@ -61,6 +64,8 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
         try:
             st = os.stat(path) if path else None
         except OSError:
+            # Chemin non résolu : estimation prudente ci-dessous.
+            logger.debug("Fichier illisible pour l'empreinte disque : %s", path, exc_info=True)
             st = None
         if st is None or not stat_module.S_ISREG(st.st_mode):
             units.append(DiskUnit(size=fallback_size or 0, links=1))
@@ -80,7 +85,9 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
                 for t in torrents:
                     torrent_files[row_id(t)] = await resolve_torrent_files(qbit, t)
         except (TorrentAuthError, httpx.HTTPError):
-            torrent_files.clear()  # repli ci-dessous sur content_path
+            # Repli ci-dessous sur content_path : l'espace libéré devient une estimation.
+            logger.warning("Fichiers des torrents illisibles pour l'empreinte disque", exc_info=True)
+            torrent_files.clear()
 
     torrent_items: list[DeleteFootprintItem] = []
     for t in torrents:
@@ -326,6 +333,9 @@ async def _capture_arr_media(session: Session, media: Media, target: ArrTarget |
         else:
             return
     except httpx.HTTPError:
+        # La suppression continue, mais la corbeille ne pourra pas recréer la
+        # fiche Sonarr/Radarr à la restauration.
+        logger.warning("Fiche Sonarr/Radarr du média %s non sauvegardée pour la corbeille", media.id, exc_info=True)
         return
     service = "radarr" if media.media_type == MediaType.movie else "sonarr"
     capture_arr(session, trash, service, media.arr_instance_id, body)

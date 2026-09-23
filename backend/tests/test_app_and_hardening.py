@@ -29,7 +29,7 @@ def test_update_available_only_for_a_newer_release(fake_http, monkeypatch):
     monkeypatch.setattr(updates, "APP_VERSION", "0.18.0")
     assert asyncio.run(updates.get_update_status()).update_available
 
-    updates._cached = None
+    updates._cache.status = None
     monkeypatch.setattr(updates, "APP_VERSION", "dev")
     assert not asyncio.run(updates.get_update_status(force=True)).update_available
 
@@ -134,9 +134,9 @@ def test_page_open_refreshes_in_background_without_blocking(fake_http, monkeypat
         assert first.latest_version == "0.19.1" and len(calls) == 1
         assert await updates.status_for_page(True) is first and len(calls) == 1  # cache frais
 
-        updates._expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        updates._cache.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         assert await updates.status_for_page(True) is first and len(calls) == 1  # réponse immédiate
-        await updates._refresh_task  # le rafraîchissement, lui, s'est bien lancé
+        await updates._cache.refresh_task  # le rafraîchissement, lui, s'est bien lancé
         assert len(calls) == 2
         assert (await updates.status_for_page(True)).latest_version == "0.19.2"
 
