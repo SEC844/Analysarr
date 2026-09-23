@@ -127,6 +127,12 @@ _USER_NEW_COLUMNS = [
 
 
 def _ensure_columns(table: str, columns: list[tuple[str, str]]) -> None:
+    """Ajoute les colonnes manquantes d'une table de configuration.
+
+    Ce mécanisme ne sait QUE ajouter des colonnes (ALTER TABLE ADD COLUMN) : il
+    ne renomme rien, ne change aucun type et ne supprime rien. Avant toute
+    évolution de ce genre sur une table qui n'est pas du cache, passer à
+    Alembic — une installation existante perdrait sinon des réglages."""
     inspector = inspect(engine)
     if table not in inspector.get_table_names():
         return  # première installation : create_all() créera le schéma complet

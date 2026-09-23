@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { lazy, Suspense, useEffect, useRef } from "react"
 import { Route, Routes } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -11,11 +11,27 @@ import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n } from "@/i18n"
 import { setDisplayTimeZone } from "@/lib/format"
 import { LoginPage } from "@/pages/login-page"
-import { MediaDetailPage } from "@/pages/media-detail-page"
 import { MediaListPage } from "@/pages/media-list-page"
-import { OnboardingWizard } from "@/pages/onboarding-wizard"
-import { SettingsPage } from "@/pages/settings-page"
 import { SetupAdminPage } from "@/pages/setup-admin-page"
+
+// Pages chargées à la demande : la bibliothèque s'affiche sans attendre le code
+// des réglages, de l'assistant et de la fiche (le bundle initial dépassait
+// 800 Ko).
+const MediaDetailPage = lazy(() => import("@/pages/media-detail-page").then((m) => ({ default: m.MediaDetailPage })))
+const OnboardingWizard = lazy(() =>
+  import("@/pages/onboarding-wizard").then((m) => ({ default: m.OnboardingWizard })),
+)
+const SettingsPage = lazy(() => import("@/pages/settings-page").then((m) => ({ default: m.SettingsPage })))
+
+function PageSkeleton() {
+  return (
+    <div className="space-y-4 p-4" aria-busy="true">
+      <Skeleton className="h-8 w-1/3" />
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  )
+}
 
 function FullPageState({ children }: { children: React.ReactNode }) {
   return <div className="flex min-h-svh items-center justify-center px-4">{children}</div>
@@ -110,16 +126,22 @@ function App() {
   }
 
   if (!settings.data.configured) {
-    return <OnboardingWizard existing={settings.data} />
+    return (
+      <Suspense fallback={<PageSkeleton />}>
+        <OnboardingWizard existing={settings.data} />
+      </Suspense>
+    )
   }
 
   return (
     <AppShell>
-      <Routes>
-        <Route path="/" element={<MediaListPage />} />
-        <Route path="/media/:id" element={<MediaDetailPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-      </Routes>
+      <Suspense fallback={<PageSkeleton />}>
+        <Routes>
+          <Route path="/" element={<MediaListPage />} />
+          <Route path="/media/:id" element={<MediaDetailPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Routes>
+      </Suspense>
       {/* Invitation à mettre une étoile : jamais à l'arrivée, jamais deux fois
           (voir components/star-prompt.tsx). */}
       <StarPrompt />
