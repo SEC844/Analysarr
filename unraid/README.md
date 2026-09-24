@@ -43,7 +43,8 @@ aux médias.
 Analysarr crée et supprime des fichiers dans la bibliothèque (réparation de hardlinks, corbeille) : il
 doit tourner sous le même utilisateur que Sonarr, Radarr et le client torrent. Sur Unraid, c'est
 presque toujours `PUID=99` (`nobody`) et `PGID=100` (`users`), avec `UMASK=002`. Seul le dossier
-appdata (`/config`) change de propriétaire au démarrage, jamais `/data`.
+appdata (`/config`) change de propriétaire au démarrage, jamais `/data`. Sans ces variables, Analysarr
+tourne en root, comme avant.
 
 ## Variables et montages
 

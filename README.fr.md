@@ -109,7 +109,7 @@ services:
     ports:
       - "1818:1818"
     environment:
-      # Même utilisateur et même groupe que Sonarr, Radarr et votre client torrent.
+      # Recommandé : même utilisateur et même groupe que Sonarr, Radarr et votre client torrent.
       PUID: 1000
       PGID: 1000
       UMASK: "002"
@@ -124,11 +124,14 @@ services:
 #### Droits des fichiers (`PUID`, `PGID`, `UMASK`)
 
 Analysarr crée et supprime des fichiers dans votre bibliothèque (réparation de hardlinks, corbeille).
-Il tourne sous l'utilisateur indiqué par `PUID`/`PGID` (`1000`/`1000` par défaut) et crée ses
-fichiers avec `UMASK` (`002` par défaut), jamais en root. **Mettez les mêmes valeurs que Sonarr,
-Radarr et votre client torrent**, sinon ils risquent de ne plus pouvoir gérer les fichiers touchés
-par Analysarr. Seul `/config` change de propriétaire au démarrage, jamais vos médias ni vos
-téléchargements.
+Réglez `PUID`/`PGID` sur **le même utilisateur et le même groupe que Sonarr, Radarr et votre client
+torrent** (Unraid : `99`/`100`) : Analysarr tourne alors sous cet utilisateur et crée ses fichiers
+avec `UMASK` (`002` par défaut). Seul `/config` change de propriétaire au démarrage, jamais vos
+médias ni vos téléchargements. Sans `PUID`/`PGID`, Analysarr tourne en root, comme les versions
+précédentes.
+
+Si Analysarr n'a pas le droit de modifier un fichier, une suppression est refusée avant toute
+modification, avec le chemin en cause.
 
 La base vit dans `/config`. Une installation existante dont la base est encore dans `/data` continue
 de l'utiliser (un avertissement dans les journaux explique comment la déplacer) : aucune action

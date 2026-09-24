@@ -33,16 +33,15 @@ RUN chmod 755 /usr/local/bin/entrypoint.sh
 
 # Seules variables de la configuration Docker : tout le reste (URLs, clés API,
 # chemins...) se règle depuis l'assistant au premier lancement, en base SQLite.
-# PUID/PGID/UMASK : identité sous laquelle tourne Analysarr (voir
-# docker/entrypoint.sh) — mettez les mêmes que Sonarr, Radarr et le client
-# torrent. DATABASE_PATH n'est volontairement PAS fixé ici : sans lui, la base
+# PUID/PGID/UMASK (facultatifs, voir docker/entrypoint.sh) : identité sous
+# laquelle tourne Analysarr, les mêmes que Sonarr, Radarr et le client torrent.
+# Volontairement sans valeur par défaut : sans eux, Analysarr reste en root
+# comme les versions précédentes, pour ne casser aucune installation.
+# DATABASE_PATH n'est volontairement PAS fixé non plus : sans lui, la base
 # vit dans /config/analysarr.db, sauf pour une installation existante qui
 # l'avait dans /data (backend/app/config.py). Un ENV la rendrait toujours
 # « définie » et rendrait cette reprise impossible.
 ENV PORT=1818 \
-    PUID=1000 \
-    PGID=1000 \
-    UMASK=002 \
     PYTHONUNBUFFERED=1
 
 # Identité du build, affichée dans Réglages → Application et utilisée pour

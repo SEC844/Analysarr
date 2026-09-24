@@ -1,23 +1,34 @@
 #!/bin/sh
-# Lance Analysarr sous l'utilisateur demandé plutôt qu'en root.
+# Lance Analysarr sous l'utilisateur demandé (PUID/PGID) plutôt qu'en root.
 #
 # Analysarr crée et supprime des fichiers dans la bibliothèque (réparation de
 # hardlinks, corbeille). En root, ces fichiers appartiennent à root et Sonarr,
 # Radarr ou le client torrent ne peuvent plus les gérer. PUID/PGID reprennent
 # la convention des images LinuxServer : mettez les mêmes valeurs que sur vos
 # autres conteneurs.
+#
+# Sans PUID ni PGID, Analysarr tourne en root comme avant : passer d'office à
+# un compte arbitraire casse toute installation dont les médias appartiennent
+# à un autre utilisateur (bug réel : « Permission denied » en supprimant un
+# film juste après la mise à jour).
 set -eu
-
-PUID="${PUID:-1000}"
-PGID="${PGID:-1000}"
-FILE_UMASK="${UMASK:-002}"
 
 # Conteneur déjà lancé en non-root (docker run --user) : rien à préparer, on
 # ne pourrait de toute façon ni créer un utilisateur ni changer de propriétaire.
 if [ "$(id -u)" -ne 0 ]; then
-    umask "$FILE_UMASK"
+    if [ -n "${UMASK:-}" ]; then umask "$UMASK"; fi
     exec "$@"
 fi
+
+if [ -z "${PUID:-}" ] && [ -z "${PGID:-}" ]; then
+    echo "analysarr: PUID et PGID non définis, démarrage en root. Réglez-les sur l'utilisateur de Sonarr, Radarr et du client torrent." >&2
+    if [ -n "${UMASK:-}" ]; then umask "$UMASK"; fi
+    exec "$@"
+fi
+
+PUID="${PUID:-$PGID}"
+PGID="${PGID:-$PUID}"
+FILE_UMASK="${UMASK:-002}"
 
 # Même résolution que backend/app/config.py : sans DATABASE_PATH, la base vit
 # dans /config, sauf si une installation existante l'a laissée dans /data.

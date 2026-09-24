@@ -109,7 +109,7 @@ services:
     ports:
       - "1818:1818"
     environment:
-      # Same user and group as Sonarr, Radarr and your torrent client.
+      # Recommended: same user and group as Sonarr, Radarr and your torrent client.
       PUID: 1000
       PGID: 1000
       UMASK: "002"
@@ -123,11 +123,14 @@ services:
 
 #### File permissions (`PUID`, `PGID`, `UMASK`)
 
-Analysarr creates and deletes files in your library (hardlink repair, trash). It runs as the user
-given by `PUID`/`PGID` (default `1000`/`1000`) and creates files with `UMASK` (default `002`), never
-as root. **Use the same values as Sonarr, Radarr and your torrent client**, otherwise they may no
-longer be able to manage the files Analysarr touches. Only `/config` is re-owned at startup; your
-media and downloads never are.
+Analysarr creates and deletes files in your library (hardlink repair, trash). Set `PUID`/`PGID` to
+**the same user and group as Sonarr, Radarr and your torrent client** (Unraid: `99`/`100`): Analysarr
+then runs as that user and creates files with `UMASK` (default `002`). Only `/config` is re-owned at
+startup; your media and downloads never are. Without `PUID`/`PGID`, Analysarr runs as root, like
+previous versions.
+
+If Analysarr is not allowed to modify a file, a deletion is refused before anything is touched, with
+the path at fault.
 
 The database lives in `/config`. An existing install that still has its database in `/data` keeps
 using it (a warning in the logs explains how to move it): no action is required after an update.

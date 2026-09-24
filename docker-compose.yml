@@ -15,6 +15,7 @@ services:
       # Utilisateur et groupe sous lesquels tourne Analysarr : mettez les
       # mêmes que Sonarr, Radarr et votre client torrent (Unraid : 99/100).
       # Seul /config change de propriétaire au démarrage, jamais /data.
+      # Sans ces deux lignes, Analysarr tourne en root comme avant.
       PUID: 1000
       PGID: 1000
       UMASK: "002"
