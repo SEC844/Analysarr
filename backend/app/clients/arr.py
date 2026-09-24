@@ -134,6 +134,13 @@ class RadarrClient(ArrClient):
     async def delete_movie_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/moviefile/{file_id}")
 
+    async def rescan_movie(self, movie_id: int) -> None:
+        """Relit le dossier du film. Réservé à l'annulation d'une suppression :
+        les fichiers remis en place redeviennent connus de Radarr. Jamais après
+        un ajout — Radarr rafraîchit déjà ce qu'il ajoute, et un second scan en
+        parallèle enregistrait deux fois fichiers et NFO (bug réel)."""
+        await self._post("/api/v3/command", {"name": "RescanMovie", "movieId": movie_id})
+
     async def delete_movie(self, movie_id: int, delete_files: bool = True) -> None:
         """Retire le film de Radarr (arrête le suivi/monitoring) et, par
         défaut, supprime son fichier — équivalent de "Supprimer" depuis l'UI
@@ -286,6 +293,11 @@ class SonarrClient(ArrClient):
 
     async def delete_episode_file(self, file_id: int) -> None:
         await self._delete(f"/api/v3/episodefile/{file_id}")
+
+    async def rescan_series(self, series_id: int) -> None:
+        """Voir `RadarrClient.rescan_movie` : réservé à l'annulation d'une
+        suppression."""
+        await self._post("/api/v3/command", {"name": "RescanSeries", "seriesId": series_id})
 
     async def set_episodes_monitored(self, episode_ids: list[int], monitored: bool) -> None:
         """Sonarr n'a pas d'équivalent "supprimer cet épisode" comme Radarr

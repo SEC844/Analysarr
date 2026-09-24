@@ -29,7 +29,6 @@ torrent reprend son seed avec ses données, mais son historique de partage est
 perdu — c'est dit tel quel dans l'interface."""
 
 import base64
-import contextlib
 import json
 import logging
 import os
@@ -47,7 +46,7 @@ from app.models.media import Media, Torrent
 from app.models.settings import Settings
 from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import DeleteStepResult
-from app.services.arr_instances import arr_target_by_id
+from app.services.arr_instances import ArrTarget, arr_target_by_id
 from app.services.companion_files import (
     companions,
     folders_of,
@@ -56,6 +55,7 @@ from app.services.companion_files import (
     leftovers,
     prune_empty_dirs,
 )
+from app.services.path_guard import creatable_dir, writable_dir
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,41 @@ def _move_into(path: str, trash_dir: str) -> str:
     destination = _unique_destination(trash_dir, os.path.basename(path.rstrip("/\\")))
     os.replace(path, destination)
     return destination
+
+
+def _trash_dir_for(settings: Settings | None, path: str) -> str:
+    """Corbeille où ira probablement `path` : celle de la racine de la
+    bibliothèque si elle est sur le même disque (même règle que
+    `move_to_trash`, qui ne se replie que sur EXDEV), sinon celle posée à côté
+    de l'élément."""
+    source_dir = os.path.dirname(path.rstrip("/\\"))
+    root = (settings.emby_library_path or "").strip() if settings else ""
+    if root:
+        try:
+            if os.stat(source_dir).st_dev == os.stat(root).st_dev:
+                return os.path.join(root, TRASH_DIR_NAME)
+        except OSError:
+            return os.path.join(root, TRASH_DIR_NAME)  # inconnu : la racine est essayée d'abord
+    return os.path.join(source_dir, TRASH_DIR_NAME)
+
+
+def staging_blockers(settings: Settings | None, path: str) -> list[str]:
+    """Chemins qu'Analysarr devrait pouvoir modifier pour mettre `path` de côté
+    et ne peut pas : le dossier qui le contient, le dossier lui-même s'il en
+    est un (son entrée « .. » change en le déplaçant), et la corbeille de
+    destination. Vide : le déplacement est possible."""
+    if not path or not os.path.lexists(path):
+        return []
+    stripped = path.rstrip("/\\")
+    blocked = []
+    if not writable_dir(os.path.dirname(stripped)):
+        blocked.append(os.path.dirname(stripped))
+    if os.path.isdir(stripped) and not os.path.islink(stripped) and not writable_dir(stripped):
+        blocked.append(stripped)
+    destination = _trash_dir_for(settings, stripped)
+    if not creatable_dir(destination):
+        blocked.append(destination)
+    return blocked
 
 
 def move_to_trash(settings: Settings | None, path: str) -> str:
@@ -149,11 +184,11 @@ def _size_of(path: str) -> int:
 # --- Constitution d'une action ------------------------------------------------
 
 
-def open_action(session: Session, settings: Settings | None, media: Media, action: str) -> TrashAction | None:
-    """Ouvre une action de corbeille pour la suppression en cours. `None` quand
-    la corbeille est désactivée : les appelants suppriment alors normalement."""
-    if not is_enabled(settings):
-        return None
+def open_action(session: Session, media: Media, action: str) -> TrashAction:
+    """Ouvre l'action de corbeille d'une suppression. Toujours, même corbeille
+    désactivée : tout ce qui part est d'abord mis de côté, pour pouvoir tout
+    remettre en place si une étape échoue (services/deletion.py). Corbeille
+    désactivée, l'action est purgée dès que la suppression a réussi."""
     row = TrashAction(action=action, media_title=media.title, media_type=media.media_type.value)
     session.add(row)
     session.commit()
@@ -161,12 +196,9 @@ def open_action(session: Session, settings: Settings | None, media: Media, actio
     return row
 
 
-def close_action(session: Session, action: TrashAction | None) -> None:
-    """Supprime l'action si elle n'a finalement rien recueilli (tout supprimé
-    par Sonarr/Radarr, ou échec avant le premier élément) : une ligne vide dans
-    la corbeille n'aiderait personne."""
-    if action is None:
-        return
+def close_action(session: Session, action: TrashAction) -> None:
+    """Supprime l'action si elle n'a finalement rien recueilli : une ligne
+    vide dans la corbeille n'aiderait personne."""
     if session.exec(select(TrashItem.id).where(TrashItem.action_id == action.id)).first() is not None:
         return
     if action.arr_payload:
@@ -178,21 +210,17 @@ def close_action(session: Session, action: TrashAction | None) -> None:
 # Ni `delete_or_trash` ni `trash_torrent` ne committent : l'appelant le fait en
 # fin de suppression. Un commit au milieu d'une boucle vide les objets déjà
 # marqués supprimés et casse la lecture de leurs attributs (bug réel).
-def _remove_or_move(
+def _move_aside(
     session: Session,
     settings: Settings | None,
     path: str,
     *,
-    action: TrashAction | None,
+    action: TrashAction,
     label: str,
 ) -> TrashItem | None:
-    """Un seul fichier : supprimé, ou déplacé en corbeille quand une action est
-    ouverte. Un fichier déjà absent n'est jamais une erreur — c'est le résultat
-    voulu (Sonarr/Radarr peut l'avoir supprimé juste avant)."""
-    if action is None or not is_enabled(settings):
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(path)
-        return None
+    """Un seul fichier, déplacé dans l'action. Un fichier déjà absent n'est
+    jamais une erreur — c'est le résultat voulu (Sonarr/Radarr peut l'avoir
+    supprimé juste avant)."""
     size = _size_of(path)
     try:
         trashed_path = move_to_trash(settings, path)
@@ -212,25 +240,26 @@ def _remove_or_move(
     return item
 
 
-def delete_or_trash(
+def move_aside(
     session: Session,
     settings: Settings | None,
     path: str,
     *,
-    action: TrashAction | None = None,
+    action: TrashAction,
     label: str = "",
 ) -> TrashItem | None:
-    """Supprime le fichier ET ses annexes (NFO, sous-titres, images : voir
-    services/companion_files.py), ou les déplace en corbeille quand une action
-    est ouverte. Renvoie l'élément du fichier vidéo, pour pouvoir tout remettre
-    en place si l'étape suivante échoue.
+    """Met de côté le fichier ET ses annexes (NFO, sous-titres, images : voir
+    services/companion_files.py). Renvoie l'élément du fichier vidéo.
 
     Les annexes suivent toujours la vidéo : les laisser derrière encombrait la
     bibliothèque, et ne pas les mettre de côté les perdait à la restauration
     (bug réel : des dizaines de NFO disparus)."""
-    item = _remove_or_move(session, settings, path, action=action, label=label)
-    for companion in companions(path):
-        _remove_or_move(session, settings, companion, action=action, label=os.path.basename(companion))
+    # Annexes listées AVANT de déplacer la vidéo : elles se reconnaissent à
+    # son nom, dans son dossier.
+    extras = companions(path)
+    item = _move_aside(session, settings, path, action=action, label=label)
+    for companion in extras:
+        _move_aside(session, settings, companion, action=action, label=os.path.basename(companion))
     return item
 
 
@@ -239,7 +268,7 @@ def clean_media_folders(
     settings: Settings | None,
     paths: list[str],
     *,
-    action: TrashAction | None = None,
+    action: TrashAction,
 ) -> None:
     """Après la suppression : un dossier qui n'a plus aucune vidéo n'a plus
     d'objet. Ce qu'il lui reste (NFO du dossier, affiche, fanart) part de la
@@ -252,7 +281,7 @@ def clean_media_folders(
         if not is_inside(folder, root) or has_video(folder):
             continue
         for leftover in leftovers(folder):
-            _remove_or_move(session, settings, leftover, action=action, label=os.path.basename(leftover))
+            _move_aside(session, settings, leftover, action=action, label=os.path.basename(leftover))
         prune_empty_dirs(folder, root)
 
 
@@ -370,8 +399,15 @@ def trashed_paths(item: TrashItem) -> list[str]:
 
 def item_available(item: TrashItem) -> bool:
     """Faux dès qu'un élément a disparu de la corbeille : la restauration ne
-    rendrait alors qu'une partie de la suppression."""
+    rendrait alors qu'une partie de la suppression.
+
+    Un torrent dont aucune donnée n'a été déplacée (données introuvables au
+    moment de la suppression, ou échec d'un ancien déplacement) reste
+    restaurable : ses données n'ont pas quitté leur place, il suffit de le
+    remettre dans le client, qui les revérifie."""
     paths = trashed_paths(item)
+    if item.kind == "torrent" and not paths:
+        return True
     return bool(paths) and all(os.path.lexists(path) for path in paths)
 
 
@@ -533,6 +569,12 @@ async def _restore_torrents(
     return restored
 
 
+async def _already_tracked(target: ArrTarget, service: str, body: dict[str, Any]) -> bool:
+    if service == "radarr":
+        return await target.radarr().find_movie(body.get("tmdbId"), body.get("imdbId")) is not None
+    return await target.sonarr().find_series(body.get("tvdbId")) is not None
+
+
 async def _restore_arr(
     session: Session, action: TrashAction, settings: Settings | None, steps: list[DeleteStepResult]
 ) -> bool:
@@ -554,6 +596,15 @@ async def _restore_arr(
 
     body = payload.get("body") or {}
     try:
+        # Toujours suivi (suppression interrompue avant son retrait, ou média
+        # rajouté à la main entre-temps) : rien à recréer, et un ajout serait
+        # refusé comme doublon.
+        if await _already_tracked(target, service, body):
+            action.arr_payload = None
+            session.add(action)
+            session.commit()
+            steps.append(DeleteStepResult(kind="arr_media", label=action.media_title, success=True))
+            return True
         # Aucun rescan demandé ici : Sonarr/Radarr rafraîchit déjà la fiche
         # qu'il vient d'ajouter (MovieAddedHandler pousse RefreshMovie), et un
         # second scan lancé en parallèle enregistrait le même fichier et les

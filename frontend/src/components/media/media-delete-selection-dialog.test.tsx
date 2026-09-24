@@ -182,6 +182,24 @@ describe("MediaDeleteSelectionDialog", () => {
     await waitFor(() => expect(onMediaDeleted).toHaveBeenCalledTimes(1))
   })
 
+  it("says the deletion was cancelled when a step failed", async () => {
+    vi.mocked(deleteSelectionExecute).mockResolvedValue({
+      steps: [
+        { kind: "library_file", label: "Inception.1080p.mkv", success: false, error: "Permission denied" },
+        { kind: "rollback", label: "Suppression annulée : tout a été remis en place.", success: false, error: null },
+      ],
+      media_deleted: false,
+    })
+    const user = await openDialog()
+    await selectTorrentsAndOldFile(user)
+
+    await user.click(getConfirm())
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(en.deleteSelection.cancelled))
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(screen.getByText("Permission denied")).toBeInTheDocument()
+  })
+
   it("shows the API error and keeps the dialog open", async () => {
     vi.mocked(deleteSelectionExecute).mockRejectedValue(new Error("Radarr injoignable"))
     const user = await openDialog()

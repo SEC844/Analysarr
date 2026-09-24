@@ -888,7 +888,9 @@ export const fr = {
       "Sélection de {size} : un fichier hardlinké n'est libéré du disque que si tous ses liens sont supprimés.",
     estimate: "Estimation : espace réel indisponible, les fichiers hardlinkés peuvent être comptés plusieurs fois.",
     success: "Suppression effectuée.",
-    partialFailure: "{failed} échec(s) sur {total}.",
+    cancelled: "Suppression annulée : une étape a échoué, rien n'a été supprimé.",
+    cancelledIncomplete:
+      "Suppression annulée, mais certains éléments sont restés dans la corbeille : restaurez-les depuis Réglages → Corbeille.",
     failed: "Échec de la suppression.",
   },
 }

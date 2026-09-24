@@ -23,10 +23,19 @@ from app.models.settings import Settings
 _SAMPLE = 3
 
 
-class MountUnavailableError(RuntimeError):
-    """Action refusée : un chemin nécessaire n'est pas joignable depuis le
-    conteneur. Hérite de RuntimeError pour être rattrapée comme un échec
-    d'action par les automatisations (services/automations.py)."""
+class DiskAccessError(RuntimeError):
+    """Action refusée AVANT toute modification : le disque n'est pas dans un
+    état qui permet de la mener jusqu'au bout. Hérite de RuntimeError pour être
+    rattrapée comme un échec d'action par les automatisations
+    (services/automations.py) ; l'API la traduit en HTTP 409."""
+
+
+class MountUnavailableError(DiskAccessError):
+    """Un chemin nécessaire n'est pas joignable depuis le conteneur."""
+
+
+class PathNotWritableError(DiskAccessError):
+    """Analysarr n'a pas le droit de modifier un chemin nécessaire."""
 
 
 def _deepest_existing_dir(path: str) -> str | None:
@@ -85,4 +94,52 @@ def ensure_paths_available(settings: Settings | None, paths: Iterable[str], acti
         f"{action} annulée : ces chemins sont introuvables depuis le conteneur Analysarr, "
         f"le volume correspondant n'est probablement pas monté. Vérifiez vos montages puis relancez un scan. "
         f"Aucune modification n'a été effectuée sur le disque. Chemins : {shown}"
+    )
+
+
+def writable_dir(directory: str) -> bool:
+    """Dossier dont Analysarr peut créer, renommer ou retirer des entrées."""
+    return os.access(directory, os.W_OK | os.X_OK)
+
+
+def creatable_dir(directory: str) -> bool:
+    """Dossier accessible en écriture, ou qu'Analysarr peut créer."""
+    existing = directory
+    while not os.path.isdir(existing):
+        parent = os.path.dirname(existing)
+        if parent == existing or not parent:
+            return False
+        existing = parent
+    return writable_dir(existing)
+
+
+def replace_blockers(path: str) -> list[str]:
+    """Ce qui empêche de remplacer `path` en place (réparation de hardlink :
+    lien temporaire créé à côté, puis substitué)."""
+    directory = os.path.dirname(path)
+    return [] if not path or writable_dir(directory) else [directory]
+
+
+def _identity() -> str:
+    getuid, getgid = getattr(os, "getuid", None), getattr(os, "getgid", None)
+    if getuid is None or getgid is None:
+        return "Analysarr"
+    return f"Analysarr (utilisateur {getuid()}, groupe {getgid()})"
+
+
+def ensure_writable(blocked: Iterable[str], action: str) -> None:
+    """Lève `PathNotWritableError` si Analysarr ne peut pas modifier un chemin
+    dont l'action a besoin. Appelée AVANT la moindre modification : une action
+    refusée d'emblée vaut mieux qu'une action à moitié faite (bug réel : le
+    torrent retiré du client, puis le fichier de la bibliothèque refusé)."""
+    problems = list(dict.fromkeys(path for path in blocked if path))
+    if not problems:
+        return
+    shown = ", ".join(problems[:_SAMPLE])
+    if len(problems) > _SAMPLE:
+        shown += f" (+{len(problems) - _SAMPLE} autre(s))"
+    raise PathNotWritableError(
+        f"{action} annulée : {_identity()} n'a pas le droit de modifier {shown}. Donnez-lui les droits "
+        f"d'écriture, ou réglez PUID/PGID sur l'utilisateur de Sonarr, Radarr et du client torrent. "
+        f"Aucune modification n'a été effectuée."
     )

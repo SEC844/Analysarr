@@ -880,7 +880,8 @@ export const en: Dictionary = {
     selectionHint: "{size} selected: a hardlinked file is only freed from disk once all of its links are deleted.",
     estimate: "Estimate: actual space unavailable, hardlinked files may be counted several times.",
     success: "Deletion completed.",
-    partialFailure: "{failed} of {total} failed.",
+    cancelled: "Deletion cancelled: a step failed, nothing was deleted.",
+    cancelledIncomplete: "Deletion cancelled, but some items stayed in the trash: restore them from Settings → Trash.",
     failed: "Deletion failed.",
   },
 }

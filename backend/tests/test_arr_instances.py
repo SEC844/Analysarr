@@ -66,7 +66,10 @@ def test_deletion_goes_to_the_instance_tracking_the_media(fake_http, session, se
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
     assert primary_calls == []
-    assert uhd_calls == [("DELETE", "/api/v3/movie/42", {"deleteFiles": "true", "addImportExclusion": "false"})]
+    assert uhd_calls == [
+        ("GET", "/api/v3/movie/42", {}),
+        ("DELETE", "/api/v3/movie/42", {"deleteFiles": "false", "addImportExclusion": "false"}),
+    ]
     assert result.steps[0].label == "Titre retiré de Radarr 4K"
 
 

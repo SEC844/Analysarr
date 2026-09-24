@@ -278,9 +278,14 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
       },
       {
         onSuccess: (data) => {
-          const failedCount = data.steps.filter((s) => !s.success).length
-          if (failedCount === 0) toast.success(t("deleteSelection.success"))
-          else toast.error(t("deleteSelection.partialFailure", { failed: failedCount, total: data.steps.length }))
+          // Tout ou rien : une étape en échec annule toute la suppression
+          // (étape « rollback » dans le résultat, voir services/deletion.py).
+          const rollback = data.steps.find((s) => s.kind === "rollback" || s.kind === "rollback_incomplete")
+          if (!rollback) toast.success(t("deleteSelection.success"))
+          else
+            toast.error(
+              t(rollback.kind === "rollback" ? "deleteSelection.cancelled" : "deleteSelection.cancelledIncomplete"),
+            )
 
           if (data.media_deleted) {
             // Plus rien ne subsiste pour ce média : la fiche elle-même a

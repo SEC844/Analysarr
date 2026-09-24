@@ -21,7 +21,7 @@ from app.services.hardlink import (
     resolve_torrent_files,
     stat_inode,
 )
-from app.services.path_guard import ensure_paths_available
+from app.services.path_guard import ensure_paths_available, ensure_writable, replace_blockers
 from app.services.scan.statuses import compute_statuses
 
 logger = logging.getLogger(__name__)
@@ -262,6 +262,10 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
         [path for item in preview.items for path in (item.target_path, item.source_path)],
         "Réparation",
     )
+    # Le lien est créé à côté de la cible avant de la remplacer : sans droit
+    # d'écriture dans ce dossier, la réparation serait refusée fichier par
+    # fichier, et donc à moitié faite.
+    ensure_writable([path for item in preview.items for path in replace_blockers(item.target_path)], "Réparation")
 
     steps: list[HardlinkRepairStepResult] = []
     freed_bytes = 0

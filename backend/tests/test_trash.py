@@ -84,8 +84,8 @@ class FakeTorrentClient:
 
 
 def patch_client(monkeypatch, client):
-    for module in ("app.services.media_delete", "app.services.cascade_delete", "app.services.trash"):
-        monkeypatch.setattr(f"{module}.torrent_client", lambda settings, c=client: c, raising=False)
+    for module in ("deletion", "media_delete", "cascade_delete", "trash"):
+        monkeypatch.setattr(f"app.services.{module}.torrent_client", lambda settings, c=client: c, raising=False)
     monkeypatch.setattr("app.clients.torrent.torrent_client", lambda settings, c=client: c)
     monkeypatch.setattr("app.clients.torrent.torrent_client_configured", lambda settings: True)
 
@@ -102,8 +102,10 @@ def test_deletion_removes_everything_when_the_trash_is_off(session, settings, tm
         )
     )
 
-    assert client.deleted == [(["abc123"], True)]  # données supprimées par le client
-    assert not os.path.exists(row.path)
+    # Corbeille désactivée : tout est d'abord mis de côté (pour pouvoir tout
+    # annuler en cas d'échec), puis supprimé dès que la suppression a réussi.
+    assert client.deleted == [(["abc123"], False)]
+    assert not os.path.exists(row.path) and not os.path.exists(data)
     assert session.exec(select(TrashAction)).all() == []
 
 

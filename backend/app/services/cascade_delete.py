@@ -1,8 +1,6 @@
 
-import httpx
 from sqlmodel import Session, select
 
-from app.clients.torrent import TorrentAuthError, torrent_client
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
@@ -11,10 +9,9 @@ from app.schemas.media import (
     DeletePreviewItem,
     DeleteStepResult,
 )
-from app.services.media_delete import torrent_paths
+from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.path_guard import ensure_paths_available
 from app.services.scan.statuses import compute_statuses
-from app.services.trash import clean_media_folders, close_action, delete_or_trash, open_action, trash_torrent
 
 
 def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile], list[Torrent]]:
@@ -81,37 +78,30 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
     # fichiers intacts pour des doublons ou des orphelins supprimables.
     ensure_paths_available(settings, [f.path for f in duplicate_files], "Suppression")
 
-    steps: list[DeleteStepResult] = []
-    # Une seule action de corbeille pour tout le nettoyage : c'est aussi le
-    # chemin qu'empruntent les automatisations, donc leur filet de sécurité.
-    trash = open_action(session, settings, media, "cascade_delete")
+    # Droits vérifiés avant toute modification, comme pour la suppression
+    # sélective : un nettoyage réussit en entier ou ne fait rien.
+    ensure_deletable(session, settings, [f.path for f in duplicate_files], orphan_torrents, "Nettoyage")
+
+    file_labels = [f.path for f in duplicate_files]
+    torrent_labels = [t.name for t in orphan_torrents]
+    # Une seule transaction pour tout le nettoyage : c'est aussi le chemin
+    # qu'empruntent les automatisations, donc leur filet de sécurité.
+    tx = DeletionTransaction(session, settings, media, "cascade_delete")
+    try:
+        for label in file_labels:
+            tx.stage_file(label, label)
+        await tx.stage_torrents(orphan_torrents)
+        await tx.delete_unreachable_torrents()
+    except DeletionFailed as failure:
+        return DeleteExecuteResult(steps=await tx.rollback(failure))
 
     for f in duplicate_files:
-        try:
-            delete_or_trash(session, settings, f.path, action=trash, label=f.path)
-            session.delete(f)
-            steps.append(DeleteStepResult(kind="duplicate_file", label=f.path, success=True))
-        except OSError as exc:
-            steps.append(DeleteStepResult(kind="duplicate_file", label=f.path, success=False, error=str(exc)))
-
-    if orphan_torrents:
-        try:
-            async with torrent_client(settings) as qbit:
-                if trash is not None:
-                    for t in orphan_torrents:
-                        await trash_torrent(session, settings, qbit, trash, t, torrent_paths(session, t))
-                else:
-                    await qbit.delete_torrents([t.hash for t in orphan_torrents], delete_files=True)
-            for t in orphan_torrents:
-                session.delete(t)
-                steps.append(DeleteStepResult(kind="orphan_torrent", label=t.name, success=True))
-        except (TorrentAuthError, httpx.HTTPError, OSError, RuntimeError) as exc:
-            for t in orphan_torrents:
-                steps.append(DeleteStepResult(kind="orphan_torrent", label=t.name, success=False, error=str(exc)))
-
-    clean_media_folders(session, settings, [f.path for f in duplicate_files], action=trash)
-    close_action(session, trash)
-    session.commit()
+        session.delete(f)
+    for t in orphan_torrents:
+        session.delete(t)
+    tx.commit()
+    steps = [DeleteStepResult(kind="duplicate_file", label=label, success=True) for label in file_labels]
+    steps += [DeleteStepResult(kind="orphan_torrent", label=label, success=True) for label in torrent_labels]
 
     # Le statut et l'espace récupérable affichés sont calculés au moment du scan : sans
     # ce recalcul, la fiche resterait "doublon"/"orphelin_qbit" jusqu'au prochain scan

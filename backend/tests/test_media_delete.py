@@ -9,8 +9,13 @@ from app.services.media_delete import execute_media_delete
 
 
 def recorder(calls, status=200):
+    """Sonarr/Radarr factice : enregistre chaque appel. Une lecture renvoie une
+    fiche, pour que le retrait d'un média puisse la mettre de côté."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append((request.method, request.url.path, dict(request.url.params)))
+        if request.method == "GET" and status < 400:
+            return httpx.Response(status, json={"id": 42, "title": "Titre"})
         return httpx.Response(status)
 
     return handler
@@ -39,7 +44,12 @@ def test_whole_movie_is_removed_from_radarr_without_exclusion(fake_http, session
     selection = MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True)
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
-    assert calls == [("DELETE", "/api/v3/movie/42", {"deleteFiles": "true", "addImportExclusion": "false"})]
+    # Fiche lue d'abord (pour pouvoir la recréer), puis retrait sans que Radarr
+    # ne touche aux fichiers : Analysarr les a déjà mis de côté.
+    assert calls == [
+        ("GET", "/api/v3/movie/42", {}),
+        ("DELETE", "/api/v3/movie/42", {"deleteFiles": "false", "addImportExclusion": "false"}),
+    ]
     assert result.media_deleted and not os.path.exists(files[0].path)
 
 
