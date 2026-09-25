@@ -45,7 +45,7 @@ const SECTION_GROUPS = [
       { id: "radarr", label: "Radarr" },
       { id: "qbittorrent", label: "settings.sections.torrentClient" },
       { id: "cross-seed", label: "cross-seed" },
-      { id: "seer", label: "Seer" },
+      { id: "seer", label: "settings.sections.requestManager" },
     ],
   },
   {
@@ -291,6 +291,8 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
             <SeerCard
               enabled={form.seer_enabled}
               onEnabledChange={(v) => set("seer_enabled", v)}
+              kind={form.seer_type}
+              onKindChange={(v) => set("seer_type", v)}
               url={form.seer_url}
               onUrlChange={(v) => set("seer_url", v)}
               apiKey={form.seer_api_key}

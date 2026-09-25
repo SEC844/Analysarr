@@ -51,7 +51,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 **Actions — toujours avec aperçu et confirmation explicite**
 - Nettoyage en cascade des doublons et orphelins.
 - Suppression sélective (torrents, épisodes, saisons, série entière ou film) avec l'espace disque **réellement** libéré, hardlinks pris en compte. Les fichiers annexes (NFO, sous-titres, jaquettes) suivent la vidéo, et un dossier qui ne contient plus aucune vidéo est supprimé.
-- Retrait optionnel de Sonarr/Radarr (jamais d'ajout en liste d'exclusion). Seer est en lecture seule : une demande n'est jamais supprimée ni recréée.
+- Retrait optionnel de Sonarr/Radarr (jamais d'ajout en liste d'exclusion). Seer et Ombi sont en lecture seule : une demande n'est jamais supprimée ni recréée.
 - Réparation des hardlinks en un clic, avec repli par lien symbolique entre systèmes de fichiers.
 - Relance d'un import bloqué (rien n'est supprimé : le fichier déjà sur le disque est simplement redonné à Sonarr/Radarr).
 - Retrait d'un média dont il ne reste rien sur le disque, de Sonarr/Radarr.
@@ -59,13 +59,13 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Aide à la décision**
 - Visionnage par utilisateur (`3/10` l'ont vu, progression au survol), dernière lecture, date d'ajout.
-- Demandes Seer : qui a demandé, quand, qui a approuvé.
+- Demandes Seer ou Ombi : qui a demandé, quand, qui a approuvé (Ombi ne mémorise pas qui a approuvé).
 - Tri « candidats au nettoyage » : les gros fichiers que personne n'a regardés depuis longtemps.
 
 **Confort au quotidien**
 - Filtres de la bibliothèque : type de média, état (sain / alerte), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
-- **Analyses ciblées** : la flèche à côté de **Scanner** lance un seul service — Radarr, Sonarr, le serveur multimédia, le client torrent, la file d'attente, le visionnage ou Seer — et chaque fiche média a son bouton **Analyser ce média**. Les deux sont bien plus rapides qu'un scan complet et laissent le reste du cache intact.
+- **Analyses ciblées** : la flèche à côté de **Scanner** lance un seul service — Radarr, Sonarr, le serveur multimédia, le client torrent, la file d'attente, le visionnage ou Seer/Ombi — et chaque fiche média a son bouton **Analyser ce média**. Les deux sont bien plus rapides qu'un scan complet et laissent le reste du cache intact.
 - qBittorrent, Deluge ou Transmission : le client torrent est un réglage, tout le reste fonctionne à l'identique.
 - Plusieurs instances Sonarr et Radarr (ex : un Radarr dédié à la 4K) : chaque média reste rattaché à l'instance qui le suit, et une version suivie par une autre instance n'est jamais comptée comme un doublon.
 - Fichiers de la bibliothèque rapprochés de Sonarr/Radarr même quand les conteneurs montent la bibliothèque à des chemins différents.
@@ -93,7 +93,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 | qBittorrent | 4.1 ou plus récent (WebUI API v2) | Un client torrent |
 | Deluge | 2.x (interface web) | Un client torrent |
 | Transmission | 3.0 ou plus récent (RPC) | Un client torrent |
-| Seer (Overseerr, Jellyseerr, Seerr) | Versions actuelles | Optionnel |
+| Seer (Overseerr, Jellyseerr, Seerr) ou Ombi | Versions actuelles (Ombi v4) | Optionnel |
 | cross-seed | Mode daemon | Optionnel |
 
 ## Démarrage rapide

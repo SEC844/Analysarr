@@ -8,6 +8,8 @@ export {
   MEDIA_SERVER_NAMES,
   type MediaServer,
   type MessageKey,
+  REQUEST_MANAGER_NAMES,
+  type RequestManager,
   useI18n,
 } from "@/i18n/core"
 export { I18nProvider } from "@/i18n/provider"

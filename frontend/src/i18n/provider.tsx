@@ -10,6 +10,8 @@ import {
   lookup,
   type MediaServer,
   mediaServerVars,
+  REQUEST_MANAGER_NAMES,
+  type RequestManager,
   type RichVars,
   type Vars,
 } from "@/i18n/core"
@@ -17,6 +19,7 @@ import {
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(getLanguage)
   const [mediaServer, setMediaServer] = useState<MediaServer>("emby")
+  const [requestManager, setRequestManager] = useState<RequestManager>("seer")
 
   const setLanguage = useCallback((next: Language) => {
     applyLanguage(next)
@@ -28,13 +31,17 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   const value = useMemo<I18nContextValue>(() => {
-    const serverVars = mediaServerVars(language, mediaServer)
+    const serverVars: Vars = {
+      ...mediaServerVars(language, mediaServer),
+      requests: REQUEST_MANAGER_NAMES[requestManager],
+    }
     return {
       language,
       locale: LOCALES[language],
       setLanguage,
       mediaServer,
       setMediaServer,
+      setRequestManager,
       t: (key, vars) => {
         const all: Vars = { ...serverVars, ...vars }
         return lookup(language, key, typeof vars?.count === "number" ? vars.count : undefined).replace(
@@ -52,7 +59,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
           })
       },
     }
-  }, [language, setLanguage, mediaServer])
+  }, [language, setLanguage, mediaServer, requestManager])
 
   // `key` : un changement de langue remonte l'arbre, pour que les textes
   // formatés hors contexte (tailles, dates) soient eux aussi recalculés.

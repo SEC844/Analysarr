@@ -210,26 +210,67 @@ async def test_cross_seed(req: ConnectionTestRequest) -> ConnectionTestResult:
         return ConnectionTestResult(success=False, message=f"Connexion impossible : {exc}")
 
 
+class _UnexpectedAnswer(Exception):
+    """Réponse qui n'a pas la forme attendue : autre service à cette adresse."""
+
+
+async def _seer_version(client: httpx.AsyncClient, base: str, api_key: str) -> str:
+    # /auth/me valide réellement la clé (l'API /status est publique).
+    resp = await client.get(f"{base}/api/v1/auth/me", headers={"X-Api-Key": api_key})
+    resp.raise_for_status()
+    me = _json(resp)
+    if not isinstance(me, dict) or "id" not in me:
+        raise _UnexpectedAnswer
+    status = await client.get(f"{base}/api/v1/status")
+    body = _json(status) if status.status_code == 200 else None
+    return str(body.get("version", "?")) if isinstance(body, dict) else "?"
+
+
+async def _ombi_version(client: httpx.AsyncClient, base: str, api_key: str) -> str:
+    # Route protégée : Ombi valide la clé sur toute requête qui la porte
+    # (ApiKeyMiddlewear) ; /Status/info, publique, ne sert qu'à la version.
+    resp = await client.get(f"{base}/api/v1/Request/movie/total", headers={"ApiKey": api_key})
+    resp.raise_for_status()
+    if not isinstance(_json(resp), int):
+        raise _UnexpectedAnswer
+    info = await client.get(f"{base}/api/v1/Status/info")
+    version = _json(info) if info.status_code == 200 else None
+    return version if isinstance(version, str) else "?"
+
+
+def _json(resp: httpx.Response) -> object:
+    """Corps JSON, ou None : Ombi répond à une route inconnue par la page de
+    son interface (HTML, code 200), jamais par un 404."""
+    try:
+        return resp.json()
+    except ValueError:
+        return None
+
+
 async def test_seer(req: ConnectionTestRequest) -> ConnectionTestResult:
+    """Gestionnaire de demandes : Seer ou Ombi (voir services/seer.py)."""
     if not req.url or not req.api_key:
         return ConnectionTestResult(success=False, message="URL et clé API requises.")
 
     base = _clean_url(req.url)
+    name, read_version = ("Ombi", _ombi_version) if req.request_manager == "ombi" else ("Seer", _seer_version)
+    # Seer et Ombi n'exposent pas les mêmes routes : une route inconnue ou une
+    # réponse d'une autre forme vient le plus souvent d'un mauvais choix.
+    wrong_choice = f"ce service n'est peut-être pas {name} (vérifiez le choix Seer/Ombi)."
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            # /auth/me valide réellement la clé (l'API /status est publique).
-            resp = await client.get(f"{base}/api/v1/auth/me", headers={"X-Api-Key": req.api_key})
-            if resp.status_code in (401, 403):
-                return ConnectionTestResult(success=False, message=f"Clé API refusée ({resp.status_code}).")
-            resp.raise_for_status()
-            status = await client.get(f"{base}/api/v1/status")
-        version = status.json().get("version", "?") if status.status_code == 200 else "?"
-        return ConnectionTestResult(success=True, message=f"Connecté à Seer (version {version}).")
+            version = await read_version(client, base, req.api_key)
+        return ConnectionTestResult(success=True, message=f"Connecté à {name} (version {version}).")
+    except _UnexpectedAnswer:
+        return ConnectionTestResult(success=False, message=f"Réponse inattendue : {wrong_choice}")
     except httpx.HTTPStatusError as exc:
-        return ConnectionTestResult(
-            success=False, message=f"Erreur HTTP {exc.response.status_code} : {exc.response.text[:200]}"
-        )
-    except (httpx.RequestError, ValueError) as exc:
+        code = exc.response.status_code
+        if code in (401, 403):
+            return ConnectionTestResult(success=False, message=f"Clé API refusée ({code}).")
+        if code == 404:
+            return ConnectionTestResult(success=False, message=f"Route introuvable (404) : {wrong_choice}")
+        return ConnectionTestResult(success=False, message=f"Erreur HTTP {code} : {exc.response.text[:200]}")
+    except httpx.RequestError as exc:
         return ConnectionTestResult(success=False, message=f"Connexion impossible : {exc}")
 
 

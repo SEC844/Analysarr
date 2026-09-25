@@ -42,7 +42,7 @@ function App() {
   // aussi hors composants React (voir lib/format.ts).
   const preferences = usePreferences()
   setDisplayTimeZone(preferences.timezone)
-  const { t, language, setLanguage, setMediaServer } = useI18n()
+  const { t, language, setLanguage, setMediaServer, setRequestManager } = useI18n()
   const authStatus = useAuthStatusQuery()
   const authenticated = authStatus.data?.authenticated ?? false
   // Ne part chercher /api/settings (protégé) qu'une fois l'authentification
@@ -63,6 +63,12 @@ function App() {
   useEffect(() => {
     if (mediaServer) setMediaServer(mediaServer)
   }, [mediaServer, setMediaServer])
+
+  // Nom du gestionnaire de demandes (Seer ou Ombi), variable `{requests}`.
+  const requestManager = settings.data?.seer.kind
+  useEffect(() => {
+    if (requestManager) setRequestManager(requestManager)
+  }, [requestManager, setRequestManager])
 
   // Nouvelle version du conteneur installée pendant que l'onglet était ouvert :
   // proposition de recharger (le code chargé dans la page est l'ancien).

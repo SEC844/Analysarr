@@ -77,3 +77,22 @@ def test_requester_avatar_comes_from_the_media_server_account(session):
     assert read.requested_by.emby_user_id == "abcd1234" and read.requested_by.image_tag == "t1"
 
 
+
+
+def test_connection_test_validates_the_seer_key(fake_http):
+    from app.schemas.settings import ConnectionTestRequest
+    from app.services.connection_test import test_seer as run_connection_test
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/v1/status":
+            return httpx.Response(200, json={"version": "2.7.3"})
+        if req.headers.get("X-Api-Key") != "k":
+            return httpx.Response(403, json={"message": "You do not have permission to access this endpoint"})
+        return httpx.Response(200, json={"id": 1, "displayName": "Admin"})
+
+    fake_http["http://seer"] = handler
+    ok = asyncio.run(run_connection_test(ConnectionTestRequest(url="http://seer", api_key="k")))
+    refused = asyncio.run(run_connection_test(ConnectionTestRequest(url="http://seer", api_key="faux")))
+
+    assert ok.success and ok.message == "Connecté à Seer (version 2.7.3)."
+    assert not refused.success and "403" in refused.message

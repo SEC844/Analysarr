@@ -49,9 +49,11 @@ class Settings(SQLModel, table=True):
     # résoudre sur son propre système de fichiers.
     cross_seed_library_path: str | None = None
 
-    # Seer (Overseerr/Jellyseerr/Seerr) : optionnel, jamais requis. Sert à
-    # afficher qui a demandé un média et à retirer sa demande à la suppression.
+    # Gestionnaire de demandes : optionnel, jamais requis, en lecture seule.
+    # Sert à afficher qui a demandé un média. `seer_type` : "seer" (Overseerr,
+    # Jellyseerr, Seerr) ou "ombi" ; les champs `seer_*` servent aux deux.
     seer_enabled: bool = False
+    seer_type: str = "seer"
     seer_url: str | None = None
     seer_api_key: str | None = None
 

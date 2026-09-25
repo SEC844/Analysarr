@@ -18,6 +18,11 @@ export const LANGUAGES: { value: Language; label: string }[] = [
 export type MediaServer = "emby" | "jellyfin"
 export const MEDIA_SERVER_NAMES: Record<MediaServer, string> = { emby: "Emby", jellyfin: "Jellyfin" }
 
+// Gestionnaire de demandes : Seer (Overseerr, Jellyseerr, Seerr) ou Ombi.
+// Son nom est la variable `{requests}`, disponible dans tous les textes.
+export type RequestManager = "seer" | "ombi"
+export const REQUEST_MANAGER_NAMES: Record<RequestManager, string> = { seer: "Seer", ombi: "Ombi" }
+
 // Variables disponibles dans TOUS les textes : le nom du serveur multimédia
 // configuré, et sa forme élidée en français (« d'Emby » / « de Jellyfin »).
 export function mediaServerVars(language: Language, server: MediaServer): Vars {
@@ -99,6 +104,7 @@ export interface I18nContextValue {
   setLanguage: (language: Language) => void
   mediaServer: MediaServer
   setMediaServer: (server: MediaServer) => void
+  setRequestManager: (manager: RequestManager) => void
   t: (key: MessageKey, vars?: Vars) => string
   // Variante acceptant des éléments React en variables (lien, <code>, <strong>...).
   rich: (key: MessageKey, vars: RichVars) => ReactNode

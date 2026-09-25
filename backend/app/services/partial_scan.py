@@ -59,7 +59,13 @@ from app.services.scan.orchestrator import _fail_scan
 from app.services.scan.results import build_untracked_results
 from app.services.scan.statuses import compute_statuses, current_files_size, is_tracked_by_arr
 from app.services.scan_scopes import SERVICE_SCOPES
-from app.services.seer import build_request_rows, index_requests, seer_client, seer_configured
+from app.services.seer import (
+    build_request_rows,
+    fetch_request_index,
+    request_manager_name,
+    seer_client,
+    seer_configured,
+)
 from app.services.torrent_match import (
     MediaView,
     attach_torrents,
@@ -210,10 +216,10 @@ async def _refresh_seer(session: Session, settings: Settings, medias: list[Media
     if seer is None:
         return
     try:
-        index = index_requests(await seer.get_requests())
+        index = await fetch_request_index(seer)
     except (httpx.HTTPError, ValueError):
         # Les demandes du dernier scan restent en place.
-        logger.warning("Demandes Seer illisibles", exc_info=True)
+        logger.warning("Demandes du gestionnaire de demandes illisibles", exc_info=True)
         return
 
     session.exec(delete(MediaRequest))
@@ -242,7 +248,7 @@ def _missing_service(scope: str, settings: Settings) -> str | None:
     if scope == "media_server" and not (settings.radarr_url and settings.sonarr_url):
         return "Sonarr/Radarr"
     if scope == "seer" and not seer_configured(settings):
-        return "Seer"
+        return request_manager_name(settings)
     return None
 
 
@@ -265,7 +271,6 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
         run_id = row_id(run)
 
     await scan_events.publish({"type": "started", "run_id": run_id, "scope": scope})
-
 
     if settings is None:
         await _fail_scan(run_id, "Aucune configuration enregistrée.", channels, settings)

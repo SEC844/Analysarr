@@ -25,7 +25,7 @@ from app.schemas.services import ServicesStatus, ServiceStatusRead
 from app.schemas.settings import ConnectionTestRequest, ConnectionTestResult, MediaServer
 from app.services.arr_instances import arr_targets
 from app.services.connection_test import TESTERS
-from app.services.seer import seer_configured
+from app.services.seer import request_manager_name, seer_configured
 
 CACHE_SECONDS = 60
 MIN_REFRESH_SECONDS = 10
@@ -85,9 +85,12 @@ def _checks(session: Session, settings: Settings | None) -> list[_Check]:
     if settings.cross_seed_enabled and settings.cross_seed_url:
         checks.append(_Check("cross_seed", "cross-seed", ConnectionTestRequest(url=settings.cross_seed_url)))
     if seer_configured(settings):
-        checks.append(
-            _Check("seer", "Seer", ConnectionTestRequest(url=settings.seer_url, api_key=settings.seer_api_key))
+        request = ConnectionTestRequest(
+            url=settings.seer_url,
+            api_key=settings.seer_api_key,
+            request_manager="ombi" if settings.seer_type == "ombi" else "seer",
         )
+        checks.append(_Check("seer", request_manager_name(settings), request))
     return checks
 
 

@@ -23,7 +23,7 @@ from app.services.scan.results import (
     build_untracked_results,
 )
 from app.services.scan.statuses import compute_statuses, current_files_size, is_tracked_by_arr
-from app.services.seer import build_request_rows, index_requests, seer_client
+from app.services.seer import build_request_rows, fetch_request_index, seer_client
 from app.services.torrent_match import FetchedTorrents, MediaView, attach_torrents, fetch_torrents
 from app.services.watch_stats import (
     apply_aggregates,
@@ -297,9 +297,9 @@ async def _apply_seer_requests(settings: Settings, results: list[MediaBuildResul
         return
     await progress("seer")
     try:
-        request_index = index_requests(await seer.get_requests())
+        request_index = await fetch_request_index(seer)
     except (httpx.HTTPError, ValueError):
-        logger.warning("Demandes Seer illisibles", exc_info=True)
+        logger.warning("Demandes du gestionnaire de demandes illisibles", exc_info=True)
         request_index = {}
     for result in results:
         result.requests = build_request_rows(result.media, request_index)

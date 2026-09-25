@@ -1,15 +1,22 @@
-"""Demandes Seer rattachées aux médias : qui a demandé, quand, qui a approuvé
-— et retrait de la demande quand le média est supprimé.
+"""Demandes du gestionnaire de demandes rattachées aux médias : qui a
+demandé, quand, qui a approuvé. Lecture seule.
+
+Deux gestionnaires, au choix (`Settings.seer_type`) : Seer (Overseerr,
+Jellyseerr, Seerr : même API) ou Ombi. Les noms internes `seer_*` désignent
+le gestionnaire configuré, quel qu'il soit — comme `emby_*` pour le serveur
+multimédia. Les deux produisent les MÊMES lignes `MediaRequest`.
 
 Rattachement par identifiant TMDB (films) ou TVDB (séries), déjà connus de
-Radarr/Sonarr. Aucune image n'est jamais récupérée depuis Seer : l'avatar
-affiché est celui d'Emby (même compte, via `jellyfinUserId`), déjà relayé par
-le backend."""
+Radarr/Sonarr. Aucune image n'est jamais récupérée depuis le gestionnaire :
+l'avatar affiché est celui du serveur multimédia (même compte), déjà relayé
+par le backend."""
 
+from datetime import datetime
 from typing import Any
 
 from sqlmodel import Session, select
 
+from app.clients.ombi import OmbiClient
 from app.clients.seer import SeerClient
 from app.models.media import EmbyUser, Media, MediaRequest, MediaType
 from app.models.settings import Settings
@@ -19,12 +26,21 @@ from app.services.watch_stats import as_utc, parse_emby_date
 _STATUSES = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "completed"}
 
 RequestKey = tuple[str, int]  # ("movie", tmdbId) | ("tv", tvdbId)
+RequestEntry = tuple[RequestKey, dict[str, Any]]
+RequestClient = SeerClient | OmbiClient
 
 
-def seer_client(settings: Settings | None) -> SeerClient | None:
-    """Client Seer, ou None si Seer est désactivé ou incomplet."""
+def request_manager_name(settings: Settings | None) -> str:
+    return "Ombi" if settings is not None and settings.seer_type == "ombi" else "Seer"
+
+
+def seer_client(settings: Settings | None) -> RequestClient | None:
+    """Client du gestionnaire de demandes, ou None s'il est désactivé ou
+    incomplet."""
     if settings is None or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
         return None
+    if settings.seer_type == "ombi":
+        return OmbiClient(settings.seer_url, settings.seer_api_key)
     return SeerClient(settings.seer_url, settings.seer_api_key)
 
 
@@ -76,13 +92,120 @@ def parse_request(raw: dict[str, Any]) -> tuple[RequestKey, dict[str, Any]] | No
     return (media_type, external_id), fields
 
 
-def index_requests(raw_requests: list[dict[str, Any]]) -> dict[RequestKey, list[dict[str, Any]]]:
+# --- Ombi -------------------------------------------------------------------
+# Champs vérifiés dans le code source d'Ombi (entités `MovieRequests`,
+# `TvRequests`, `ChildRequests`, `OmbiUser`). Ombi ne mémorise PAS qui a
+# approuvé une demande : l'approbation est affichée sans nom, jamais comme
+# « automatique » (Ombi ne le dit pas).
+
+# `OmbiUser.UserType` : EmbyUser = 3, JellyfinUser = 5. `ProviderUserId` est
+# alors l'identifiant du compte sur le serveur multimédia.
+_OMBI_MEDIA_SERVER_USERS = {3, 5}
+
+
+def _ombi_date(value: Any) -> datetime | None:
+    """`DateTime` .NET : une demande jamais faite vaut 0001-01-01."""
+    parsed = parse_emby_date(value)
+    return parsed if parsed is not None and parsed.year > 1 else None
+
+
+def _ombi_status(approved: Any, denied: Any, available: Any) -> str:
+    if available:
+        return "completed"
+    if denied:
+        return "declined"
+    return "approved" if approved else "pending"
+
+
+def _ombi_user(raw: dict[str, Any]) -> tuple[str | None, str | None]:
+    user = raw.get("requestedUser") or {}
+    candidates = (user.get("alias"), user.get("userName"), raw.get("requestedByAlias"))
+    name = next((value for value in candidates if isinstance(value, str) and value), None)
+    provider_id = user.get("providerUserId")
+    if user.get("userType") in _OMBI_MEDIA_SERVER_USERS and isinstance(provider_id, str) and provider_id:
+        return name, provider_id.replace("-", "").lower()
+    return name, None
+
+
+def _ombi_fields(
+    raw: dict[str, Any], *, status: str, requested_at: datetime | None, is_4k: bool, seasons: str = ""
+) -> dict[str, Any]:
+    name, emby_id = _ombi_user(raw)
+    return {
+        "seer_request_id": raw["id"],
+        "seer_media_id": None,
+        "status": status,
+        "is_4k": is_4k,
+        "seasons": seasons,
+        "requested_at": requested_at,
+        "requested_by_name": name,
+        "requested_by_emby_id": emby_id,
+        "modified_by_name": None,
+        "modified_by_emby_id": None,
+        "auto_approved": False,
+    }
+
+
+def parse_ombi_movie(raw: dict[str, Any]) -> list[RequestEntry]:
+    """Une demande de film Ombi porte la demande normale ET la demande 4K
+    (`has4KRequest`), chacune avec son propre état : deux lignes."""
+    tmdb_id = raw.get("theMovieDbId")
+    if not isinstance(tmdb_id, int) or tmdb_id <= 0 or not isinstance(raw.get("id"), int):
+        return []
+    key: RequestKey = ("movie", tmdb_id)
+    entries: list[RequestEntry] = []
+    requested_at = _ombi_date(raw.get("requestedDate"))
+    if requested_at is not None or not raw.get("has4KRequest"):
+        status = _ombi_status(raw.get("approved"), raw.get("denied"), raw.get("available"))
+        entries.append((key, _ombi_fields(raw, status=status, requested_at=requested_at, is_4k=False)))
+    if raw.get("has4KRequest"):
+        status = _ombi_status(raw.get("approved4K"), raw.get("denied4K"), raw.get("available4K"))
+        requested_4k = _ombi_date(raw.get("requestedDate4k"))
+        entries.append((key, _ombi_fields(raw, status=status, requested_at=requested_4k, is_4k=True)))
+    return entries
+
+
+def parse_ombi_series(raw: dict[str, Any]) -> list[RequestEntry]:
+    """Une demande de série Ombi regroupe une demande enfant par utilisateur,
+    chacune avec ses saisons et son état."""
+    tvdb_id = raw.get("tvDbId")
+    if not isinstance(tvdb_id, int) or tvdb_id <= 0:
+        return []
+    entries: list[RequestEntry] = []
+    for child in raw.get("childRequests") or []:
+        if not isinstance(child, dict) or not isinstance(child.get("id"), int):
+            continue
+        numbers = {s.get("seasonNumber") for s in child.get("seasonRequests") or [] if isinstance(s, dict)}
+        seasons = ",".join(str(n) for n in sorted(n for n in numbers if isinstance(n, int)))
+        status = _ombi_status(child.get("approved"), child.get("denied"), child.get("available"))
+        requested_at = _ombi_date(child.get("requestedDate"))
+        entries.append(
+            (
+                ("tv", tvdb_id),
+                _ombi_fields(child, status=status, requested_at=requested_at, is_4k=False, seasons=seasons),
+            )
+        )
+    return entries
+
+
+def _index(entries: list[RequestEntry]) -> dict[RequestKey, list[dict[str, Any]]]:
     index: dict[RequestKey, list[dict[str, Any]]] = {}
-    for raw in raw_requests:
-        parsed = parse_request(raw)
-        if parsed is not None:
-            index.setdefault(parsed[0], []).append(parsed[1])
+    for key, fields in entries:
+        index.setdefault(key, []).append(fields)
     return index
+
+
+def index_requests(raw_requests: list[dict[str, Any]]) -> dict[RequestKey, list[dict[str, Any]]]:
+    return _index([parsed for raw in raw_requests if (parsed := parse_request(raw)) is not None])
+
+
+async def fetch_request_index(client: RequestClient) -> dict[RequestKey, list[dict[str, Any]]]:
+    """Demandes du gestionnaire configuré, indexées par identifiant de média."""
+    if isinstance(client, OmbiClient):
+        movies = [entry for raw in await client.get_movie_requests() for entry in parse_ombi_movie(raw)]
+        series = [entry for raw in await client.get_tv_requests() for entry in parse_ombi_series(raw)]
+        return _index(movies + series)
+    return index_requests(await client.get_requests())
 
 
 def _requested_order(row: MediaRequest) -> float:

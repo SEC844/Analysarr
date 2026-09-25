@@ -95,6 +95,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("seer_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     ("seer_url", "VARCHAR"),
     ("seer_api_key", "VARCHAR"),
+    ("seer_type", "VARCHAR NOT NULL DEFAULT 'seer'"),
     ("ui_preferences", "VARCHAR NOT NULL DEFAULT '{}'"),
     ("media_server", "VARCHAR NOT NULL DEFAULT 'emby'"),
     ("notify_discord_webhook", "VARCHAR"),

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, StringConstraints
 ServiceName = Literal["emby", "sonarr", "radarr", "qbittorrent", "cross_seed", "seer"]
 TorrentClientKind = Literal["qbittorrent", "deluge", "transmission"]
 MediaServer = Literal["emby", "jellyfin"]
+RequestManager = Literal["seer", "ombi"]
 
 
 class ServiceApiKeyRead(BaseModel):
@@ -33,6 +34,7 @@ class CrossSeedRead(BaseModel):
 
 class SeerRead(BaseModel):
     enabled: bool = False
+    kind: RequestManager = "seer"
     url: str | None = None
     api_key_set: bool = False
 
@@ -112,6 +114,7 @@ class SettingsWrite(BaseModel):
     cross_seed_library_path: str | None = None
 
     seer_enabled: bool = False
+    seer_type: RequestManager = "seer"
     seer_url: str | None = None
     seer_api_key: str | None = None
 
@@ -131,6 +134,8 @@ class ConnectionTestRequest(BaseModel):
     api_key: str | None = None
     # Serveur multimédia uniquement : Emby ou Jellyfin.
     media_server: MediaServer | None = None
+    # Gestionnaire de demandes uniquement : Seer ou Ombi.
+    request_manager: RequestManager | None = None
     # Client torrent uniquement.
     torrent_client: TorrentClientKind | None = None
     username: str | None = None
