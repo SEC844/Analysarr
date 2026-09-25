@@ -14,7 +14,7 @@ import asyncio
 import hashlib
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session
 
@@ -22,10 +22,10 @@ from app.clients.emby import media_server_name
 from app.clients.torrent import torrent_client_configured, torrent_client_kind, torrent_client_name
 from app.models.settings import Settings
 from app.schemas.services import ServicesStatus, ServiceStatusRead
-from app.schemas.settings import ConnectionTestRequest, ConnectionTestResult
+from app.schemas.settings import ConnectionTestRequest, ConnectionTestResult, MediaServer
 from app.services.arr_instances import arr_targets
 from app.services.connection_test import TESTERS
-from app.services.seer import seer_configured
+from app.services.seer import request_manager_name, seer_configured
 
 CACHE_SECONDS = 60
 MIN_REFRESH_SECONDS = 10
@@ -50,7 +50,17 @@ class _Cached:
     status: ServicesStatus
 
 
-_cache: _Cached | None = None
+class _StatusCache:
+    """Dernier statut calculé. Un seul exemplaire, au niveau du module."""
+
+    def __init__(self) -> None:
+        self.entry: _Cached | None = None
+
+    def clear(self) -> None:
+        self.entry = None
+
+
+_cache = _StatusCache()
 
 
 def _checks(session: Session, settings: Settings | None) -> list[_Check]:
@@ -58,7 +68,7 @@ def _checks(session: Session, settings: Settings | None) -> list[_Check]:
         return []
     checks: list[_Check] = []
     if settings.emby_url and settings.emby_api_key:
-        server = "jellyfin" if settings.media_server == "jellyfin" else "emby"
+        server: MediaServer = "jellyfin" if settings.media_server == "jellyfin" else "emby"
         request = ConnectionTestRequest(url=settings.emby_url, api_key=settings.emby_api_key, media_server=server)
         checks.append(_Check("emby", media_server_name(settings), request))
     for kind in ("sonarr", "radarr"):
@@ -75,7 +85,12 @@ def _checks(session: Session, settings: Settings | None) -> list[_Check]:
     if settings.cross_seed_enabled and settings.cross_seed_url:
         checks.append(_Check("cross_seed", "cross-seed", ConnectionTestRequest(url=settings.cross_seed_url)))
     if seer_configured(settings):
-        checks.append(_Check("seer", "Seer", ConnectionTestRequest(url=settings.seer_url, api_key=settings.seer_api_key)))
+        request = ConnectionTestRequest(
+            url=settings.seer_url,
+            api_key=settings.seer_api_key,
+            request_manager="ombi" if settings.seer_type == "ombi" else "seer",
+        )
+        checks.append(_Check("seer", request_manager_name(settings), request))
     return checks
 
 
@@ -96,21 +111,25 @@ async def _run(check: _Check) -> ServiceStatusRead:
 
 
 async def services_status(session: Session, settings: Settings | None, refresh: bool = False) -> ServicesStatus:
-    global _cache
     checks = _checks(session, settings)
     signature = _signature(checks)
-    if _cache is not None and _cache.signature == signature:
-        if _clock() - _cache.at < (MIN_REFRESH_SECONDS if refresh else CACHE_SECONDS):
-            return _cache.status
+    cached = _cache.entry
+    if (
+        cached is not None
+        and cached.signature == signature
+        and _clock() - cached.at < (MIN_REFRESH_SECONDS if refresh else CACHE_SECONDS)
+    ):
+        return cached.status
     results = await asyncio.gather(*(_run(check) for check in checks))
-    status = ServicesStatus(checked_at=datetime.now(timezone.utc), services=list(results))
-    _cache = _Cached(at=_clock(), signature=signature, status=status)
+    status = ServicesStatus(checked_at=datetime.now(UTC), services=list(results))
+    _cache.entry = _Cached(at=_clock(), signature=signature, status=status)
     return status
 
 
 def cached_services_status() -> ServicesStatus | None:
     """Dernier statut connu, sans aucune requête sortante : un appel public
     (widget) ne doit jamais pouvoir déclencher des connexions vers les services."""
-    if _cache is None or _clock() - _cache.at > STALE_SECONDS:
+    cached = _cache.entry
+    if cached is None or _clock() - cached.at > STALE_SECONDS:
         return None
-    return _cache.status
+    return cached.status

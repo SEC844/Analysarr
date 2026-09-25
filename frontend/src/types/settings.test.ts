@@ -21,7 +21,7 @@ function savedNothing(): SettingsRead {
     qbittorrent: { client: "qbittorrent", url: null, username: null, password_set: false },
     paths: { emby_library_path: null, qbittorrent_download_path: null },
     cross_seed: { enabled: false, url: null, api_key_set: false, library_path: null },
-    seer: { enabled: false, url: null, api_key_set: false },
+    seer: { enabled: false, kind: "seer", url: null, api_key_set: false },
     schedule: { enabled: false, interval_minutes: null },
   }
 }

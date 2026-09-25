@@ -21,15 +21,20 @@ depuis le scan précédent (suppression, nettoyage, réparation, automatisation)
 explique le changement : aucune pause dans ce cas."""
 
 import json
+import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TypeGuard
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.activity import ActionLog
 from app.models.automation import Automation
 from app.models.media import ScanRun, ScanStatus
 from app.models.settings import Settings
+from app.services.automations import TRIGGER_STATUSES
+
+logger = logging.getLogger(__name__)
 
 GUARDED_STATUSES = ("doublon", "orphelin_qbit", "non_hardlink")
 # Plancher : en dessous, la moindre variation normale couperait tout.
@@ -67,8 +72,6 @@ def watched_statuses(session: Session) -> set[str]:
     automatisation activée. Sans automatisation sur les orphelins, doublons ou
     torrents non hardlinkés, le garde-fou n'a rien à protéger — il ne
     s'applique pas et ne s'affiche pas."""
-    from app.services.automations import TRIGGER_STATUSES
-
     active = session.exec(select(Automation).where(Automation.enabled == True)).all()  # noqa: E712
     return {TRIGGER_STATUSES.get(rule.trigger, "") for rule in active} & set(GUARDED_STATUSES)
 
@@ -88,7 +91,7 @@ def previous_full_run(session: Session, run: ScanRun) -> ScanRun | None:
     query = (
         select(ScanRun)
         .where(ScanRun.id != run.id, ScanRun.scope == "full", ScanRun.status == ScanStatus.completed)
-        .order_by(ScanRun.id.desc())
+        .order_by(col(ScanRun.id).desc())
         .limit(1)
     )
     return session.exec(query).first()
@@ -135,7 +138,7 @@ def detect_mass_change(session: Session, run: ScanRun, settings: Settings | None
 
 
 def pause_automations(session: Session, settings: Settings, change: MassChange) -> None:
-    settings.automations_paused_at = datetime.now(timezone.utc)
+    settings.automations_paused_at = datetime.now(UTC)
     settings.automations_paused_reason = change.as_json()
     session.add(settings)
     session.commit()
@@ -148,7 +151,7 @@ def resume_automations(session: Session, settings: Settings) -> None:
     session.commit()
 
 
-def is_paused(settings: Settings | None) -> bool:
+def is_paused(settings: Settings | None) -> TypeGuard[Settings]:
     return bool(settings and settings.automations_paused_at is not None)
 
 
@@ -158,5 +161,6 @@ def paused_reason(settings: Settings | None) -> dict | None:
     try:
         reason = json.loads(settings.automations_paused_reason)
     except ValueError:
+        logger.warning("Motif de pause des automatisations illisible")
         return None
     return reason if isinstance(reason, dict) else None

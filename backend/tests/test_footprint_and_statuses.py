@@ -115,7 +115,9 @@ def test_statuses_for_problematic_media():
     assert {"doublon", "orphelin_qbit", "tracker_unique", "manquant_emby", "manquant_qbit"} <= statuses
     assert reclaimable == 8 + 5
 
-    repairable_statuses, _ = compute_statuses([MediaFile(path="/a", size=10)], [torrent(is_hardlinked=False, repairable=True)], True)
+    repairable_statuses, _ = compute_statuses(
+        [MediaFile(path="/a", size=10)], [torrent(is_hardlinked=False, repairable=True)], True
+    )
     assert "non_hardlink" in repairable_statuses and "manquant_qbit" not in repairable_statuses
 
 

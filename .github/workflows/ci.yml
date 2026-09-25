@@ -62,6 +62,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt pip-audit
 
+      - name: Lint
+        run: ruff check .
+
+      - name: Type-check
+        run: mypy
+
       - name: Tests
         # Aucun service réel : Emby/Jellyfin, *arr, qBittorrent, Seer et GitHub
         # sont simulés (voir tests/conftest.py).

@@ -95,4 +95,9 @@ def test_username_change_requires_the_password(admin_client):
     renamed = admin_client.put(url, json={"username": " new-admin ", "password": ADMIN["password"]})
     assert renamed.status_code == 200 and renamed.json()["username"] == "new-admin"
     assert login(TestClient(app)).status_code == 401
-    assert TestClient(app).post("/api/auth/login", json={"username": "new-admin", "password": ADMIN["password"]}).status_code == 200
+    assert (
+        TestClient(app)
+        .post("/api/auth/login", json={"username": "new-admin", "password": ADMIN["password"]})
+        .status_code
+        == 200
+    )

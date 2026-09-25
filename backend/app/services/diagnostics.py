@@ -1,14 +1,18 @@
+import logging
 import os
 
+import httpx
 from sqlmodel import Session, select
 
-from app.clients.emby import EmbyClient
+from app.clients.emby import media_server_client
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_name
 from app.models.media import Torrent
 from app.models.settings import Settings
 from app.schemas.diagnostics import DiagnosticsResult, PathCheck, PathDiagnostics, UnmatchedTorrent
 from app.services.hardlink import stat_inode
 from app.services.scan import _media_sources
+
+logger = logging.getLogger(__name__)
 
 MAX_SAMPLES = 25
 
@@ -62,7 +66,7 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
             for t in torrents:
                 save_path = t.get("save_path")
                 content_path = t.get("content_path")
-                # Comme scan.py : un torrent multi-fichiers (pack saison, film
+                # Comme le scan : un torrent multi-fichiers (pack saison, film
                 # avec extras) a un content_path qui est un DOSSIER, jamais un
                 # fichier régulier — stat_inode() le rejette systématiquement
                 # par construction. Se limiter à content_path/save_path fait
@@ -72,7 +76,10 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
                 # fichier du torrent est accessible.
                 try:
                     files = await qbit.get_files(t["hash"])
-                except Exception:  # noqa: BLE001 - repli silencieux, comme le scan
+                except (httpx.HTTPError, ValueError, RuntimeError, TorrentAuthError):
+                    # Même repli que le scan : le torrent est jugé sur son seul
+                    # chemin de contenu, et peut passer à tort pour non résolu.
+                    logger.warning("Fichiers illisibles pour le torrent %s", t["hash"], exc_info=True)
                     files = []
                 file_paths = [os.path.join(save_path, f["name"]) for f in files if f.get("name") and save_path]
                 if not file_paths and content_path:
@@ -89,7 +96,9 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
         raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée : {exc}") from exc
 
     emby_checks: list[PathCheck] = []
-    emby = EmbyClient(settings.emby_url, settings.emby_api_key, settings.media_server)
+    emby = media_server_client(settings)
+    if emby is None:
+        raise RuntimeError("Serveur multimédia non configuré.")
     movies = await emby.get_library_items("Movie")
     for m in movies:
         for source in _media_sources(m):

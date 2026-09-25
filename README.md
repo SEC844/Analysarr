@@ -51,7 +51,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 **Actions â€” always with a preview and an explicit confirmation**
 - Cascade cleanup of duplicates and orphans.
 - Selective deletion (torrents, episodes, seasons, whole series or movie) with the **real** disk space freed, hardlinks accounted for. Companion files (NFO, subtitles, artwork) follow the video, and a folder left without any video is removed.
-- Optional removal from Sonarr/Radarr (never added to exclusion lists). Seer is read only: a request is never deleted nor recreated.
+- Optional removal from Sonarr/Radarr (never added to exclusion lists). Seer and Ombi are read only: a request is never deleted nor recreated.
 - One-click hardlink repair, with a symbolic link fallback across filesystems.
 - Retry a blocked import (nothing is deleted: the file already on disk is simply handed back to Sonarr/Radarr).
 - Remove a media that has nothing left on disk from Sonarr/Radarr.
@@ -59,13 +59,13 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 
 **Decision support**
 - Watch activity per user (`3/10` watched it, progress on hover), last played date, date added.
-- Seer requests: who asked, when, who approved.
+- Requests from Seer or Ombi: who asked, when, who approved (Ombi does not record who approved).
 - "Cleanup candidates" sort: big files nobody watched for a long time.
 
 **Everyday comfort**
 - Library filters: media type, state (healthy / alert), sorting and search at hand, plus a "Filters" panel where several statuses and watch states can be combined.
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
-- **Targeted scans**: the arrow next to **Scan** runs a single service â€” Radarr, Sonarr, the media server, the torrent client, the queue, watch activity or Seer â€” and every media page has its own **Scan this media** button. Both are much faster than a full scan and leave the rest of the cache untouched.
+- **Targeted scans**: the arrow next to **Scan** runs a single service â€” Radarr, Sonarr, the media server, the torrent client, the queue, watch activity or Seer/Ombi â€” and every media page has its own **Scan this media** button. Both are much faster than a full scan and leave the rest of the cache untouched.
 - qBittorrent, Deluge or Transmission: the torrent client is a setting, everything else works the same way.
 - Several Sonarr and Radarr instances (e.g. a dedicated 4K Radarr): each media stays linked to the instance tracking it, and a version tracked by another instance is never treated as a duplicate.
 - Library files are matched to Sonarr/Radarr even when containers mount the library at different paths.
@@ -93,7 +93,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 | qBittorrent | 4.1 or newer (WebUI API v2) | One torrent client |
 | Deluge | 2.x (web interface) | One torrent client |
 | Transmission | 3.0 or newer (RPC) | One torrent client |
-| Seer (Overseerr, Jellyseerr, Seerr) | Current versions | Optional |
+| Seer (Overseerr, Jellyseerr, Seerr) or Ombi | Current versions (Ombi v4) | Optional |
 | cross-seed | Daemon mode | Optional |
 
 ## Quick start
@@ -109,6 +109,10 @@ services:
     ports:
       - "1818:1818"
     environment:
+      # Recommended: same user and group as Sonarr, Radarr and your torrent client.
+      PUID: 1000
+      PGID: 1000
+      UMASK: "002"
       DATABASE_PATH: /config/analysarr.db
     volumes:
       - ./analysarr:/config
@@ -116,6 +120,20 @@ services:
       # qBittorrent, Sonarr and Radarr (see "Paths and hardlinks").
       - /mnt/data:/data
 ```
+
+#### File permissions (`PUID`, `PGID`, `UMASK`)
+
+Analysarr creates and deletes files in your library (hardlink repair, trash). Set `PUID`/`PGID` to
+**the same user and group as Sonarr, Radarr and your torrent client** (Unraid: `99`/`100`): Analysarr
+then runs as that user and creates files with `UMASK` (default `002`). Only `/config` is re-owned at
+startup; your media and downloads never are. Without `PUID`/`PGID`, Analysarr runs as root, like
+previous versions.
+
+If Analysarr is not allowed to modify a file, a deletion is refused before anything is touched, with
+the path at fault.
+
+The database lives in `/config`. An existing install that still has its database in `/data` keeps
+using it (a warning in the logs explains how to move it): no action is required after an update.
 
 ### Unraid
 

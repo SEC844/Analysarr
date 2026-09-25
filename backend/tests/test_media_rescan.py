@@ -23,7 +23,7 @@ def fake_inodes(monkeypatch):
     def resolve(path):
         return table.get(path) if path else None
 
-    for module in ("app.services.torrent_match", "app.services.media_rescan", "app.services.scan"):
+    for module in ("app.services.torrent_match", "app.services.scan.library"):
         monkeypatch.setattr(f"{module}.stat_inode", resolve)
     return table
 
@@ -324,3 +324,22 @@ def test_an_untracked_media_stays_untracked_while_radarr_ignores_it(fake_http, f
     refreshed = session.get(Media, media_id)
     assert refreshed is not None and refreshed.radarr_id is None
     assert "manquant_arr" in refreshed.statuses.split(",")
+
+
+@pytest.mark.parametrize("tracked", [True, False])
+def test_rescanning_without_a_media_server_is_a_clear_error(admin_client, fake_http, session, settings, tracked):
+    """Serveur multimédia non configuré : message lisible, jamais une erreur
+    500 (bug réel : méthode appelée sur un client absent)."""
+    movie, _ = seed(session)
+    if not tracked:
+        movie.radarr_id = None
+        session.add(movie)
+    settings.emby_url = None
+    session.add(settings)
+    session.commit()
+    fake_http["http://radarr"] = radarr_handler(MOVIE if tracked else None)
+
+    response = admin_client.post(f"/api/media/{movie.id}/rescan")
+
+    assert response.status_code == 502
+    assert "Serveur multimédia non configuré" in response.json()["detail"]

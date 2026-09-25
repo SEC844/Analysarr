@@ -18,7 +18,8 @@ function flatten(tree: Tree, prefix = ""): Map<string, string> {
 // {server} et {deServer} désignent tous deux le nom du serveur multimédia :
 // le français a besoin de la forme élidée, pas forcément l'anglais.
 function placeholders(text: string): string[] {
-  return [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => (m[1] === "deServer" ? "server" : m[1])))].sort()
+  const names = [...text.matchAll(/\{(\w+)\}/g)].flatMap((m) => (m[1] ? [m[1]] : []))
+  return [...new Set(names.map((name) => (name === "deServer" ? "server" : name)))].sort()
 }
 
 const frEntries = flatten(fr as unknown as Tree)

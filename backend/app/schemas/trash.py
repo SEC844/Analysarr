@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +12,7 @@ class TrashItemRead(BaseModel):
     kind: str
     label: str
     size: int
-    original_path: Optional[str] = None
+    original_path: str | None = None
     # Faux si l'élément a disparu de la corbeille (retiré à la main).
     available: bool
 
@@ -25,7 +24,7 @@ class TrashActionRead(BaseModel):
     created_at: datetime
     action: str
     media_title: str
-    media_type: Optional[str] = None
+    media_type: str | None = None
     size: int
     items: list[TrashItemRead]
     # Vrai si le suivi Sonarr/Radarr sera recréé par la restauration.

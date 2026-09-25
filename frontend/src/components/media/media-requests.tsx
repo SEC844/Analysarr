@@ -29,9 +29,12 @@ function RequestLine({ request }: { request: MediaRequestRead }) {
           : t("seer.declined")
         : request.status === "failed"
           ? t("seer.failed")
-          : request.auto_approved || !approver
+          : request.auto_approved
             ? t("seer.autoApproved")
-            : t("seer.approvedBy", { name: approver })
+            : approver
+              ? t("seer.approvedBy", { name: approver })
+              : // Ombi ne dit pas qui a approuvé, ni si c'était automatique.
+                t("seer.approved")
 
   return (
     <li className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
@@ -59,7 +62,7 @@ function RequestLine({ request }: { request: MediaRequestRead }) {
   )
 }
 
-// Demandes Seer du média (Seer activé uniquement : liste vide sinon).
+// Demandes du média (gestionnaire de demandes activé uniquement : liste vide sinon).
 export function MediaRequests({ requests }: { requests: MediaRequestRead[] }) {
   if (requests.length === 0) return null
   return (

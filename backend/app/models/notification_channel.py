@@ -1,11 +1,10 @@
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class NotificationChannel(SQLModel, table=True):
@@ -17,7 +16,7 @@ class NotificationChannel(SQLModel, table=True):
     Configuration utilisateur : cette table n'est jamais supprimée avec le
     cache média (voir database.py)."""
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     kind: str  # discord | ntfy | gotify
     name: str
     # Secret pour Discord (URL du webhook) et ntfy (nom du sujet) ; simple
@@ -26,7 +25,7 @@ class NotificationChannel(SQLModel, table=True):
     url: str
     # Jeton d'accès : optionnel pour ntfy, obligatoire pour Gotify, inutile
     # pour Discord (le secret est dans l'URL).
-    token: Optional[str] = None
+    token: str | None = None
     # Liste JSON d'événements (voir services/notifications.NOTIFICATION_EVENTS).
     events: str = "[]"
     enabled: bool = True

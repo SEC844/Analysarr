@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Logo } from "@/components/ui/logo"
 import { useSaveSettingsMutation } from "@/hooks/use-settings"
-import { useI18n, type MediaServer } from "@/i18n"
+import { REQUEST_MANAGER_NAMES, useI18n, type MediaServer } from "@/i18n"
 import { cn } from "@/lib/utils"
 import {
   TORRENT_CLIENT_NAMES,
@@ -28,7 +28,7 @@ import {
 // dans les Réglages).
 type StepId = CoreStep | "crossSeed" | "seer" | "summary"
 
-const STEPS: { id: StepId; core: boolean }[] = [
+const STEPS = [
   { id: "mediaServer", core: true },
   { id: "sonarr", core: true },
   { id: "radarr", core: true },
@@ -37,7 +37,7 @@ const STEPS: { id: StepId; core: boolean }[] = [
   { id: "crossSeed", core: false },
   { id: "seer", core: false },
   { id: "summary", core: false },
-]
+] as const satisfies readonly { id: StepId; core: boolean }[]
 
 const API_KEY_SERVICES = { mediaServer: "emby", sonarr: "sonarr", radarr: "radarr" } as const
 
@@ -49,7 +49,7 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
 
   const missing = missingCoreConfig(form, existing)
   const canFinish = missing.length === 0
-  const current = STEPS[step]
+  const current = STEPS[step] ?? STEPS[0]
   const isLast = step === STEPS.length - 1
   const clientName = TORRENT_CLIENT_NAMES[form.torrent_client]
   // Les trois services à clé API partagent la même carte.
@@ -59,7 +59,7 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
     if (id === "sonarr") return "Sonarr"
     if (id === "radarr") return "Radarr"
     if (id === "crossSeed") return "cross-seed"
-    if (id === "seer") return "Seer"
+    if (id === "seer") return t("settings.sections.requestManager")
     if (id === "summary") return t("onboarding.summary.step")
     if (id === "paths") return t("settings.sections.paths")
     if (id === "torrentClient") return t("settings.sections.torrentClient")
@@ -176,6 +176,8 @@ export function OnboardingWizard({ existing }: { existing: SettingsRead }) {
         <SeerCard
           enabled={form.seer_enabled}
           onEnabledChange={(v) => set("seer_enabled", v)}
+          kind={form.seer_type}
+          onKindChange={(v) => set("seer_type", v)}
           url={form.seer_url}
           onUrlChange={(v) => set("seer_url", v)}
           apiKey={form.seer_api_key}
@@ -250,7 +252,7 @@ function SummaryCard({ form, existing, missing, onGoToStep }: SummaryCardProps) 
     },
     {
       id: "seer",
-      name: "Seer",
+      name: REQUEST_MANAGER_NAMES[form.seer_type],
       state: form.seer_enabled && (form.seer_url || existing.seer.url) ? "ready" : "off",
     },
   ]

@@ -41,7 +41,7 @@ Open `http://localhost:5173`. Vite forwards `/api` to the backend on port 1818.
 
 ```bash
 cd frontend && npm run lint && npm test && npm run build
-cd backend && pip install -r requirements-dev.txt && pytest
+cd backend && pip install -r requirements-dev.txt && ruff check . && mypy && pytest
 ```
 
 Tests never call real services: the media server, Sonarr, Radarr, qBittorrent, Seer and GitHub are simulated (see `backend/tests/conftest.py`). Add tests for any behavior you change — especially anything that deletes data or touches authentication.

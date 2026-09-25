@@ -1,6 +1,13 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session
 
+from app.database import engine
+from app.models.settings import Settings
+from app.services.notifications import event_has_subscriber
+from app.services.scan import is_scan_running, run_scan
+from app.services.trash import purge_expired
+from app.services.updates import notify_update_available
+
 _JOB_ID = "periodic_scan"
 _UPDATE_JOB_ID = "update_watch"
 _UPDATE_INTERVAL_HOURS = 3
@@ -11,16 +18,12 @@ scheduler = AsyncIOScheduler()
 
 
 async def _run_scheduled_scan() -> None:
-    from app.services.scan import is_scan_running, run_scan  # import différé : évite un cycle au chargement du module
-
     if is_scan_running():
         return  # un scan (manuel ou planifié) est déjà en cours, on ne chevauche jamais
     await run_scan(trigger="scheduled")
 
 
 async def _run_update_watch() -> None:
-    from app.services.updates import notify_update_available
-
     await notify_update_available()
 
 
@@ -37,9 +40,6 @@ def refresh_update_watch(session: Session) -> None:
     """(Re)planifie la vérification périodique : uniquement si la vérification
     des mises à jour est active ET qu'au moins un canal est abonné à
     l'événement. Personne d'abonné = aucune requête sortante périodique."""
-    from app.models.settings import Settings
-    from app.services.notifications import event_has_subscriber
-
     settings = session.get(Settings, 1)
     checking = settings.update_check_enabled if settings else True  # même défaut que GET /api/app/info
     enabled = checking and event_has_subscriber(session, "update_available")
@@ -47,10 +47,6 @@ def refresh_update_watch(session: Session) -> None:
 
 
 async def _run_trash_purge() -> None:
-    from app.database import engine
-    from app.models.settings import Settings
-    from app.services.trash import purge_expired
-
     with Session(engine) as session:
         purge_expired(session, session.get(Settings, 1))
 

@@ -4,18 +4,23 @@ Chaque règle est créée par l'utilisateur, plafonnée et traçable — voir
 services/automations.py pour les garde-fous."""
 
 import json
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.database import get_session
 from app.models.automation import Automation
+from app.models.ids import row_id
 from app.models.settings import Settings
 from app.schemas.automations import (
+    AutomationAction,
     AutomationGuard,
     AutomationGuardWrite,
     AutomationRead,
     AutomationRunResult,
+    AutomationStep,
+    AutomationTrigger,
     AutomationWrite,
 )
 from app.services.automation_guard import (
@@ -43,11 +48,12 @@ MAX_AUTOMATIONS = 20
 
 def _to_read(automation: Automation) -> AutomationRead:
     return AutomationRead(
-        id=automation.id,
+        id=row_id(automation),
         name=automation.name,
         enabled=automation.enabled,
-        trigger=automation.trigger,
-        action=automation.action,
+        # Validés par AutomationWrite à l'enregistrement.
+        trigger=cast(AutomationTrigger, automation.trigger),
+        action=cast(AutomationAction, automation.action),
         conditions=rule_conditions(automation),
         max_actions=automation.max_actions,
         dry_run=automation.dry_run,
@@ -135,7 +141,7 @@ def resume_guard(session: Session = Depends(get_session)) -> AutomationGuard:
 
 @router.get("", response_model=list[AutomationRead])
 def list_automations(session: Session = Depends(get_session)) -> list[AutomationRead]:
-    automations = session.exec(select(Automation).order_by(Automation.id)).all()
+    automations = session.exec(select(Automation).order_by(col(Automation.id))).all()
     return [_to_read(a) for a in automations]
 
 
@@ -176,13 +182,13 @@ def preview_automation(automation_id: int, session: Session = Depends(get_sessio
     rule = as_rule(automation)
     eligible = eligible_medias(session, rule)
     return AutomationRunResult(
-        automation_id=rule.id,
+        automation_id=automation_id,
         name=rule.name,
         matched=len(eligible),
         executed=0,
         dry_run=True,
         freed_bytes=sum(media.reclaimable_bytes for media, _ in eligible[: rule.max_actions]),
-        steps=[{"label": media.title, "success": True} for media, _ in eligible[: rule.max_actions]],
+        steps=[AutomationStep(label=media.title, success=True) for media, _ in eligible[: rule.max_actions]],
     )
 
 

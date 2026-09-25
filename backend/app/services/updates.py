@@ -20,12 +20,16 @@ dépôt officiel.
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
+from sqlmodel import Session
 
 from app.config import APP_VERSION, GITHUB_REPOSITORY
+from app.database import engine
+from app.models.settings import Settings
 from app.schemas.app import UpdateStatus
+from app.services.notifications import channel_targets, notify, update_available_notification
 
 logger = logging.getLogger("analysarr.updates")
 
@@ -38,12 +42,30 @@ _FORCE_MIN_INTERVAL = timedelta(minutes=1)
 
 _VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
-_cached: UpdateStatus | None = None
-_expires_at: datetime | None = None
-_lock = asyncio.Lock()
-# Référence forte vers le rafraîchissement en cours : sans elle, le ramasse-
-# miettes peut annuler la tâche avant sa fin.
-_refresh_task: asyncio.Task | None = None
+
+
+class _UpdateCache:
+    """Dernier état connu, son expiration et le rafraîchissement en cours.
+    Un seul exemplaire, au niveau du module."""
+
+    def __init__(self) -> None:
+        self.status: UpdateStatus | None = None
+        self.expires_at: datetime | None = None
+        self.lock = asyncio.Lock()
+        # Référence forte vers le rafraîchissement en cours : sans elle, le
+        # ramasse-miettes peut annuler la tâche avant sa fin.
+        self.refresh_task: asyncio.Task | None = None
+
+    def is_stale(self, now: datetime) -> bool:
+        return self.expires_at is None or self.expires_at <= now
+
+    def clear(self) -> None:
+        self.status = None
+        self.expires_at = None
+        self.refresh_task = None
+
+
+_cache = _UpdateCache()
 
 
 def parse_version(value: str | None) -> tuple[int, int, int] | None:
@@ -86,30 +108,26 @@ async def _fetch_latest(now: datetime) -> UpdateStatus:
 
 
 async def get_update_status(force: bool = False) -> UpdateStatus:
-    global _cached, _expires_at
-    async with _lock:
-        now = datetime.now(timezone.utc)
-        if _cached is not None and _expires_at is not None:
-            fresh = _expires_at > now
-            too_soon = force and now - _cached.checked_at < _FORCE_MIN_INTERVAL
+    async with _cache.lock:
+        now = datetime.now(UTC)
+        cached, expires_at = _cache.status, _cache.expires_at
+        if cached is not None and expires_at is not None:
+            fresh = expires_at > now
+            too_soon = force and now - cached.checked_at < _FORCE_MIN_INTERVAL
             if (fresh and not force) or too_soon:
-                return _cached
-        _cached = await _fetch_latest(now)
-        _expires_at = now + (_ERROR_TTL if _cached.error else _CACHE_TTL)
-        return _cached
-
-
-def _is_stale(now: datetime) -> bool:
-    return _expires_at is None or _expires_at <= now
+                return cached
+        status = await _fetch_latest(now)
+        _cache.status = status
+        _cache.expires_at = now + (_ERROR_TTL if status.error else _CACHE_TTL)
+        return status
 
 
 def refresh_in_background() -> None:
     """Rafraîchit le cache sans faire attendre l'appelant. Sans effet si le
     cache est encore frais ou si un rafraîchissement est déjà en cours."""
-    global _refresh_task
-    if not _is_stale(datetime.now(timezone.utc)):
+    if not _cache.is_stale(datetime.now(UTC)):
         return
-    if _refresh_task is not None and not _refresh_task.done():
+    if _cache.refresh_task is not None and not _cache.refresh_task.done():
         return
     async def refresh() -> None:
         try:
@@ -118,9 +136,11 @@ def refresh_in_background() -> None:
             logger.warning("Vérification des mises à jour impossible : %s", type(exc).__name__)
 
     try:
-        _refresh_task = asyncio.get_running_loop().create_task(refresh())
+        _cache.refresh_task = asyncio.get_running_loop().create_task(refresh())
     except RuntimeError:
-        _refresh_task = None  # hors boucle asyncio (ne devrait pas arriver)
+        # Hors boucle asyncio : ne devrait pas arriver dans l'application.
+        logger.warning("Vérification des mises à jour non lancée : aucune boucle asyncio")
+        _cache.refresh_task = None
 
 
 async def status_for_page(enabled: bool) -> UpdateStatus | None:
@@ -128,22 +148,17 @@ async def status_for_page(enabled: bool) -> UpdateStatus | None:
     résultat, sinon l'interface n'aurait rien à montrer. Ensuite, on renvoie
     toujours le dernier résultat connu et on rafraîchit en tâche de fond."""
     if not enabled:
-        return _cached
-    if _cached is None:
+        return _cache.status
+    if _cache.status is None:
         return await get_update_status()
     refresh_in_background()
-    return _cached
+    return _cache.status
 
 
 async def notify_update_available() -> None:
     """Vérification périodique réservée aux notifications : une seule
     notification par version publiée, et rien du tout si la vérification
     automatique est désactivée."""
-    from sqlmodel import Session
-
-    from app.database import engine
-    from app.models.settings import Settings
-    from app.services.notifications import channel_targets, notify, update_available_notification
 
     with Session(engine) as session:
         settings = session.get(Settings, 1) or Settings(id=1)

@@ -1,6 +1,6 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
@@ -95,6 +95,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("seer_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     ("seer_url", "VARCHAR"),
     ("seer_api_key", "VARCHAR"),
+    ("seer_type", "VARCHAR NOT NULL DEFAULT 'seer'"),
     ("ui_preferences", "VARCHAR NOT NULL DEFAULT '{}'"),
     ("media_server", "VARCHAR NOT NULL DEFAULT 'emby'"),
     ("notify_discord_webhook", "VARCHAR"),
@@ -127,6 +128,12 @@ _USER_NEW_COLUMNS = [
 
 
 def _ensure_columns(table: str, columns: list[tuple[str, str]]) -> None:
+    """Ajoute les colonnes manquantes d'une table de configuration.
+
+    Ce mécanisme ne sait QUE ajouter des colonnes (ALTER TABLE ADD COLUMN) : il
+    ne renomme rien, ne change aucun type et ne supprime rien. Avant toute
+    évolution de ce genre sur une table qui n'est pas du cache, passer à
+    Alembic — une installation existante perdrait sinon des réglages."""
     inspector = inspect(engine)
     if table not in inspector.get_table_names():
         return  # première installation : create_all() créera le schéma complet
@@ -178,22 +185,24 @@ def _migrate_legacy_notifications() -> None:
 def init_db() -> None:
     from app.models.activity import ActionLog  # noqa: F401
     from app.models.arr_instance import ArrInstance  # noqa: F401
-    from app.models.automation import Automation  # noqa: F401
-    from app.models.notification_channel import NotificationChannel  # noqa: F401
-    from app.models.auth import LoginAttempt  # noqa: F401
+    from app.models.auth import (
+        LoginAttempt,  # noqa: F401
+        User,  # noqa: F401
+    )
     from app.models.auth import Session as AuthSession  # noqa: F401
-    from app.models.auth import User  # noqa: F401
+    from app.models.automation import Automation  # noqa: F401
     from app.models.media import (  # noqa: F401
         EmbyUser,
         ImportIssue,
-        TorrentFile,
         Media,
         MediaFile,
         MediaRequest,
         MediaWatch,
         ScanRun,
         Torrent,
+        TorrentFile,
     )
+    from app.models.notification_channel import NotificationChannel  # noqa: F401
     from app.models.settings import Settings  # noqa: F401
     from app.models.trash import TrashAction, TrashItem  # noqa: F401
 

@@ -22,7 +22,7 @@ export function diskBytes(
   const units = new Set<number>()
   for (const key of keys) for (const unit of unitsByKey.get(key) ?? []) units.add(unit)
   let total = 0
-  for (const unit of units) total += footprint.units[unit].size
+  for (const unit of units) total += footprint.units[unit]?.size ?? 0
   return total
 }
 
@@ -40,7 +40,8 @@ export function reclaimedBytes(
   }
   let total = 0
   for (const [unit, links] of selectedLinks) {
-    if (links >= footprint.units[unit].links) total += footprint.units[unit].size
+    const disk = footprint.units[unit]
+    if (disk && links >= disk.links) total += disk.size
   }
   return total
 }

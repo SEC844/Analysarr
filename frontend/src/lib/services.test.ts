@@ -25,9 +25,9 @@ describe("summarizeServices", () => {
     })
 
     expect(bySection.emby).toEqual({ ok: true, down: [] })
-    expect(bySection.radarr.ok).toBe(false)
-    expect(bySection.radarr.down.map((s) => s.name)).toEqual(["Radarr 4K"])
-    expect(bySection["cross-seed"].ok).toBe(false)
+    expect(bySection.radarr?.ok).toBe(false)
+    expect(bySection.radarr?.down.map((s) => s.name)).toEqual(["Radarr 4K"])
+    expect(bySection["cross-seed"]?.ok).toBe(false)
     expect(firstDownSection).toBe("radarr")
   })
 

@@ -1,0 +1,24 @@
+# Configuration des outils uniquement : les dépendances restent dans
+# requirements.txt / requirements-dev.txt (lues par le Dockerfile et la CI).
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "PLW"]
+ignore = [
+  "B008",  # Depends() de FastAPI dans les arguments par défaut : idiomatique
+  # (str, Enum) -> StrEnum changerait str() des membres (« MediaType.movie »
+  # devient « movie ») : aucun gain, un risque sur les valeurs écrites.
+  "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+files = ["app"]

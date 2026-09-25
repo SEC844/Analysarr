@@ -1,9 +1,12 @@
 import errno
+import logging
 import os
+from collections.abc import Sequence
 
 from sqlmodel import Session, select
 
-from app.clients.torrent import torrent_client
+from app.clients.torrent import TorrentClient, torrent_client
+from app.models.ids import row_id
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
@@ -18,7 +21,10 @@ from app.services.hardlink import (
     resolve_torrent_files,
     stat_inode,
 )
-from app.services.path_guard import ensure_paths_available
+from app.services.path_guard import ensure_paths_available, ensure_writable, replace_blockers
+from app.services.scan.statuses import compute_statuses
+
+logger = logging.getLogger(__name__)
 
 
 async def build_repair_preview(session: Session, media: Media, settings: Settings) -> HardlinkRepairPreview:
@@ -58,7 +64,7 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
     # Seuls les torrents "repairable" sont éligibles : leur contenu (même
     # épisode/média, même taille en octets) a déjà été vérifié identique à un
     # fichier actuellement suivi par la bibliothèque au moment du scan (voir
-    # compute_statuses/_collect dans scan.py) — un vrai orphelin (contenu
+    # services/scan/statuses.py et torrent_match.py) — un vrai orphelin (contenu
     # différent, ex : ancienne qualité remplacée par un upgrade) n'est pas
     # réparable : le proposer ici remplacerait le bon fichier par le mauvais.
     orphan_torrents = session.exec(
@@ -80,83 +86,97 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
         )
 
     items: list[HardlinkRepairItem] = []
-    matched_torrent_ids: set[int] = set()
-
     async with torrent_client(settings) as qbit:
-        # `Torrent.inode`/`Torrent.device` (colonnes DB) ne retiennent QU'UN
-        # SEUL fichier représentatif par torrent (le premier résolu au scan,
-        # voir scan.py) — insuffisant pour un torrent multi-fichiers (pack
-        # saison) : seul UN épisode serait alors reconnu comme protégé, les
-        # autres seraient à tort traités comme non protégés (direction
-        # `torrent_to_library` choisie par erreur, qui romprait un hardlink
-        # pourtant déjà fonctionnel pour ces épisodes-là). On résout donc ICI
-        # l'inode de CHAQUE fichier de CHAQUE torrent déjà protégé, comme
-        # pour les torrents orphelins ci-dessous.
-        protected_inodes: set[tuple[int, int]] = set()
-        for t in protected_torrents:
-            for path, _size in await resolve_torrent_files(qbit, t):
-                inode = stat_inode(path)
-                if inode is not None:
-                    protected_inodes.add(inode)
-
+        protected_inodes = await _protected_inodes(qbit, protected_torrents)
         for t in orphan_torrents:
             torrent_files = await resolve_torrent_files(qbit, t)
-            existing = [(p, size) for p, size in torrent_files if os.path.isfile(p)]
-            if not existing:
-                continue
+            items += _repair_items(media, t, torrent_files, by_episode, current_single, protected_inodes)
 
-            for path, size in existing:
-                if media.media_type == MediaType.series:
-                    label = episode_label_from_filename(os.path.basename(path))
-                    current = by_episode.get(label) if label else None
-                else:
-                    current = current_single
-
-                # Même vérification de contenu qu'au scan (même taille en
-                # octets) : une source différente entre-temps (torrent modifié,
-                # fichier remplacé) ne doit pas produire une réparation erronée.
-                if current is None or size is None or current.size != size:
-                    continue
-
-                current_inode = stat_inode(current.path)
-                torrent_inode = stat_inode(path)
-
-                if current_inode is not None and current_inode == torrent_inode:
-                    continue  # déjà hardlinké (sécurité, ne devrait pas arriver ici)
-
-                already_protected = current_inode is not None and current_inode in protected_inodes
-                if already_protected:
-                    # La bibliothèque est déjà protégée par un autre torrent :
-                    # on ne la touche pas, on répare le fichier de CE torrent.
-                    direction = "library_to_torrent"
-                    source_path, target_path = current.path, path
-                    target_exists = True
-                else:
-                    direction = "torrent_to_library"
-                    source_path, target_path = path, current.path
-                    target_exists = current_inode is not None
-
-                items.append(
-                    HardlinkRepairItem(
-                        media_file_id=current.id,
-                        episode_label=current.episode_label,
-                        torrent_id=t.id,
-                        torrent_name=t.name,
-                        direction=direction,
-                        source_path=source_path,
-                        target_path=target_path,
-                        target_exists=target_exists,
-                        size=size,
-                    )
-                )
-                matched_torrent_ids.add(t.id)
-                if media.media_type == MediaType.movie:
-                    break  # un seul fichier actuel pour un film, inutile de continuer
-
+    matched_torrent_ids = {item.torrent_id for item in items}
     unmatched = [t.name for t in orphan_torrents if t.id not in matched_torrent_ids]
     return HardlinkRepairPreview(
         items=items,
         unmatched_torrents=unmatched,
+    )
+
+
+async def _protected_inodes(qbit: TorrentClient, protected_torrents: Sequence[Torrent]) -> set[tuple[int, int]]:
+    """Inodes de CHAQUE fichier de chaque torrent déjà protégé.
+
+    `Torrent.inode`/`Torrent.device` (colonnes DB) ne retiennent QU'UN SEUL
+    fichier représentatif par torrent (le premier résolu au scan) —
+    insuffisant pour un torrent multi-fichiers (pack saison) : seul UN épisode
+    serait alors reconnu comme protégé, les autres seraient à tort traités
+    comme non protégés (direction `torrent_to_library` choisie par erreur, qui
+    romprait un hardlink pourtant déjà fonctionnel pour ces épisodes-là)."""
+    inodes: set[tuple[int, int]] = set()
+    for t in protected_torrents:
+        for path, _size in await resolve_torrent_files(qbit, t):
+            inode = stat_inode(path)
+            if inode is not None:
+                inodes.add(inode)
+    return inodes
+
+
+def _repair_items(
+    media: Media,
+    torrent: Torrent,
+    torrent_files: list[tuple[str, int | None]],
+    by_episode: dict[str, MediaFile],
+    current_single: MediaFile | None,
+    protected_inodes: set[tuple[int, int]],
+) -> list[HardlinkRepairItem]:
+    """Paires (fichier de bibliothèque, fichier du torrent) à relier pour un
+    torrent réparable."""
+    items: list[HardlinkRepairItem] = []
+    for path, size in torrent_files:
+        if not os.path.isfile(path):
+            continue
+        if media.media_type == MediaType.series:
+            label = episode_label_from_filename(os.path.basename(path))
+            current = by_episode.get(label) if label else None
+        else:
+            current = current_single
+
+        # Même vérification de contenu qu'au scan (même taille en octets) :
+        # une source différente entre-temps (torrent modifié, fichier
+        # remplacé) ne doit pas produire une réparation erronée.
+        if current is None or size is None or current.size != size:
+            continue
+        item = _repair_item(current, torrent, path, size, protected_inodes)
+        if item is None:
+            continue
+        items.append(item)
+        if media.media_type == MediaType.movie:
+            break  # un seul fichier actuel pour un film, inutile de continuer
+    return items
+
+
+def _repair_item(
+    current: MediaFile, torrent: Torrent, path: str, size: int, protected_inodes: set[tuple[int, int]]
+) -> HardlinkRepairItem | None:
+    current_inode = stat_inode(current.path)
+    if current_inode is not None and current_inode == stat_inode(path):
+        return None  # déjà hardlinké (sécurité, ne devrait pas arriver ici)
+
+    if current_inode is not None and current_inode in protected_inodes:
+        # La bibliothèque est déjà protégée par un autre torrent : on ne la
+        # touche pas, on répare le fichier de CE torrent.
+        direction, source_path, target_path, target_exists = "library_to_torrent", current.path, path, True
+    else:
+        direction, source_path, target_path = "torrent_to_library", path, current.path
+        target_exists = current_inode is not None
+
+    return HardlinkRepairItem(
+        media_file_id=row_id(current),
+        episode_label=current.episode_label,
+        torrent_id=row_id(torrent),
+        torrent_name=torrent.name,
+        direction=direction,
+        source_path=source_path,
+        target_path=target_path,
+        target_exists=target_exists,
+        size=size,
     )
 
 
@@ -168,6 +188,8 @@ def _separate_copy_size(target_path: str, source_path: str) -> int:
         target = os.stat(target_path)
         source = os.stat(source_path)
     except OSError:
+        # Illisible : aucun espace annoncé plutôt qu'une estimation fausse.
+        logger.debug("Taille illisible pour la réparation de %s", target_path, exc_info=True)
         return 0
     if (target.st_ino, target.st_dev) == (source.st_ino, source.st_dev) or target.st_nlink > 1:
         return 0
@@ -240,6 +262,10 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
         [path for item in preview.items for path in (item.target_path, item.source_path)],
         "Réparation",
     )
+    # Le lien est créé à côté de la cible avant de la remplacer : sans droit
+    # d'écriture dans ce dossier, la réparation serait refusée fichier par
+    # fichier, et donc à moitié faite.
+    ensure_writable([path for item in preview.items for path in replace_blockers(item.target_path)], "Réparation")
 
     steps: list[HardlinkRepairStepResult] = []
     freed_bytes = 0
@@ -262,12 +288,11 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
     # Recalcul immédiat : les fichiers réparés partagent maintenant le même
     # inode, donc plus orphelin_qbit/manquant_qbit pour eux — sans ce recalcul
     # la fiche resterait fausse jusqu'au prochain scan complet.
-    from app.services.scan import compute_statuses  # import différé : évite un cycle avec scan.py
 
     repaired_torrent_ids: set[int] = set()
     repaired_media_file_ids: set[int] = set()
     repaired_torrent_target_path: dict[int, str] = {}
-    for item, step in zip(preview.items, steps):
+    for item, step in zip(preview.items, steps, strict=True):
         if not step.success:
             continue
         repaired_torrent_ids.add(item.torrent_id)

@@ -68,9 +68,9 @@ def test_saved_changes_invalidate_the_cache_and_extra_instances_are_checked(admi
 
     res = admin_client.get(URL)
     assert "radarr4k" in calls
-    assert {"service": "radarr", "name": "Radarr 4K", "ok": True} == {
+    assert {
         k: v for k, v in res.json()["services"][-2].items() if k != "message"
-    }
+    } == {"service": "radarr", "name": "Radarr 4K", "ok": True}
     assert "uhd-key" not in res.text
 
 

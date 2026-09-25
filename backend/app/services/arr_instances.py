@@ -6,10 +6,11 @@ de Settings directement."""
 
 from dataclasses import dataclass
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.clients.arr import RadarrClient, SonarrClient
 from app.models.arr_instance import ArrInstance
+from app.models.ids import row_id
 from app.models.media import Media, MediaType
 from app.models.settings import Settings
 
@@ -47,7 +48,7 @@ def _extra(row: ArrInstance) -> ArrTarget:
 
 
 def extra_instances(session: Session, kind: str | None = None) -> list[ArrInstance]:
-    query = select(ArrInstance).order_by(ArrInstance.id)
+    query = select(ArrInstance).order_by(col(ArrInstance.id))
     if kind is not None:
         query = query.where(ArrInstance.kind == kind)
     return list(session.exec(query).all())
@@ -69,7 +70,9 @@ def arr_target_for(session: Session, settings: Settings | None, media: Media) ->
     return _extra(row) if row is not None and row.kind == kind else None
 
 
-def arr_target_by_id(session: Session, settings: Settings | None, kind: str, instance_id: int | None) -> ArrTarget | None:
+def arr_target_by_id(
+    session: Session, settings: Settings | None, kind: str, instance_id: int | None
+) -> ArrTarget | None:
     """Instance désignée par son identifiant (None = principale). Sert à la
     restauration depuis la corbeille, où le média n'existe plus en base."""
     if instance_id is None:
@@ -79,4 +82,4 @@ def arr_target_by_id(session: Session, settings: Settings | None, kind: str, ins
 
 
 def instance_names(session: Session) -> dict[int, str]:
-    return {row.id: row.name for row in extra_instances(session)}
+    return {row_id(row): row.name for row in extra_instances(session)}

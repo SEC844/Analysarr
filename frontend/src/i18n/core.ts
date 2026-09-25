@@ -1,4 +1,9 @@
-import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+// Cœur de l'internationalisation, sans JSX : langue courante, dictionnaires,
+// recherche d'un texte et contexte React. Le composant I18nProvider vit dans
+// provider.tsx (un fichier .tsx n'exporte que des composants, pour que le
+// rechargement à chaud de Vite fonctionne).
+
+import { createContext, useContext, type ReactNode } from "react"
 
 import { en } from "@/i18n/en"
 import { fr } from "@/i18n/fr"
@@ -13,9 +18,14 @@ export const LANGUAGES: { value: Language; label: string }[] = [
 export type MediaServer = "emby" | "jellyfin"
 export const MEDIA_SERVER_NAMES: Record<MediaServer, string> = { emby: "Emby", jellyfin: "Jellyfin" }
 
+// Gestionnaire de demandes : Seer (Overseerr, Jellyseerr, Seerr) ou Ombi.
+// Son nom est la variable `{requests}`, disponible dans tous les textes.
+export type RequestManager = "seer" | "ombi"
+export const REQUEST_MANAGER_NAMES: Record<RequestManager, string> = { seer: "Seer", ombi: "Ombi" }
+
 // Variables disponibles dans TOUS les textes : le nom du serveur multimédia
 // configuré, et sa forme élidée en français (« d'Emby » / « de Jellyfin »).
-function mediaServerVars(language: Language, server: MediaServer): Vars {
+export function mediaServerVars(language: Language, server: MediaServer): Vars {
   const name = MEDIA_SERVER_NAMES[server]
   return {
     server: name,
@@ -33,11 +43,11 @@ type KeyPath<T, P extends string = ""> = {
 }[keyof T & string]
 export type MessageKey = KeyPath<Dictionary>
 
-type Vars = Record<string, string | number>
-type RichVars = Record<string, ReactNode>
+export type Vars = Record<string, string | number>
+export type RichVars = Record<string, ReactNode>
 
 const DICTIONARIES: Record<Language, Dictionary> = { fr, en }
-const LOCALES: Record<Language, string> = { fr: "fr-FR", en: "en-US" }
+export const LOCALES: Record<Language, string> = { fr: "fr-FR", en: "en-US" }
 const STORAGE_KEY = "analysarr:language"
 
 function isLanguage(value: unknown): value is Language {
@@ -62,7 +72,7 @@ export function getLanguage(): Language {
   return currentLanguage
 }
 
-function applyLanguage(next: Language) {
+export function applyLanguage(next: Language) {
   currentLanguage = next
   try {
     localStorage.setItem(STORAGE_KEY, next)
@@ -75,7 +85,7 @@ export function getLocale(): string {
   return LOCALES[currentLanguage]
 }
 
-function lookup(language: Language, key: MessageKey, count?: number): string {
+export function lookup(language: Language, key: MessageKey, count?: number): string {
   let node: unknown = DICTIONARIES[language]
   for (const part of key.split(".")) node = (node as Record<string, unknown>)?.[part]
   if (typeof node === "string") return node
@@ -88,67 +98,19 @@ function lookup(language: Language, key: MessageKey, count?: number): string {
   return key
 }
 
-interface I18nContextValue {
+export interface I18nContextValue {
   language: Language
   locale: string
   setLanguage: (language: Language) => void
   mediaServer: MediaServer
   setMediaServer: (server: MediaServer) => void
+  setRequestManager: (manager: RequestManager) => void
   t: (key: MessageKey, vars?: Vars) => string
   // Variante acceptant des éléments React en variables (lien, <code>, <strong>...).
   rich: (key: MessageKey, vars: RichVars) => ReactNode
 }
 
-const I18nContext = createContext<I18nContextValue | null>(null)
-
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>(currentLanguage)
-  const [mediaServer, setMediaServer] = useState<MediaServer>("emby")
-
-  const setLanguage = useCallback((next: Language) => {
-    applyLanguage(next)
-    setLanguageState(next)
-  }, [])
-
-  useEffect(() => {
-    document.documentElement.lang = language
-  }, [language])
-
-  const value = useMemo<I18nContextValue>(() => {
-    const serverVars = mediaServerVars(language, mediaServer)
-    return {
-      language,
-      locale: LOCALES[language],
-      setLanguage,
-      mediaServer,
-      setMediaServer,
-      t: (key, vars) => {
-        const all: Vars = { ...serverVars, ...vars }
-        return lookup(language, key, typeof vars?.count === "number" ? vars.count : undefined).replace(
-          /\{(\w+)\}/g,
-          (match, name) => (name in all ? String(all[name]) : match),
-        )
-      },
-      rich: (key, vars) => {
-        const all: RichVars = { ...serverVars, ...vars }
-        return lookup(language, key)
-          .split(/(\{\w+\})/)
-          .map((part, i) => {
-            const name = part.match(/^\{(\w+)\}$/)?.[1]
-            return <Fragment key={i}>{name && name in all ? all[name] : part}</Fragment>
-          })
-      },
-    }
-  }, [language, setLanguage, mediaServer])
-
-  // `key` : un changement de langue remonte l'arbre, pour que les textes
-  // formatés hors contexte (tailles, dates) soient eux aussi recalculés.
-  return (
-    <I18nContext.Provider value={value}>
-      <Fragment key={language}>{children}</Fragment>
-    </I18nContext.Provider>
-  )
-}
+export const I18nContext = createContext<I18nContextValue | null>(null)
 
 export function useI18n(): I18nContextValue {
   const context = useContext(I18nContext)

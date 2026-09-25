@@ -1,9 +1,14 @@
+import logging
 import os
 import re
 import stat as stat_module
 
-from app.clients.torrent_base import TorrentClient
+import httpx
+
+from app.clients.torrent_base import TorrentAuthError, TorrentClient
 from app.models.media import MediaFile, MediaType, Torrent
+
+logger = logging.getLogger(__name__)
 
 _EPISODE_PATTERN = re.compile(r"s(\d{1,2})e(\d{1,3})", re.IGNORECASE)
 
@@ -53,7 +58,9 @@ async def resolve_torrent_files(qbit: TorrentClient | None, torrent: Torrent) ->
     if qbit is not None:
         try:
             files = await qbit.get_files(torrent.hash)
-        except Exception:  # noqa: BLE001 - un échec ne doit pas bloquer le repli
+        except (httpx.HTTPError, ValueError, RuntimeError, TorrentAuthError):
+            # Un échec ne doit pas bloquer le repli sur `content_path`.
+            logger.warning("Fichiers illisibles pour le torrent %s", torrent.hash, exc_info=True)
             files = []
     resolved: list[tuple[str, int | None]] = []
     if files and torrent.save_path:

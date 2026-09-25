@@ -16,13 +16,25 @@ USERS = [
 ]
 MOVIES = {
     "u1": [{"Id": "m1", "UserData": {"Played": True, "LastPlayedDate": "2026-09-01T20:00:00.1234567Z"}}],
-    "u2": [{"Id": "m1", "UserData": {"Played": False, "PlayedPercentage": 45.2, "LastPlayedDate": "2026-09-10T20:00:00Z"}}],
+    "u2": [
+        {"Id": "m1", "UserData": {"Played": False, "PlayedPercentage": 45.2, "LastPlayedDate": "2026-09-10T20:00:00Z"}}
+    ],
     "u3": [{"Id": "m1", "UserData": {"Played": True}}],
     "u4": [],
 }
 SERIES = {"u1": [{"Id": "s1"}], "u2": [{"Id": "s1"}], "u3": [{"Id": "s1"}], "u4": []}
-PLAYED = {"u1": [{"SeriesId": "s1", "UserData": {}}] * 3, "u2": [{"SeriesId": "s1", "UserData": {}}], "u3": [], "u4": []}
-RESUMING = {"u1": [], "u2": [{"SeriesId": "s1", "UserData": {"LastPlayedDate": "2026-09-12T10:00:00Z"}}], "u3": [], "u4": []}
+PLAYED = {
+    "u1": [{"SeriesId": "s1", "UserData": {}}] * 3,
+    "u2": [{"SeriesId": "s1", "UserData": {}}],
+    "u3": [],
+    "u4": [],
+}
+RESUMING = {
+    "u1": [],
+    "u2": [{"SeriesId": "s1", "UserData": {"LastPlayedDate": "2026-09-12T10:00:00Z"}}],
+    "u3": [],
+    "u4": [],
+}
 
 
 def emby(request: httpx.Request) -> httpx.Response:

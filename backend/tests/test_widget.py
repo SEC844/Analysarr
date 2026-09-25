@@ -43,7 +43,15 @@ def test_widget_accepts_the_key_in_headers_only(admin_client, settings):
 
 
 def test_widget_exposes_counts_only(admin_client, settings, session):
-    session.add(Media(media_type=MediaType.movie, title="Titre confidentiel", statuses="doublon", reclaimable_bytes=10, total_size=100))
+    session.add(
+        Media(
+            media_type=MediaType.movie,
+            title="Titre confidentiel",
+            statuses="doublon",
+            reclaimable_bytes=10,
+            total_size=100,
+        )
+    )
     session.add(Media(media_type=MediaType.series, title="Autre série", total_size=50))
     session.add(ScanRun(status=ScanStatus.completed))
     session.commit()

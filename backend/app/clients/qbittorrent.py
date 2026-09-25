@@ -1,8 +1,11 @@
+import logging
 from typing import Any
 
 import httpx
 
 from app.clients.torrent_base import TorrentAuthError, TorrentClient
+
+logger = logging.getLogger(__name__)
 
 
 class QbittorrentClient(TorrentClient):
@@ -76,6 +79,7 @@ class QbittorrentClient(TorrentClient):
             resp = await self.client.get("/api/v2/torrents/export", params={"hash": torrent_hash})
             resp.raise_for_status()
         except httpx.HTTPError:
+            logger.debug("Export du torrent %s impossible, repli sur le magnet", torrent_hash, exc_info=True)
             return None
         return resp.content or None
 

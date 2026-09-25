@@ -1,11 +1,10 @@
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ArrInstance(SQLModel, table=True):
@@ -16,7 +15,7 @@ class ArrInstance(SQLModel, table=True):
     utilisateur : cette table n'est jamais supprimée avec le cache média (voir
     database.py)."""
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     kind: str  # "sonarr" | "radarr"
     name: str
     url: str

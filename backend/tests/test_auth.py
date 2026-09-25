@@ -7,7 +7,9 @@ from tests.conftest import ADMIN, login
 
 def test_admin_account_can_only_be_created_once(client):
     assert client.post("/api/auth/setup", json=ADMIN).status_code == 201
-    assert client.post("/api/auth/setup", json={"username": "intrus", "password": "another-password"}).status_code == 403
+    assert (
+        client.post("/api/auth/setup", json={"username": "intrus", "password": "another-password"}).status_code == 403
+    )
 
 
 def test_setup_rejects_short_password(client):

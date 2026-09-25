@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+import logging
+from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends
 from pydantic import ValidationError
@@ -7,9 +9,11 @@ from sqlmodel import Session
 from app.config import APP_BUILD_DATE, APP_REVISION, APP_VERSION, GITHUB_REPOSITORY
 from app.database import get_session
 from app.models.settings import Settings
-from app.schemas.app import AppInfo, AppPreferencesWrite, UiPreferences, UpdateStatus
+from app.schemas.app import AppInfo, AppPreferencesWrite, Language, UiPreferences, UpdateStatus
 from app.services.scheduler import refresh_update_watch
 from app.services.updates import get_update_status, status_for_page
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -19,6 +23,7 @@ def ui_preferences(settings: Settings | None) -> UiPreferences:
     try:
         return UiPreferences.model_validate_json(settings.ui_preferences) if settings else UiPreferences()
     except ValidationError:
+        logger.warning("Préférences d'affichage illisibles : valeurs par défaut")
         return UiPreferences()
 
 
@@ -28,7 +33,8 @@ def _to_info(settings: Settings | None, update: UpdateStatus | None) -> AppInfo:
         revision=APP_REVISION,
         build_date=APP_BUILD_DATE,
         repository_url=f"https://github.com/{GITHUB_REPOSITORY}",
-        language=settings.language if settings and settings.language in ("fr", "en") else None,
+        # Valeur vérifiée juste avant d'être relayée : fr, en ou rien.
+        language=cast(Language, settings.language) if settings and settings.language in ("fr", "en") else None,
         update_check_enabled=settings.update_check_enabled if settings else True,
         update=update,
         ui=ui_preferences(settings),
@@ -58,7 +64,7 @@ async def put_preferences(payload: AppPreferencesWrite, session: Session = Depen
     row.update_check_enabled = payload.update_check_enabled
     if payload.ui is not None:
         row.ui_preferences = payload.ui.model_dump_json()
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.now(UTC)
     session.add(row)
     session.commit()
     session.refresh(row)

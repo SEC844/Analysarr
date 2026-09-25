@@ -5,14 +5,16 @@ renvoyés au navigateur — une mise à jour sans valeur conserve celle enregist
 comme pour les clés API des services."""
 
 import json
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.database import get_session
+from app.models.ids import row_id
 from app.models.notification_channel import NotificationChannel
 from app.models.settings import Settings
-from app.schemas.notifications import ChannelRead, ChannelTestResult, ChannelWrite
+from app.schemas.notifications import ChannelKind, ChannelRead, ChannelTestResult, ChannelWrite
 from app.services.notifications import (
     MAX_CHANNELS,
     NOTIFICATION_EVENTS,
@@ -31,8 +33,8 @@ router = APIRouter()
 
 def _to_read(channel: NotificationChannel) -> ChannelRead:
     return ChannelRead(
-        id=channel.id,
-        kind=channel.kind,
+        id=row_id(channel),
+        kind=cast(ChannelKind, channel.kind),  # validé par ChannelWrite
         name=channel.name,
         enabled=channel.enabled,
         events=list(channel_events(channel)),
@@ -66,7 +68,7 @@ def _get(channel_id: int, session: Session) -> NotificationChannel:
 
 @router.get("/channels", response_model=list[ChannelRead])
 def list_channels(session: Session = Depends(get_session)) -> list[ChannelRead]:
-    channels = session.exec(select(NotificationChannel).order_by(NotificationChannel.id)).all()
+    channels = session.exec(select(NotificationChannel).order_by(col(NotificationChannel.id))).all()
     return [_to_read(channel) for channel in channels]
 
 
@@ -130,7 +132,7 @@ async def test_channel(channel_id: int, session: Session = Depends(get_session))
     adresse fournie dans la requête : pas de relais vers une adresse arbitraire)."""
     channel = _get(channel_id, session)
     target = ChannelTarget(
-        id=channel.id,
+        id=row_id(channel),
         kind=channel.kind,
         name=channel.name,
         url=channel.url,

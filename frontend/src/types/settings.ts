@@ -1,4 +1,4 @@
-import type { MediaServer } from "@/i18n"
+import type { MediaServer, RequestManager } from "@/i18n"
 
 export interface ServiceApiKeyRead {
   url: string | null
@@ -87,7 +87,7 @@ export interface SettingsRead {
   qbittorrent: QbittorrentRead
   paths: PathsRead
   cross_seed: CrossSeedRead
-  seer: { enabled: boolean; url: string | null; api_key_set: boolean }
+  seer: { enabled: boolean; kind: RequestManager; url: string | null; api_key_set: boolean }
   schedule: ScheduleRead
 }
 
@@ -110,6 +110,7 @@ export interface SettingsWrite {
   cross_seed_api_key: string
   cross_seed_library_path: string
   seer_enabled: boolean
+  seer_type: RequestManager
   seer_url: string
   seer_api_key: string
   scan_schedule_enabled: boolean
@@ -136,6 +137,7 @@ export interface ConnectionTestRequest {
   torrent_client?: TorrentClientKind
   api_key?: string
   media_server?: MediaServer
+  request_manager?: RequestManager
   username?: string
   password?: string
 }
@@ -165,6 +167,7 @@ export function emptySettingsWrite(): SettingsWrite {
     cross_seed_api_key: "",
     cross_seed_library_path: "",
     seer_enabled: false,
+    seer_type: "seer",
     seer_url: "",
     seer_api_key: "",
     scan_schedule_enabled: false,
@@ -194,6 +197,7 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     cross_seed_api_key: "",
     cross_seed_library_path: s.cross_seed.library_path ?? "",
     seer_enabled: s.seer.enabled,
+    seer_type: s.seer.kind,
     seer_url: s.seer.url ?? "",
     seer_api_key: "",
     scan_schedule_enabled: s.schedule.enabled,

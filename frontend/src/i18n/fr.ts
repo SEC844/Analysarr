@@ -550,6 +550,7 @@ export const fr = {
     },
     sections: {
       mediaServer: "Gestionnaire de média",
+      requestManager: "Gestionnaire de demandes",
       paths: "Chemins",
       torrentClient: "Client torrent",
       schedule: "Planification",
@@ -601,13 +602,18 @@ export const fr = {
   },
   seer: {
     description:
-      "Permet de voir qui a demandé un média et de retirer sa demande lors de la suppression. N'est jamais requis pour utiliser Analysarr.",
-    url: "URL de Seer",
-    apiKeyHelp: "Seer → Réglages → Général → Clé API. Fonctionne avec Overseerr, Jellyseerr et Seerr.",
+      "Permet de voir qui a demandé un média, en lecture seule : Analysarr ne modifie jamais une demande. N'est jamais requis pour utiliser Analysarr.",
+    kind: "Gestionnaire de demandes",
+    url: "URL de {requests}",
+    apiKeyHelp: {
+      seer: "Seer → Réglages → Général → Clé API. Fonctionne avec Overseerr, Jellyseerr et Seerr.",
+      ombi: "Ombi → Réglages → Ombi → Clé API.",
+    },
     requestedBy: "Demandé par {name}",
-    requestedUnknown: "Demandé via Seer",
+    requestedUnknown: "Demandé via {requests}",
     on: "le {date}",
     approvedBy: "approuvé par {name}",
+    approved: "approuvé",
     autoApproved: "approuvé automatiquement",
     declinedBy: "refusé par {name}",
     declined: "refusé",
@@ -626,8 +632,8 @@ export const fr = {
     cardTotalSizeHelp: "Taille des fichiers du média dans la bibliothèque.",
     cardReclaimable: "Espace récupérable",
     cardReclaimableHelp: "Doublons et torrents orphelins pouvant être supprimés.",
-    cardRequestedBy: "Demandeur Seer",
-    cardRequestedByHelp: "Utilisateur ayant demandé le média dans Seer.",
+    cardRequestedBy: "Demandeur {requests}",
+    cardRequestedByHelp: "Utilisateur ayant demandé le média dans {requests}.",
     defaultSort: "Tri par défaut",
     defaultGrid: "Taille des cartes par défaut",
     mediaTitle: "Fiche média et suppression",
@@ -636,7 +642,7 @@ export const fr = {
     sectionsExpandedHelp: "Fichiers {server} et torrents dépliés à l'ouverture d'une fiche.",
     removeArrDefault: "Retrait coché par défaut",
     removeArrDefaultHelp:
-      "À la suppression, « Retirer aussi de Sonarr/Radarr » et « Supprimer aussi la demande dans Seer » sont cochés d'office.",
+      "À la suppression, « Retirer aussi de Sonarr/Radarr » est coché d'office.",
     timezone: "Fuseau horaire",
     timezoneHelp:
       "Fuseau utilisé pour afficher toutes les dates. Par défaut celui du navigateur — utile quand le conteneur est en UTC ou que vous consultez Analysarr depuis un autre pays.",
@@ -770,7 +776,7 @@ export const fr = {
       qbittorrent: "Lecture de qBittorrent...",
       enregistrement: "Enregistrement des résultats...",
       visionnage: "Lecture des statistiques de visionnage...",
-      seer: "Lecture des demandes Seer...",
+      seer: "Lecture des demandes {requests}...",
       "file d'attente": "Lecture de la file d'attente...",
       statuts: "Calcul des statuts...",
       torrents: "Lecture du client torrent...",
@@ -793,7 +799,7 @@ export const fr = {
       torrents: "Client torrent",
       queue: "File d'attente",
       watch: "Visionnage",
-      seer: "Seer",
+      seer: "{requests}",
     },
     scopeHelp: {
       full: "Tous les services.",
@@ -868,7 +874,7 @@ export const fr = {
   },
   deleteSelection: {
     emptyMedia:
-      "Ce média n'a plus aucun fichier ni torrent : il ne reste que son suivi dans Sonarr/Radarr et, éventuellement, sa demande Seer.",
+      "Ce média n'a plus aucun fichier ni torrent : il ne reste que son suivi dans Sonarr/Radarr.",
     trigger: "Supprimer...",
     title: "Supprimer",
     description:
@@ -888,7 +894,9 @@ export const fr = {
       "Sélection de {size} : un fichier hardlinké n'est libéré du disque que si tous ses liens sont supprimés.",
     estimate: "Estimation : espace réel indisponible, les fichiers hardlinkés peuvent être comptés plusieurs fois.",
     success: "Suppression effectuée.",
-    partialFailure: "{failed} échec(s) sur {total}.",
+    cancelled: "Suppression annulée : une étape a échoué, rien n'a été supprimé.",
+    cancelledIncomplete:
+      "Suppression annulée, mais certains éléments sont restés dans la corbeille : restaurez-les depuis Réglages → Corbeille.",
     failed: "Échec de la suppression.",
   },
 }

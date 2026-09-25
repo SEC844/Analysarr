@@ -548,6 +548,7 @@ export const en: Dictionary = {
     },
     sections: {
       mediaServer: "Media manager",
+      requestManager: "Request manager",
       paths: "Paths",
       torrentClient: "Torrent client",
       schedule: "Scheduling",
@@ -599,13 +600,18 @@ export const en: Dictionary = {
   },
   seer: {
     description:
-      "Shows who requested a media and removes the request when the media is deleted. Never required to use Analysarr.",
-    url: "Seer URL",
-    apiKeyHelp: "Seer → Settings → General → API Key. Works with Overseerr, Jellyseerr and Seerr.",
+      "Shows who requested a media, read-only: Analysarr never changes a request. Never required to use Analysarr.",
+    kind: "Request manager",
+    url: "{requests} URL",
+    apiKeyHelp: {
+      seer: "Seer → Settings → General → API Key. Works with Overseerr, Jellyseerr and Seerr.",
+      ombi: "Ombi → Settings → Ombi → Api Key.",
+    },
     requestedBy: "Requested by {name}",
-    requestedUnknown: "Requested via Seer",
+    requestedUnknown: "Requested via {requests}",
     on: "on {date}",
     approvedBy: "approved by {name}",
+    approved: "approved",
     autoApproved: "auto-approved",
     declinedBy: "declined by {name}",
     declined: "declined",
@@ -624,8 +630,8 @@ export const en: Dictionary = {
     cardTotalSizeHelp: "Size of the media files in the library.",
     cardReclaimable: "Reclaimable space",
     cardReclaimableHelp: "Duplicates and orphan torrents that can be deleted.",
-    cardRequestedBy: "Seer requester",
-    cardRequestedByHelp: "User who requested the media in Seer.",
+    cardRequestedBy: "{requests} requester",
+    cardRequestedByHelp: "User who requested the media in {requests}.",
     defaultSort: "Default sort",
     defaultGrid: "Default card size",
     mediaTitle: "Media page and deletion",
@@ -634,7 +640,7 @@ export const en: Dictionary = {
     sectionsExpandedHelp: "{server} files and torrents expanded when opening a media page.",
     removeArrDefault: "Removal checked by default",
     removeArrDefaultHelp:
-      "When deleting, “Also remove from Sonarr/Radarr” and “Also delete the request in Seer” are checked by default.",
+      "When deleting, “Also remove from Sonarr/Radarr” is checked by default.",
     timezone: "Time zone",
     timezoneHelp:
       "Time zone used to display every date. Defaults to the browser one — useful when the container runs in UTC or when you open Analysarr from another country.",
@@ -764,7 +770,7 @@ export const en: Dictionary = {
       qbittorrent: "Reading qBittorrent...",
       enregistrement: "Saving results...",
       visionnage: "Reading watch statistics...",
-      seer: "Reading Seer requests...",
+      seer: "Reading {requests} requests...",
       "file d'attente": "Reading the queue...",
       statuts: "Computing statuses...",
       torrents: "Reading the torrent client...",
@@ -787,7 +793,7 @@ export const en: Dictionary = {
       torrents: "Torrent client",
       queue: "Queue",
       watch: "Watch activity",
-      seer: "Seer",
+      seer: "{requests}",
     },
     scopeHelp: {
       full: "Every service.",
@@ -862,7 +868,7 @@ export const en: Dictionary = {
   },
   deleteSelection: {
     emptyMedia:
-      "This media has no file and no torrent left: only its Sonarr/Radarr entry remains, plus its Seer request if any.",
+      "This media has no file and no torrent left: only its Sonarr/Radarr entry remains.",
     trigger: "Delete...",
     title: "Delete",
     description: "Check what to delete: checking a group checks all of its content. Nothing is deleted before confirmation.",
@@ -880,7 +886,8 @@ export const en: Dictionary = {
     selectionHint: "{size} selected: a hardlinked file is only freed from disk once all of its links are deleted.",
     estimate: "Estimate: actual space unavailable, hardlinked files may be counted several times.",
     success: "Deletion completed.",
-    partialFailure: "{failed} of {total} failed.",
+    cancelled: "Deletion cancelled: a step failed, nothing was deleted.",
+    cancelledIncomplete: "Deletion cancelled, but some items stayed in the trash: restore them from Settings → Trash.",
     failed: "Deletion failed.",
   },
 }

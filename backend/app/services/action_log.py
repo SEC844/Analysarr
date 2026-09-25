@@ -3,10 +3,11 @@ cherché, quand, et avec quel résultat. Taille bornée pour ne jamais faire
 grossir la base indéfiniment."""
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, col, delete, select
 
 from app.models.activity import ActionLog
 from app.models.media import Media
@@ -49,7 +50,7 @@ def record_action(
     session: Session,
     action: str,
     media: MediaRef,
-    steps: list[Step],
+    steps: Sequence[Step],
     freed_bytes: int | None = None,
 ) -> ActionLog:
     entry = ActionLog(
@@ -67,9 +68,9 @@ def record_action(
     session.add(entry)
     session.commit()
 
-    stale = session.exec(select(ActionLog.id).order_by(ActionLog.id.desc()).offset(MAX_ENTRIES)).all()
+    stale = session.exec(select(ActionLog.id).order_by(col(ActionLog.id).desc()).offset(MAX_ENTRIES)).all()
     if stale:
-        session.exec(delete(ActionLog).where(ActionLog.id.in_(stale)))
+        session.exec(delete(ActionLog).where(col(ActionLog.id).in_(stale)))
         session.commit()
     session.refresh(entry)
     return entry

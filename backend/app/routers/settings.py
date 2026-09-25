@@ -1,16 +1,20 @@
 import json
+import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
+from app.clients.torrent import torrent_client_configured, torrent_client_kind
 from app.database import get_session
-from app.clients.torrent import torrent_client_configured
 from app.models.arr_instance import ArrInstance
+from app.models.ids import row_id
 from app.models.settings import Settings
 from app.schemas.settings import (
     ArrInstanceRead,
+    ArrKind,
     BrowseEntry,
     BrowseResult,
     ConnectionTestRequest,
@@ -32,6 +36,8 @@ from app.services.notifications import is_http_url
 from app.services.scheduler import configure_scan_schedule
 from app.services.security import generate_token, hash_token
 from app.services.watch_stats import excluded_user_ids, recompute_all_aggregates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -79,7 +85,7 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
         sonarr=ServiceApiKeyRead(url=s.sonarr_url, api_key_set=bool(s.sonarr_api_key)),
         radarr=ServiceApiKeyRead(url=s.radarr_url, api_key_set=bool(s.radarr_api_key)),
         qbittorrent=QbittorrentRead(
-            client=s.torrent_client if s.torrent_client in ("qbittorrent", "deluge", "transmission") else "qbittorrent",
+            client=torrent_client_kind(s),
             url=s.qbittorrent_url,
             username=s.qbittorrent_username,
             password_set=bool(s.qbittorrent_password),
@@ -94,13 +100,21 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
             api_key_set=bool(s.cross_seed_api_key),
             library_path=s.cross_seed_library_path,
         ),
-        seer=SeerRead(enabled=s.seer_enabled, url=s.seer_url, api_key_set=bool(s.seer_api_key)),
+        seer=SeerRead(
+            enabled=s.seer_enabled,
+            kind="ombi" if s.seer_type == "ombi" else "seer",
+            url=s.seer_url,
+            api_key_set=bool(s.seer_api_key),
+        ),
         schedule=ScheduleRead(
             enabled=s.scan_schedule_enabled,
             interval_minutes=s.scan_schedule_interval_minutes,
         ),
         arr_instances=[
-            ArrInstanceRead(id=i.id, kind=i.kind, name=i.name, url=i.url, api_key_set=bool(i.api_key)) for i in instances
+            ArrInstanceRead(
+                id=row_id(i), kind=cast(ArrKind, i.kind), name=i.name, url=i.url, api_key_set=bool(i.api_key)
+            )
+            for i in instances
         ],
     )
 
@@ -131,6 +145,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     row.cross_seed_url = payload.cross_seed_url
     row.cross_seed_library_path = payload.cross_seed_library_path
     row.seer_enabled = payload.seer_enabled
+    row.seer_type = payload.seer_type
     row.seer_url = payload.seer_url
     row.scan_schedule_enabled = payload.scan_schedule_enabled
     row.scan_schedule_interval_minutes = payload.scan_schedule_interval_minutes
@@ -155,7 +170,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
 
     _apply_arr_instances(session, payload)
 
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.now(UTC)
 
     session.add(row)
     session.commit()
@@ -192,16 +207,17 @@ def _apply_arr_instances(session: Session, payload: SettingsWrite) -> None:
                 raise HTTPException(400, f"Clé API requise pour la nouvelle instance « {name} ».")
             row = ArrInstance(kind=item.kind, name=name, url=url, api_key=item.api_key)
         else:
-            row = existing.get(item.id)
-            if row is None or row.kind != item.kind:
+            found = existing.get(item.id)
+            if found is None or found.kind != item.kind:
                 raise HTTPException(400, f"Instance « {name} » introuvable : rechargez la page.")
-            kept.add(row.id)
+            row = found
+            kept.add(row_id(row))
         row.name, row.url = name, url
         if item.api_key:
             row.api_key = item.api_key
         session.add(row)
-    for row_id, row in existing.items():
-        if row_id not in kept:
+    for instance_id, row in existing.items():
+        if instance_id not in kept:
             session.delete(row)
 
 
@@ -271,7 +287,9 @@ def browse_filesystem(path: str = Query("/", description="Chemin absolu à parco
             if os.path.isdir(full):
                 directories.append(BrowseEntry(name=name, path=full))
         except OSError:
-            continue  # lien symbolique cassé ou inaccessible : on l'ignore plutôt que d'échouer toute la liste
+            # Lien symbolique cassé ou inaccessible : ignoré plutôt que d'échouer toute la liste.
+            logger.debug("Entrée illisible dans %s : %s", normalized, name, exc_info=True)
+            continue
 
     parent = os.path.dirname(normalized.rstrip("/\\")) if normalized not in ("/", os.path.sep) else None
     return BrowseResult(path=normalized, parent=parent or None, directories=directories)

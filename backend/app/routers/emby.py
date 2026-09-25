@@ -1,3 +1,4 @@
+import logging
 import re
 
 import httpx
@@ -12,6 +13,8 @@ from app.models.settings import Settings
 from app.schemas.media import EmbyUserRead
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.watch_stats import users_from_api
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -31,6 +34,8 @@ async def list_emby_users(session: Session = Depends(get_session)) -> list[EmbyU
         try:
             users = users_from_api(await emby.get_users())
         except (httpx.HTTPError, ValueError):
+            # Serveur injoignable : on affiche les utilisateurs du dernier scan.
+            logger.debug("Utilisateurs du serveur multimédia illisibles", exc_info=True)
             users = None
     if users is None:
         users = list(session.exec(select(EmbyUser)).all())
@@ -55,10 +60,10 @@ async def get_user_avatar(user_id: str, session: Session = Depends(get_session))
     else:
         emby = _emby(session.get(Settings, 1))
         result = await emby.fetch_user_avatar(user.id) if emby else None
-        content_type = safe_image_type(result[1]) if result else None
-        if result is None or content_type is None:
+        image_type = safe_image_type(result[1]) if result else None
+        if result is None or image_type is None:
             raise HTTPException(404, "Avatar introuvable.")
-        content = result[0]
+        content, content_type = result[0], image_type
         write_cached_poster(cache_key, user.image_tag, content, content_type)
 
     # URL propre à la version de l'avatar (`?v=<tag>` côté frontend) : mise en

@@ -23,7 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { watchProgressLabel } from "@/components/media/watch-stats"
+import { watchProgressLabel } from "@/components/media/watch-progress"
 import { usePreferences } from "@/hooks/use-app"
 import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation, useMediaWatchQuery } from "@/hooks/use-media"
 import { useTrashSettingsQuery } from "@/hooks/use-trash"
@@ -75,7 +75,8 @@ function groupBySeason(files: MediaFileRead[], t: Translate): [string, MediaFile
 // Un seul élément dans une section : ligne simple, sans niveau d'arbre.
 function section(key: string, label: string, icon: ReactNode, children: TreeNode[]): TreeNode | null {
   if (children.length === 0) return null
-  const node = children.length === 1 && children[0].children.length === 0 ? children[0] : group(key, label, children)
+  const only = children.length === 1 ? children[0] : undefined
+  const node = only && only.children.length === 0 ? only : group(key, label, children)
   return { ...node, icon }
 }
 
@@ -206,7 +207,6 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   // Média suivi par aucun Sonarr/Radarr : ni retrait ni démonitoring à
   // proposer, il n'y a rien à retirer de leur côté.
   const showArrOption = arrId !== null && (canRemoveMedia || (isSeries && selectedFiles.length > 0))
-  // Seer : même règle que le retrait du média entier de Sonarr/Radarr.
 
   // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.
   const nominalBytes =
@@ -278,9 +278,14 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
       },
       {
         onSuccess: (data) => {
-          const failedCount = data.steps.filter((s) => !s.success).length
-          if (failedCount === 0) toast.success(t("deleteSelection.success"))
-          else toast.error(t("deleteSelection.partialFailure", { failed: failedCount, total: data.steps.length }))
+          // Tout ou rien : une étape en échec annule toute la suppression
+          // (étape « rollback » dans le résultat, voir services/deletion.py).
+          const rollback = data.steps.find((s) => s.kind === "rollback" || s.kind === "rollback_incomplete")
+          if (!rollback) toast.success(t("deleteSelection.success"))
+          else
+            toast.error(
+              t(rollback.kind === "rollback" ? "deleteSelection.cancelled" : "deleteSelection.cancelledIncomplete"),
+            )
 
           if (data.media_deleted) {
             // Plus rien ne subsiste pour ce média : la fiche elle-même a

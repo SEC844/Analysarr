@@ -29,6 +29,14 @@ Remove API keys, passwords, tokens and personal data from anything you share.
 
 This is a community project maintained on a best-effort basis.
 
+## Stored secrets
+
+The API keys, passwords and notification tokens of the services you connect (media server, Sonarr, Radarr, torrent client, cross-seed, Seer, Discord/ntfy/Gotify) are stored **in plain text** in the SQLite database: Analysarr must send them as-is to those services, so it cannot keep only a hash.
+
+- They are **never sent back to the browser**: the interface only learns whether a key is set, and an empty field on save means "unchanged".
+- Your own credentials are not stored in plain text: the administrator password is hashed with bcrypt, and sessions, two-factor recovery codes and the widget key are stored as SHA-256 hashes only. The two-factor secret itself must stay readable to check codes, like the service keys.
+- **Protect the `/config` volume** (the directory that holds `analysarr.db`): anyone who can read it can read these keys. Restrict its permissions, and treat its backups as sensitive.
+
 ## Hardening recommendations
 
 - Do not expose Analysarr directly to the internet. Use a reverse proxy with HTTPS, a VPN, or keep it on your local network.

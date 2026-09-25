@@ -25,6 +25,15 @@ class EmbyClient:
       d'office sur chaque élément. Elles ne sont donc demandées qu'à Emby
       (`_fields`), jamais à Jellyfin.
 
+    Collections (BoxSet) : sans paramètre explicite, une requête sur les films
+    ou les séries « replie » les éléments d'une collection derrière la
+    collection elle-même — toujours avec une clé API côté Jellyfin (aucun
+    utilisateur, `Folder.CollapseBoxSetItems` dans son code source), selon les
+    réglages d'affichage sinon. Les films disparaissaient alors de la
+    bibliothèque et la collection apparaissait comme un film sans fichier
+    (issue #34). `CollapseBoxSetItems=false` est donc envoyé à chaque liste, et
+    un élément `BoxSet` qui passerait malgré tout est écarté.
+
     Tout le reste (champs `UserData`, `ProviderIds`, `MediaSources`, filtres
     `IsPlayed`/`IsResumable`, `Policy.IsDisabled`...) est identique."""
 
@@ -36,6 +45,9 @@ class EmbyClient:
     # Valeurs acceptées par les deux serveurs (sous-ensemble de l'énumération
     # ItemFields de Jellyfin). Tout le reste n'est envoyé qu'à Emby.
     _SHARED_FIELDS = frozenset({"ProviderIds", "Path", "MediaSources", "DateCreated"})
+
+    # Jamais de repli des collections (voir docstring), compris par les deux.
+    _NO_COLLAPSE = {"CollapseBoxSetItems": "false"}
 
     def _fields(self, *names: str) -> str:
         """Filtre les champs qu'un serveur refuserait (voir docstring)."""
@@ -58,11 +70,12 @@ class EmbyClient:
                 params={
                     "Recursive": "true",
                     "IncludeItemTypes": item_types,
+                    **self._NO_COLLAPSE,
                     "Fields": self._fields("ProviderIds", "Path", "MediaSources", "ImageTags", "DateCreated"),
                 },
             )
             resp.raise_for_status()
-            return resp.json().get("Items", [])
+            return _without_collections(resp.json().get("Items", []))
 
     async def get_items_by_ids(self, item_ids: list[str]) -> list[dict[str, Any]]:
         """Éléments précis, par identifiant — pour rafraîchir un seul média
@@ -75,11 +88,12 @@ class EmbyClient:
                 params={
                     "Recursive": "true",
                     "Ids": ",".join(item_ids),
+                    **self._NO_COLLAPSE,
                     "Fields": self._fields("ProviderIds", "Path", "MediaSources", "ImageTags", "DateCreated"),
                 },
             )
             resp.raise_for_status()
-            return resp.json().get("Items", [])
+            return _without_collections(resp.json().get("Items", []))
 
     async def get_episodes(self, series_item_id: str) -> list[dict[str, Any]]:
         async with self._client() as client:
@@ -123,6 +137,7 @@ class EmbyClient:
             "IncludeItemTypes": item_type,
             "EnableUserData": "true",
             "EnableImages": "false",
+            **self._NO_COLLAPSE,
         }
         if ids:
             params["Ids"] = ids
@@ -138,7 +153,7 @@ class EmbyClient:
         async with self._client() as client:
             resp = await client.get(path, params=params)
             resp.raise_for_status()
-            return resp.json().get("Items", [])
+            return _without_collections(resp.json().get("Items", []))
 
     async def _fetch_image(self, path: str, params: dict[str, str] | None = None) -> tuple[bytes, str] | None:
         async with self._client() as client:
@@ -154,6 +169,12 @@ class EmbyClient:
         if self.is_jellyfin:
             return await self._fetch_image("/UserImage", params={"userId": user_id})
         return await self._fetch_image(f"/Users/{quote(user_id, safe='')}/Images/Primary")
+
+
+def _without_collections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Une collection n'est jamais un média : elle n'a aucun fichier (son
+    « chemin » est un dossier de la configuration du serveur)."""
+    return [item for item in items if item.get("Type") != "BoxSet"]
 
 
 def media_server_client(settings: "Settings | None") -> EmbyClient | None:

@@ -81,7 +81,9 @@ def test_jellyfin_never_sends_legacy_token_header(fake_http):
 )
 def test_connection_test_detects_wrong_server_choice(fake_http, kind, chosen, expected):
     fake_http[f"http://{kind}"] = media_server(kind, [])
-    result = asyncio.run(run_connection_test(ConnectionTestRequest(url=f"http://{kind}", api_key=KEY, media_server=chosen)))
+    result = asyncio.run(
+        run_connection_test(ConnectionTestRequest(url=f"http://{kind}", api_key=KEY, media_server=chosen))
+    )
     assert expected in result.message
     assert result.success == (kind == chosen)
 
@@ -226,3 +228,60 @@ def response_ok(request: httpx.Request, kind: str) -> bool:
         return True
     asked = set((request.url.params.get("Fields") or "").split(","))
     return not (asked & _JELLYFIN_REJECTED)
+
+
+COLLECTION = {
+    "Id": "boxset-28",
+    "Type": "BoxSet",
+    "Name": "28… plus tard - Saga",
+    "ProviderIds": {"Tmdb": "1565"},
+    "Path": "/config/data/collections/28… plus tard - Saga [boxset]",
+}
+MOVIE_IN_COLLECTION = {
+    "Id": "m-28",
+    "Type": "Movie",
+    "Name": "28 Ans plus tard",
+    "ProviderIds": {"Tmdb": "1100988"},
+    "MediaSources": [{"Path": "/medias/Films/28 Ans plus tard (2025)/film.mkv", "Size": 12}],
+}
+
+
+def collapsing_server(calls: list[httpx.Request]):
+    """Comportement réel de Jellyfin avec une clé API (Folder.CollapseBoxSetItems) :
+    sans `CollapseBoxSetItems=false`, les films d'une collection sont remplacés
+    par la collection elle-même."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        params = request.url.params
+        if params.get("IncludeItemTypes") != "Movie":
+            return httpx.Response(200, json={"Items": []})
+        if params.get("CollapseBoxSetItems") == "false":
+            return httpx.Response(200, json={"Items": [MOVIE_IN_COLLECTION]})
+        return httpx.Response(200, json={"Items": [COLLECTION]})
+
+    return handler
+
+
+@pytest.mark.parametrize("kind", ["emby", "jellyfin"])
+def test_movies_in_a_collection_are_never_hidden_behind_it(fake_http, kind):
+    """Issue #34 : les films d'une collection étaient « absents du serveur » et
+    la collection apparaissait comme un film non suivi, sans fichier."""
+    calls: list[httpx.Request] = []
+    fake_http[f"http://{kind}"] = collapsing_server(calls)
+    client = EmbyClient(f"http://{kind}", KEY, kind)
+
+    library = asyncio.run(client.get_library_items("Movie"))
+    watched = asyncio.run(client.get_user_items(USER_ID, "Movie"))
+
+    assert [item["Id"] for item in library] == ["m-28"]
+    assert [item["Id"] for item in watched] == ["m-28"]
+
+
+def test_a_collection_that_slips_through_is_ignored(fake_http):
+    fake_http["http://jellyfin"] = lambda request: httpx.Response(
+        200, json={"Items": [COLLECTION, MOVIE_IN_COLLECTION]}
+    )
+    client = EmbyClient("http://jellyfin", KEY, "jellyfin")
+
+    assert [item["Id"] for item in asyncio.run(client.get_library_items("Movie"))] == ["m-28"]

@@ -4,14 +4,13 @@ import { Users } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
 import { usePreferences } from "@/hooks/use-app"
+import { watchProgressLabel } from "@/components/media/watch-progress"
 import { useMediaWatchQuery } from "@/hooks/use-media"
 import { useI18n } from "@/i18n"
 import { embyAvatarUrl } from "@/lib/api"
 import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { MediaWatchStats, WatchUser } from "@/types/media"
-
-type Translate = ReturnType<typeof useI18n>["t"]
 
 // Avatar Emby relayé par le backend (jamais d'appel direct à Emby depuis le
 // navigateur) ; initiale en repli s'il n'y en a pas ou si l'image échoue.
@@ -43,13 +42,6 @@ export function UserAvatar({
       {user.name.trim().charAt(0) || "?"}
     </span>
   )
-}
-
-// Films : "45 %". Séries : "18/20" épisodes vus.
-export function watchProgressLabel(user: WatchUser, stats: MediaWatchStats, t: Translate): string {
-  return stats.total_episodes !== null
-    ? t("watch.episodes", { watched: Math.round(user.progress), total: stats.total_episodes })
-    : t("watch.percent", { value: Math.round(user.progress) })
 }
 
 function WatchUserRow({ user, stats }: { user: WatchUser; stats: MediaWatchStats }) {

@@ -1,6 +1,6 @@
 """Périmètres d'analyse, partagés par le scan complet et les analyses
 partielles. Module minuscule et sans dépendance : il évite un import
-circulaire entre `services/scan.py` et `services/partial_scan.py`."""
+circulaire entre le package `services/scan/` et `services/partial_scan.py`."""
 
 # Analyses qui ne relisent qu'UN service. Aucune ne passe par le scan complet.
 #

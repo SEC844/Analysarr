@@ -45,7 +45,7 @@ const SECTION_GROUPS = [
       { id: "radarr", label: "Radarr" },
       { id: "qbittorrent", label: "settings.sections.torrentClient" },
       { id: "cross-seed", label: "cross-seed" },
-      { id: "seer", label: "Seer" },
+      { id: "seer", label: "settings.sections.requestManager" },
     ],
   },
   {
@@ -100,8 +100,10 @@ export function SettingsPage() {
   return <SettingsForm key={JSON.stringify(data)} existing={data} />
 }
 
-function ServiceDot({ status }: { status: SectionServiceStatus }) {
+// Rien à afficher pour une section qui n'est pas un service.
+function ServiceDot({ status }: { status: SectionServiceStatus | undefined }) {
   const { t } = useI18n()
+  if (!status) return null
   if (!status.ok) {
     return <PulseDot tone="danger" label={t("servicesStatus.someDown", { count: status.down.length })} />
   }
@@ -183,7 +185,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                   )}
                 >
                   {label(s.label)}
-                  {serviceStatuses.bySection[s.id] && <ServiceDot status={serviceStatuses.bySection[s.id]} />}
+                  <ServiceDot status={serviceStatuses.bySection[s.id]} />
                   {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
                   {s.id === "automations" && automationsPaused && (
                     <PulseDot tone="warning" label={t("automations.guard.pausedTitle")} />
@@ -289,6 +291,8 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
             <SeerCard
               enabled={form.seer_enabled}
               onEnabledChange={(v) => set("seer_enabled", v)}
+              kind={form.seer_type}
+              onKindChange={(v) => set("seer_type", v)}
               url={form.seer_url}
               onUrlChange={(v) => set("seer_url", v)}
               apiKey={form.seer_api_key}

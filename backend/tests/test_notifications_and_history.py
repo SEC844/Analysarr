@@ -12,18 +12,18 @@ from app.schemas.media import DeleteFootprintItem, DeleteStepResult, DiskUnit, M
 from app.services import action_log, notifications, updates
 from app.services.action_log import MediaRef, record_action
 from app.services.hardlink_repair import _separate_copy_size
-from app.services.scheduler import scheduler
 from app.services.media_delete import reclaimed_bytes
 from app.services.notifications import (
     ChannelTarget,
     action_notification,
     build_test_notification,
-    notify,
     detection_notification,
+    notify,
     scan_completed_notification,
     scan_failed_notification,
     send,
 )
+from app.services.scheduler import scheduler
 
 WEBHOOK = "https://discord.com/api/webhooks/123/secret-token"
 CHANNELS = "/api/notifications/channels"
@@ -31,7 +31,10 @@ MATRIX = MediaRef(id=1, title="Matrix", media_type="movie", year=1999, emby_item
 STEPS = [
     DeleteStepResult(kind="torrent", label="Matrix.1999.1080p.mkv", success=True),
     DeleteStepResult(
-        kind="library_file", label="/data/media/movies/Matrix (1999)/Matrix.mkv", success=False, error="Permission refusée"
+        kind="library_file",
+        label="/data/media/movies/Matrix (1999)/Matrix.mkv",
+        success=False,
+        error="Permission refusée",
     ),
 ]
 PNG = b"\x89PNG\r\n\x1a\nposter"
@@ -83,7 +86,8 @@ def test_invalid_channels_are_rejected(admin_client):
 
     channel = create_channel(admin_client).json()
     kind_change = admin_client.put(
-        f"{CHANNELS}/{channel['id']}", json={"kind": "ntfy", "name": "Admin", "url": "https://ntfy.sh/topic", "events": []}
+        f"{CHANNELS}/{channel['id']}",
+        json={"kind": "ntfy", "name": "Admin", "url": "https://ntfy.sh/topic", "events": []},
     )
     assert kind_change.status_code == 400
     assert admin_client.get(CHANNELS).json()[0]["kind"] == "discord"
@@ -95,7 +99,9 @@ def test_each_channel_only_receives_the_events_it_subscribed_to(fake_http):
     fake_http["https://ntfy.sh"] = lambda req: ntfy.append(req) or httpx.Response(200)
     targets = [
         discord_target(events=("scan_completed",), name="Scans"),
-        ChannelTarget(id=2, kind="ntfy", name="Actions", url="https://ntfy.sh/topic", token=None, events=("delete_selection",)),
+        ChannelTarget(
+            id=2, kind="ntfy", name="Actions", url="https://ntfy.sh/topic", token=None, events=("delete_selection",)
+        ),
     ]
 
     async def run():
@@ -103,7 +109,9 @@ def test_each_channel_only_receives_the_events_it_subscribed_to(fake_http):
             "fr", media=1, duplicates=0, orphans=0, reclaimable_bytes=0, matched=0, torrents=0, duration_seconds=1
         )
         notify(targets, "scan_completed", summary)
-        deletion = action_notification("fr", "delete_selection", MATRIX, success=1, failures=0, freed_bytes=None, steps=STEPS[:1])
+        deletion = action_notification(
+            "fr", "delete_selection", MATRIX, success=1, failures=0, freed_bytes=None, steps=STEPS[:1]
+        )
         notify(targets, "delete_selection", deletion)
         notify(targets, "hardlink_repair", deletion)  # aucun canal abonné
         await asyncio.gather(*notifications._pending)
@@ -115,12 +123,19 @@ def test_each_channel_only_receives_the_events_it_subscribed_to(fake_http):
 
 
 def test_action_notification_carries_media_space_and_steps():
-    n = action_notification("fr", "delete_selection", MATRIX, success=1, failures=1, freed_bytes=5 * 1024**3, steps=STEPS)
+    n = action_notification(
+        "fr", "delete_selection", MATRIX, success=1, failures=1, freed_bytes=5 * 1024**3, steps=STEPS
+    )
     assert n.title == "Suppression effectuée" and n.description == "Matrix (1999)" and n.level == "warning"
     assert ("Espace libéré", "5.0 Go") in n.fields and ("Échecs", "1") in n.fields
-    assert n.details == ["✅ Matrix.1999.1080p.mkv", "❌ /data/media/movies/Matrix (1999)/Matrix.mkv — Permission refusée"]
+    assert n.details == [
+        "✅ Matrix.1999.1080p.mkv",
+        "❌ /data/media/movies/Matrix (1999)/Matrix.mkv — Permission refusée",
+    ]
 
-    many = action_notification("en", "hardlink_repair", MATRIX, success=12, failures=0, freed_bytes=None, steps=[STEPS[0]] * 12)
+    many = action_notification(
+        "en", "hardlink_repair", MATRIX, success=12, failures=0, freed_bytes=None, steps=[STEPS[0]] * 12
+    )
     assert many.level == "success" and len(many.details) == 11 and many.details[-1] == "… and 2 more"
     assert all(name != "Space freed" for name, _ in many.fields)
 
@@ -139,7 +154,14 @@ def test_detection_notification_lists_the_new_findings():
 
 def test_scan_summary_notification():
     n = scan_completed_notification(
-        "fr", media=120, duplicates=3, orphans=2, reclaimable_bytes=3 * 1024**3, matched=98, torrents=100, duration_seconds=75
+        "fr",
+        media=120,
+        duplicates=3,
+        orphans=2,
+        reclaimable_bytes=3 * 1024**3,
+        matched=98,
+        torrents=100,
+        duration_seconds=75,
     )
     assert n.level == "warning"
     assert ("Espace récupérable", "3.0 Go") in n.fields
@@ -213,11 +235,15 @@ def test_notify_attaches_the_cached_poster(fake_http, monkeypatch):
     sent = []
     fake_http["https://discord.com"] = lambda req: sent.append(req) or httpx.Response(204)
     monkeypatch.setattr(
-        notifications, "read_cached_poster", lambda item_id, tag: (PNG, "image/png") if (item_id, tag) == ("42", "t1") else None
+        notifications,
+        "read_cached_poster",
+        lambda item_id, tag: (PNG, "image/png") if (item_id, tag) == ("42", "t1") else None,
     )
 
     async def run():
-        deletion = action_notification("en", "delete_selection", MATRIX, success=1, failures=0, freed_bytes=None, steps=STEPS[:1])
+        deletion = action_notification(
+            "en", "delete_selection", MATRIX, success=1, failures=0, freed_bytes=None, steps=STEPS[:1]
+        )
         notify([discord_target()], "delete_selection", deletion, poster=MATRIX)
         notify([discord_target()], "scan_failed", scan_failed_notification("en", "boom"))  # canal non abonné
         await asyncio.gather(*notifications._pending)
@@ -291,7 +317,9 @@ def test_history_records_actions_and_is_bounded(admin_client, session, monkeypat
         DeleteStepResult(kind="file", label="x", success=False, error="refusé"),
     ]
     for i in range(5):
-        record_action(session, "delete_selection", MediaRef(id=999, title=f"Film {i}", media_type="movie"), steps, freed_bytes=10)
+        record_action(
+            session, "delete_selection", MediaRef(id=999, title=f"Film {i}", media_type="movie"), steps, freed_bytes=10
+        )
 
     assert len(session.exec(ActionLog.__table__.select()).all()) == 3
     entries = admin_client.get("/api/history").json()
@@ -320,7 +348,10 @@ def test_update_watch_is_scheduled_only_when_a_channel_subscribes(admin_client):
 
 def test_update_watch_stops_with_the_update_check_switch(admin_client):
     create_channel(admin_client, name="Updates", events=["update_available"])
-    assert admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code == 200
+    assert (
+        admin_client.put("/api/app/preferences", json={"language": "fr", "update_check_enabled": False}).status_code
+        == 200
+    )
     assert scheduler.get_job("update_watch") is None
 
 
@@ -342,7 +373,7 @@ def test_a_published_version_is_notified_once(admin_client, settings, fake_http,
         await updates.notify_update_available()
         await asyncio.sleep(0)  # laisse partir l'envoi en tâche de fond
         await asyncio.gather(*notifications._pending)
-        updates._expires_at = None
+        updates._cache.expires_at = None
         await updates.notify_update_available()
         await asyncio.sleep(0)
         if notifications._pending:

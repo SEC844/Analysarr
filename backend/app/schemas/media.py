@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 class MediaFileRead(BaseModel):
     id: int
     path: str
-    size: Optional[int]
-    episode_label: Optional[str]
+    size: int | None
+    episode_label: str | None
     is_current: bool
 
 
@@ -21,22 +21,22 @@ class TorrentRead(BaseModel):
     id: int
     hash: str
     name: str
-    save_path: Optional[str]
-    content_path: Optional[str]
-    size: Optional[int]
+    save_path: str | None
+    content_path: str | None
+    size: int | None
     # True si la catégorie qBittorrent ou le chemin de sauvegarde contient
     # "cross-seed" — torrent ajouté par le daemon cross-seed plutôt que
     # grabbé directement par Sonarr/Radarr. Purement indicatif (petit badge
     # sur la fiche média), ne pilote aucune logique de détection.
     is_cross_seed: bool
-    is_hardlinked: Optional[bool]
+    is_hardlinked: bool | None
     matched_by_name: bool
     repairable: bool
-    ratio: Optional[float]
-    seeders: Optional[int]
-    leechers: Optional[int]
-    added_on: Optional[datetime]
-    completed_on: Optional[datetime]
+    ratio: float | None
+    seeders: int | None
+    leechers: int | None
+    added_on: datetime | None
+    completed_on: datetime | None
     trackers: list[TrackerRead]
 
 
@@ -44,53 +44,53 @@ class MediaListItem(BaseModel):
     id: int
     media_type: str
     title: str
-    year: Optional[int]
+    year: int | None
     statuses: list[str]
     reclaimable_bytes: int
     total_size: int
     has_poster: bool
-    poster_image_tag: Optional[str]
+    poster_image_tag: str | None
     last_scanned_at: datetime
     has_emby_item: bool
-    date_added: Optional[datetime]
+    date_added: datetime | None
     watch_user_count: int
     watch_played_count: int
     watch_in_progress_count: int
-    last_played_at: Optional[datetime]
+    last_played_at: datetime | None
     # Seer activé uniquement : demandeur de la plus ancienne demande.
-    requested_by: Optional[str]
+    requested_by: str | None
     # Instance Sonarr/Radarr supplémentaire qui suit le média (ex : « Radarr
     # 4K ») ; None pour l'instance principale.
-    arr_instance_name: Optional[str] = None
+    arr_instance_name: str | None = None
 
 
 class SeerUserRead(BaseModel):
     name: str
     # Compte Emby correspondant (avatar), si retrouvé.
-    emby_user_id: Optional[str]
-    image_tag: Optional[str]
+    emby_user_id: str | None
+    image_tag: str | None
 
 
 class MediaRequestRead(BaseModel):
     status: str
     is_4k: bool
     seasons: list[int]
-    requested_at: Optional[datetime]
-    requested_by: Optional[SeerUserRead]
+    requested_at: datetime | None
+    requested_by: SeerUserRead | None
     # Approbateur (ou auteur du refus) ; None si approuvée automatiquement.
-    modified_by: Optional[SeerUserRead]
+    modified_by: SeerUserRead | None
     auto_approved: bool
 
 
 class WatchUser(BaseModel):
     id: str
     name: str
-    image_tag: Optional[str]
+    image_tag: str | None
     played: bool
     in_progress: bool
     # Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
     progress: float
-    last_played_at: Optional[datetime]
+    last_played_at: datetime | None
 
 
 class MediaWatchStats(BaseModel):
@@ -98,19 +98,19 @@ class MediaWatchStats(BaseModel):
     available: bool
     # False : Emby injoignable, chiffres du dernier scan.
     live: bool
-    total_episodes: Optional[int]
+    total_episodes: int | None
     users: list[WatchUser]
     played_count: int
     in_progress_count: int
-    last_played_at: Optional[datetime]
-    last_played_by: Optional[str]
-    date_added: Optional[datetime]
+    last_played_at: datetime | None
+    last_played_by: str | None
+    date_added: datetime | None
 
 
 class EmbyUserRead(BaseModel):
     id: str
     name: str
-    image_tag: Optional[str]
+    image_tag: str | None
     is_disabled: bool
 
 
@@ -126,7 +126,7 @@ class ImportIssueRead(BaseModel):
     title: str
     state: str
     reason: str
-    size: Optional[int]
+    size: int | None
     episode_label: str
     # Une relance n'est possible que si le téléchargement est encore identifié
     # côté client torrent.
@@ -134,14 +134,14 @@ class ImportIssueRead(BaseModel):
 
 
 class MediaDetail(MediaListItem):
-    radarr_id: Optional[int]
-    sonarr_id: Optional[int]
-    emby_item_id: Optional[str]
+    radarr_id: int | None
+    sonarr_id: int | None
+    emby_item_id: str | None
     # Identifiants externes (statut `manquant_arr`) : ce sont eux qui
     # permettent d'ajouter le média dans Radarr ou Sonarr.
-    tmdb_id: Optional[int] = None
-    tvdb_id: Optional[int] = None
-    imdb_id: Optional[str] = None
+    tmdb_id: int | None = None
+    tvdb_id: int | None = None
+    imdb_id: str | None = None
     files: list[MediaFileRead]
     torrents: list[TorrentRead]
     missing_emby_episodes: list[str]
@@ -155,10 +155,10 @@ class ArrCandidateRead(BaseModel):
 
     key: str
     title: str
-    year: Optional[int] = None
-    tmdb_id: Optional[int] = None
-    tvdb_id: Optional[int] = None
-    imdb_id: Optional[str] = None
+    year: int | None = None
+    tmdb_id: int | None = None
+    tvdb_id: int | None = None
+    imdb_id: str | None = None
     # "certain" : identifiant résolu par Sonarr/Radarr, titre et année
     # concordants. "probable" : trouvé par recherche de titre.
     confidence: str
@@ -171,9 +171,9 @@ class ArrLinkPreview(BaseModel):
     # Dossiers que Sonarr/Radarr voit sur le disque sans média rattaché,
     # exactement la liste de son écran « Import Existing ».
     folders: list[str] = []
-    suggested_folder: Optional[str] = None
+    suggested_folder: str | None = None
     quality_profiles: list["ArrQualityProfile"]
-    suggested_profile: Optional[int] = None
+    suggested_profile: int | None = None
 
 
 class ArrQualityProfile(BaseModel):
@@ -190,7 +190,7 @@ class ArrLinkRequest(BaseModel):
     quality_profile_id: int = Field(ge=1)
     # Dossier à importer : forcément un de ceux que Sonarr/Radarr a déclarés
     # non rattachés (revérifié côté serveur).
-    folder: Optional[str] = Field(default=None, max_length=512)
+    folder: str | None = Field(default=None, max_length=512)
     # all : tout surveiller · existing : les épisodes présents · future : les
     # prochains · none : ajouter sans surveiller.
     monitor: Literal["all", "existing", "future", "none"] = "none"
@@ -210,9 +210,9 @@ class MediaListResponse(BaseModel):
 class ScanRunRead(BaseModel):
     id: int
     started_at: datetime
-    finished_at: Optional[datetime]
+    finished_at: datetime | None
     status: str
-    error_message: Optional[str]
+    error_message: str | None
     media_count: int
     duplicate_count: int
     orphan_count: int
@@ -226,7 +226,7 @@ class ScanRunRead(BaseModel):
 class DeletePreviewItem(BaseModel):
     kind: str  # "duplicate_file" | "orphan_torrent"
     label: str
-    size: Optional[int]
+    size: int | None
 
 
 class DeletePreview(BaseModel):
@@ -238,7 +238,7 @@ class DeleteStepResult(BaseModel):
     kind: str
     label: str
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class MediaDeleteSelection(BaseModel):
@@ -326,7 +326,7 @@ class CrossSeedSearchResult(BaseModel):
 
 class HardlinkRepairItem(BaseModel):
     media_file_id: int
-    episode_label: Optional[str]
+    episode_label: str | None
     torrent_id: int
     torrent_name: str
     # "torrent_to_library" : le fichier de la bibliothèque (non protégé) est
@@ -339,7 +339,7 @@ class HardlinkRepairItem(BaseModel):
     source_path: str
     target_path: str
     target_exists: bool
-    size: Optional[int]
+    size: int | None
 
 
 class HardlinkRepairPreview(BaseModel):
@@ -355,7 +355,7 @@ class HardlinkRepairStepResult(BaseModel):
     media_file_id: int
     label: str
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
     # True si un hardlink classique était impossible (systèmes de fichiers
     # différents, EXDEV) et qu'un lien SYMBOLIQUE a été utilisé en repli —
     # fonctionnellement équivalent pour l'app (voir _relink), mais suppose

@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -14,7 +13,7 @@ class WidgetMediaCounts(BaseModel):
 class WidgetLastScan(BaseModel):
     status: str  # running | completed | failed
     started_at: datetime
-    finished_at: Optional[datetime]
+    finished_at: datetime | None
 
 
 class WidgetServices(BaseModel):
@@ -32,6 +31,6 @@ class WidgetStatus(BaseModel):
     statuses: dict[str, int]
     reclaimable_bytes: int
     total_size_bytes: int
-    last_scan: Optional[WidgetLastScan]
+    last_scan: WidgetLastScan | None
     # Dernier statut connu des services ; None si aucune vérification récente.
-    services: Optional[WidgetServices]
+    services: WidgetServices | None

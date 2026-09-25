@@ -11,7 +11,12 @@ ADMIN = {"id": 1, "displayName": "Admin"}
 
 
 def request(**overrides):
-    base = {"id": 10, "status": 2, "createdAt": "2026-03-12T10:00:00.000Z", "media": {"id": 100, "tmdbId": 603, "mediaType": "movie"}}
+    base = {
+        "id": 10,
+        "status": 2,
+        "createdAt": "2026-03-12T10:00:00.000Z",
+        "media": {"id": 100, "tmdbId": 603, "mediaType": "movie"},
+    }
     return base | overrides
 
 
@@ -49,7 +54,10 @@ def test_requests_pagination_stops_at_total(fake_http):
         assert req.headers["X-Api-Key"] == "k"
         skip = int(req.url.params["skip"])
         pages.append(skip)
-        return httpx.Response(200, json={"pageInfo": {"results": 150}, "results": [request(id=i) for i in range(skip, min(skip + 100, 150))]})
+        return httpx.Response(
+            200,
+            json={"pageInfo": {"results": 150}, "results": [request(id=i) for i in range(skip, min(skip + 100, 150))]},
+        )
 
     fake_http["http://seer"] = handler
     assert len(asyncio.run(SeerClient("http://seer", "k").get_requests())) == 150
@@ -69,3 +77,22 @@ def test_requester_avatar_comes_from_the_media_server_account(session):
     assert read.requested_by.emby_user_id == "abcd1234" and read.requested_by.image_tag == "t1"
 
 
+
+
+def test_connection_test_validates_the_seer_key(fake_http):
+    from app.schemas.settings import ConnectionTestRequest
+    from app.services.connection_test import test_seer as run_connection_test
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/v1/status":
+            return httpx.Response(200, json={"version": "2.7.3"})
+        if req.headers.get("X-Api-Key") != "k":
+            return httpx.Response(403, json={"message": "You do not have permission to access this endpoint"})
+        return httpx.Response(200, json={"id": 1, "displayName": "Admin"})
+
+    fake_http["http://seer"] = handler
+    ok = asyncio.run(run_connection_test(ConnectionTestRequest(url="http://seer", api_key="k")))
+    refused = asyncio.run(run_connection_test(ConnectionTestRequest(url="http://seer", api_key="faux")))
+
+    assert ok.success and ok.message == "Connecté à Seer (version 2.7.3)."
+    assert not refused.success and "403" in refused.message

@@ -8,8 +8,9 @@ valide après l'analyse).
 Garde-fous :
 
 - un torrent déjà rattaché à un AUTRE média n'est jamais volé ; seuls sont
-  réexaminés les torrents de ce média, ceux qui ne sont rattachés à rien, et
-  ceux que le chemin racine ou le nom désignent (voir `_candidate_positions`) ;
+  réexaminés les torrents de ce média et ceux qui ne sont rattachés à rien,
+  y compris ceux que le chemin racine ou le nom désignent (voir
+  `_candidate_positions`) ;
 - le détail (fichiers, trackers) n'est demandé au client torrent que pour ces
   candidats : c'est ce qui rend l'analyse d'un média rapide ;
 - si Sonarr/Radarr ne suit plus le média, sa fiche est supprimée plutôt que
@@ -18,45 +19,47 @@ Garde-fous :
   média) : elles restent celles du dernier scan complet.
 """
 
-import json
-import os
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, col, delete, select
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client, torrent_client_configured
-from app.models.media import ImportIssue, Media, MediaFile, MediaType, MediaRequest, MediaWatch, Torrent
+from app.models.ids import row_id
+from app.models.media import ImportIssue, Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.services.arr_instances import arr_target_for, arr_targets
-from app.services.hardlink import stat_inode
 from app.services.queue_issues import index_queue_issues, issue_rows_for
 from app.services.scan import (
     LibraryContext,
-    _current_flags,
-    _episode_label,
-    _episode_span_labels,
-    _media_sources,
     _missing_emby_labels,
     _pick_emby_item,
     _pick_series_item,
-    _without_other_instance_files,
+    build_untracked_movie,
+    build_untracked_series,
     compute_statuses,
     current_files_size,
 )
-from app.services.trackers import extract_tracker_domain, status_label
+from app.services.scan.results import (
+    apply_media_server_item,
+    episode_sources,
+    movie_files,
+    series_files,
+    sonarr_episodes,
+)
 from app.services.torrent_match import (
     FetchedTorrents,
     MediaView,
+    add_fetched,
     attach_torrents,
-    epoch_to_datetime,
-    is_usable_root,
-    normalize_release_words,
-    normalize_words,
+    optional_read,
 )
-from app.services.watch_stats import parse_emby_date, refresh_media_watch
+from app.services.watch_stats import refresh_media_watch
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["MediaRescanResult", "rescan_media"]
 
@@ -72,6 +75,16 @@ class MediaRescanResult:
     def __post_init__(self) -> None:
         if self.statuses is None:
             self.statuses = []
+
+
+def _media_server(settings: Settings) -> EmbyClient:
+    """Serveur multimédia configuré : l'analyse d'un média n'a pas de sens sans
+    lui. RuntimeError, et non une AttributeError sur None : la route la traduit
+    en message lisible au lieu d'une erreur 500 (bug réel)."""
+    emby = media_server_client(settings)
+    if emby is None:
+        raise RuntimeError("Serveur multimédia non configuré.")
+    return emby
 
 
 async def rescan_media(session: Session, settings: Settings, media: Media) -> MediaRescanResult:
@@ -137,6 +150,8 @@ async def _adopt_arr_entry(session: Session, settings: Settings, media: Media, i
                 else await target.radarr().find_movie(media.tmdb_id, media.imdb_id)
             )
         except httpx.HTTPError:
+            # Instance injoignable : les autres peuvent encore suivre le média.
+            logger.warning("%s injoignable pour retrouver le média %s", target.name, media.id, exc_info=True)
             continue
         if entry is None:
             continue
@@ -157,14 +172,12 @@ async def _rescan_untracked(
     """Relit un média que Sonarr/Radarr ne suit pas : son item du serveur
     multimédia, ses fichiers, puis ses torrents. Si l'item a disparu de la
     bibliothèque, la fiche n'a plus lieu d'être."""
-    from app.services.scan import build_untracked_movie, build_untracked_series
-
     # Un rattachement a pu avoir lieu entre-temps : dans ce cas le média
     # redevient un média suivi, et c'est le chemin normal qui s'applique.
     if await _adopt_arr_entry(session, settings, media, is_series):
         return await rescan_media(session, settings, media)
 
-    emby = media_server_client(settings)
+    emby = _media_server(settings)
     items = await emby.get_items_by_ids([media.emby_item_id]) if media.emby_item_id else []
     if not items:
         _delete_media(session, media)
@@ -177,17 +190,17 @@ async def _rescan_untracked(
         _delete_media(session, media)
         return MediaRescanResult(media_deleted=True)
 
-    _apply_media_server_item(media, item)
+    apply_media_server_item(media, item)
     media.title = built.media.title
     media.year = built.media.year
     media.episode_count = built.media.episode_count
     media.root_path = built.root_path
     media.tmdb_id, media.tvdb_id, media.imdb_id = built.media.tmdb_id, built.media.tvdb_id, built.media.imdb_id
 
-    session.exec(delete(MediaFile).where(MediaFile.media_id == media.id))
+    session.exec(delete(MediaFile).where(col(MediaFile.media_id) == media.id))
     files: list[MediaFile] = []
     for row in built.files:
-        row.media_id = media.id
+        row.media_id = row_id(media)
         session.add(row)
         files.append(row)
     session.commit()
@@ -206,11 +219,11 @@ async def _rescan_untracked(
 
 
 def _delete_media(session: Session, media: Media) -> None:
-    session.exec(delete(ImportIssue).where(ImportIssue.media_id == media.id))
-    session.exec(delete(MediaRequest).where(MediaRequest.media_id == media.id))
-    session.exec(delete(MediaWatch).where(MediaWatch.media_id == media.id))
-    session.exec(delete(Torrent).where(Torrent.media_id == media.id))
-    session.exec(delete(MediaFile).where(MediaFile.media_id == media.id))
+    session.exec(delete(ImportIssue).where(col(ImportIssue.media_id) == media.id))
+    session.exec(delete(MediaRequest).where(col(MediaRequest.media_id) == media.id))
+    session.exec(delete(MediaWatch).where(col(MediaWatch.media_id) == media.id))
+    session.exec(delete(Torrent).where(col(Torrent.media_id) == media.id))
+    session.exec(delete(MediaFile).where(col(MediaFile.media_id) == media.id))
     session.delete(media)
     session.commit()
 
@@ -242,17 +255,20 @@ async def _rebuild_import_issues(
     """File d'attente de l'instance du média uniquement. Échec silencieux :
     une file injoignable ne doit pas faire échouer l'analyse."""
     records: list[dict[str, Any]] = []
+    client = target.sonarr() if is_series else target.radarr()
     try:
-        client = target.sonarr() if is_series else target.radarr()
-        key = "seriesId" if is_series else "movieId"
-        records = index_queue_issues(await client.get_queue(), key).get(arr_id, [])
-    except Exception:  # noqa: BLE001 - informatif
-        records = []
+        queue = await client.get_queue()
+    except (httpx.HTTPError, ValueError):
+        # Informatif : sans file d'attente, les imports bloqués ne sont
+        # simplement pas signalés.
+        logger.warning("File d'attente illisible pour le média %s", media.id, exc_info=True)
+    else:
+        records = index_queue_issues(queue, "seriesId" if is_series else "movieId").get(arr_id, [])
 
-    session.exec(delete(ImportIssue).where(ImportIssue.media_id == media.id))
+    session.exec(delete(ImportIssue).where(col(ImportIssue.media_id) == media.id))
     rows = issue_rows_for(records)
     for row in rows:
-        row.media_id = media.id
+        row.media_id = row_id(media)
         session.add(row)
     session.commit()
     return rows
@@ -267,111 +283,49 @@ async def _rebuild_files(
     is_series: bool,
 ) -> list[MediaFile]:
     """Refait les fichiers de bibliothèque du média à partir du serveur
-    multimédia et de Sonarr/Radarr, exactement comme le scan complet."""
-    emby = media_server_client(settings)
-    rows: list[MediaFile] = []
-
-    if is_series:
-        sonarr = target.sonarr()
-        episode_files = await sonarr.get_episode_files(entry["id"])
-        item, episodes = await _series_item(emby, media, episode_files)
-        if item is not None:
-            _apply_media_server_item(media, item)
-            episode_files_by_id = {f["id"]: f for f in episode_files if f.get("id")}
-            current_paths = {f["path"] for f in episode_files if f.get("path")}
-            media.episode_count = len(episodes)
-
-            sonarr_by_label: dict[str, tuple[int, int | None]] = {}
-            downloaded: set[str] = set()
-            try:
-                for e in await sonarr.get_episodes(entry["id"]):
-                    if e.get("seasonNumber") is None or e.get("episodeNumber") is None:
-                        continue
-                    label = f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
-                    if e.get("hasFile"):
-                        downloaded.add(label)
-                    sonarr_by_label[label] = (e["id"], e.get("episodeFileId"))
-            except Exception:  # noqa: BLE001 - informatif, comme pendant un scan
-                pass
-
-            sources_by_label: dict[str, list[dict[str, Any]]] = {}
-            spans: dict[str, set[str]] = {}
-            for episode in episodes:
-                label = _episode_label(episode)
-                sources_by_label.setdefault(label, []).extend(_media_sources(episode))
-                spans.setdefault(label, set()).update(_episode_span_labels(episode))
-
-            for label, sources in sources_by_label.items():
-                episode_id, episode_file_id = sonarr_by_label.get(label, (None, None))
-                episode_file = episode_files_by_id.get(episode_file_id) if episode_file_id else None
-                if episode_file is not None:
-                    flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], episode_file)
-                else:
-                    flags = [bool(s.get("Path") and s.get("Path") in current_paths) for s in sources]
-                for source, is_current in zip(sources, flags):
-                    rows.append(_file_row(media, source, label, is_current, episode_file_id, episode_id))
-            media.missing_emby_episodes = ",".join(
-                _missing_emby_labels(downloaded, [r.episode_label for r in rows], spans)
-            )
-        else:
-            # Série disparue du serveur multimédia : la fiche ne garde pas un
-            # lien mort, le statut « absent » prend le relais.
-            _clear_media_server_item(media)
-            media.missing_emby_episodes = ""
-    else:
-        movie_file = entry.get("movieFile") or None
-        item = await _movie_item(emby, media, movie_file)
-        if item is not None:
-            _apply_media_server_item(media, item)
-            sources = _without_other_instance_files(_media_sources(item), movie_file, [])
-            flags = _current_flags([(s.get("Path"), s.get("Size")) for s in sources], movie_file)
-            for source, is_current in zip(sources, flags):
-                rows.append(_file_row(media, source, None, is_current, (movie_file or {}).get("id"), None))
-        else:
-            _clear_media_server_item(media)
-
-    session.exec(delete(MediaFile).where(MediaFile.media_id == media.id))
+    multimédia et de Sonarr/Radarr, avec le même code que le scan complet."""
+    emby = _media_server(settings)
+    rows = await (_series_rows(emby, media, target, entry) if is_series else _movie_rows(emby, media, entry))
+    session.exec(delete(MediaFile).where(col(MediaFile.media_id) == media.id))
     for row in rows:
-        row.media_id = media.id
+        row.media_id = row_id(media)
         session.add(row)
     session.commit()
     return rows
 
 
-def _file_row(
-    media: Media,
-    source: dict[str, Any],
-    label: str | None,
-    is_current: bool,
-    arr_file_id: int | None,
-    episode_id: int | None,
-) -> MediaFile:
-    path = source.get("Path")
-    inode = stat_inode(path)
-    return MediaFile(
-        media_id=media.id or 0,
-        path=path or "",
-        size=source.get("Size"),
-        inode=inode[0] if inode else None,
-        device=inode[1] if inode else None,
-        episode_label=label,
-        is_current=is_current,
-        sonarr_episode_id=episode_id if is_current else None,
-        arr_file_id=arr_file_id if is_current else None,
-    )
+async def _series_rows(emby: EmbyClient, media: Media, target: Any, entry: dict[str, Any]) -> list[MediaFile]:
+    episode_files = await target.sonarr().get_episode_files(entry["id"])
+    item, episodes = await _series_item(emby, media, episode_files)
+    if item is None:
+        # Série disparue du serveur multimédia : la fiche ne garde pas un
+        # lien mort, le statut « absent » prend le relais.
+        _clear_media_server_item(media)
+        media.missing_emby_episodes = ""
+        return []
+    apply_media_server_item(media, item)
+    media.episode_count = len(episodes)
+    downloaded, sonarr_by_label = await sonarr_episodes(target, entry["id"])
+    sources_by_label, spans = episode_sources(episodes)
+    rows = series_files(sources_by_label, sonarr_by_label, episode_files, [])
+    media.missing_emby_episodes = ",".join(_missing_emby_labels(downloaded, [r.episode_label for r in rows], spans))
+    return rows
+
+
+async def _movie_rows(emby: EmbyClient, media: Media, entry: dict[str, Any]) -> list[MediaFile]:
+    movie_file = entry.get("movieFile") or None
+    item = await _movie_item(emby, media, movie_file)
+    if item is None:
+        _clear_media_server_item(media)
+        return []
+    apply_media_server_item(media, item)
+    return movie_files(item, movie_file, [])
 
 
 def _clear_media_server_item(media: Media) -> None:
     media.emby_item_id = None
     media.has_poster = False
     media.poster_image_tag = None
-
-
-def _apply_media_server_item(media: Media, item: dict[str, Any]) -> None:
-    media.emby_item_id = item.get("Id")
-    media.has_poster = bool(item.get("Id"))
-    media.poster_image_tag = (item.get("ImageTags") or {}).get("Primary")
-    media.emby_date_added = parse_emby_date(item.get("DateCreated"))
 
 
 async def _movie_item(emby: EmbyClient, media: Media, movie_file: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -412,43 +366,16 @@ def _matches_provider(item: dict[str, Any], wanted: dict[str, Any]) -> bool:
     return any(value and provider_ids.get(key) == str(value) for key, value in wanted.items())
 
 
-def _candidate_positions(
-    settings: Settings,
-    media: Media,
-    listed: list[dict[str, Any]],
-    known_hashes: dict[str, int],
-) -> list[int]:
-    """Torrents à réexaminer pour CE média : les siens, ceux qui ne sont
-    rattachés à aucun média, ceux dont le chemin part de son dossier racine, et
-    ceux dont le nom commence par son titre. Les torrents d'un autre média sont
-    laissés tranquilles — seul un scan complet peut les déplacer."""
-    titles = [normalize_words(media.title)]
-    titles += [normalize_words(t) for t in (media.alt_titles or "").split("\n") if t]
-    root = media.root_path if media.root_path else None
-    usable_root = bool(root) and is_usable_root(root, settings.qbittorrent_download_path)
-
-    positions: list[int] = []
-    for pos, raw in enumerate(listed):
-        torrent_hash = str(raw.get("hash") or "").lower()
-        owner = known_hashes.get(torrent_hash)
-        if owner is not None and owner != media.id:
-            continue
-        if owner == media.id:
-            positions.append(pos)
-            continue
-        content_path = raw.get("content_path") or raw.get("save_path") or ""
-        if usable_root and content_path.startswith(root or ""):
-            positions.append(pos)
-            continue
-        release_words = normalize_release_words(str(raw.get("name") or ""))
-        if any(words and release_words[: len(words)] == words for words in titles):
-            positions.append(pos)
-            continue
-        if owner is None:
-            # Torrent rattaché à aucun média : candidat naturel, c'est le cas
-            # d'un torrent tout juste ajouté.
-            positions.append(pos)
-    return positions
+def _candidate_positions(media: Media, listed: list[dict[str, Any]], known_hashes: dict[str, int | None]) -> list[int]:
+    """Torrents à réexaminer pour CE média : les siens, et ceux qui ne sont
+    rattachés à aucun média (tout juste ajoutés, ou désignés par le chemin
+    racine ou le titre du média). Les torrents d'un autre média sont laissés
+    tranquilles — seul un scan complet peut les déplacer."""
+    return [
+        pos
+        for pos, raw in enumerate(listed)
+        if known_hashes.get(str(raw.get("hash") or "").lower()) in (None, media.id)
+    ]
 
 
 async def _rebuild_torrents(
@@ -457,31 +384,22 @@ async def _rebuild_torrents(
     """Rattache les torrents candidats à ce média. Le détail (fichiers,
     trackers) n'est demandé que pour eux."""
     if not torrent_client_configured(settings):
-        session.exec(delete(Torrent).where(Torrent.media_id == media.id))
+        session.exec(delete(Torrent).where(col(Torrent.media_id) == media.id))
         session.commit()
         return []
 
-    known_hashes = {
-        t.hash.lower(): t.media_id for t in session.exec(select(Torrent)).all() if t.hash
-    }
+    known_hashes = {t.hash.lower(): t.media_id for t in session.exec(select(Torrent)).all() if t.hash}
 
     async with torrent_client(settings) as client:
         listed = await client.get_torrents()
-        positions = _candidate_positions(settings, media, listed, known_hashes)
+        positions = _candidate_positions(media, listed, known_hashes)
         fetched = FetchedTorrents()
         for pos in positions:
             raw = listed[pos]
-            trackers: list[dict[str, Any]] = []
-            files_raw: list[dict[str, Any]] = []
-            try:
-                trackers = await client.get_trackers(raw["hash"])
-            except Exception:  # noqa: BLE001 - un tracker illisible n'arrête pas l'analyse
-                trackers = []
-            try:
-                files_raw = await client.get_files(raw["hash"])
-            except Exception:  # noqa: BLE001
-                files_raw = []
-            _append_torrent(fetched, raw, trackers, files_raw)
+            trackers = await optional_read(client.get_trackers, raw["hash"], "Trackers")
+            files_raw = await optional_read(client.get_files, raw["hash"], "Fichiers")
+            # Même ligne Torrent que le scan complet (torrent_match.fetch_torrents).
+            add_fetched(fetched, raw, trackers, files_raw)
 
     view = MediaView(
         media_type=media.media_type,
@@ -497,67 +415,9 @@ async def _rebuild_torrents(
     hash_to_index = {h: 0 for h, owner in known_hashes.items() if owner == media.id}
     attached = attach_torrents(settings, [view], fetched, hash_to_index)[0]
 
-    session.exec(delete(Torrent).where(Torrent.media_id == media.id))
+    session.exec(delete(Torrent).where(col(Torrent.media_id) == media.id))
     for torrent in attached:
-        torrent.media_id = media.id
+        torrent.media_id = row_id(media)
         session.add(torrent)
     session.commit()
     return attached
-
-
-def _append_torrent(
-    fetched: FetchedTorrents,
-    raw: dict[str, Any],
-    trackers: list[dict[str, Any]],
-    files_raw: list[dict[str, Any]],
-) -> None:
-    """Construit la même ligne Torrent que `torrent_match.fetch_torrents`, pour
-    un seul torrent."""
-    content_path = raw.get("content_path") or raw.get("save_path")
-    save_path = raw.get("save_path")
-
-    file_entries: list[tuple[str, int | None]] = []
-    for f in files_raw:
-        rel = f.get("name")
-        if rel and save_path:
-            file_entries.append((os.path.join(save_path, rel), f.get("size")))
-    if not file_entries and content_path:
-        file_entries.append((content_path, raw.get("size")))
-
-    resolved_inodes: list[tuple[int, int]] = []
-    file_details: list[tuple[str, int | None]] = []
-    for path, size in file_entries:
-        inode = stat_inode(path)
-        if inode is not None:
-            resolved_inodes.append(inode)
-        file_details.append((os.path.basename(path), size))
-
-    first_inode = resolved_inodes[0] if resolved_inodes else None
-    domains = []
-    for tr in trackers:
-        domain = extract_tracker_domain(tr.get("url", ""))
-        if domain:
-            domains.append({"domain": domain, "status": status_label(tr.get("status", -1))})
-
-    fetched.rows.append(
-        Torrent(
-            media_id=0,
-            hash=raw["hash"],
-            name=raw.get("name", ""),
-            save_path=save_path,
-            content_path=raw.get("content_path"),
-            category=raw.get("category") or None,
-            size=raw.get("size"),
-            inode=first_inode[0] if first_inode else None,
-            device=first_inode[1] if first_inode else None,
-            ratio=raw.get("ratio"),
-            seeders=raw.get("num_seeds"),
-            leechers=raw.get("num_leechs"),
-            added_on=epoch_to_datetime(raw.get("added_on")),
-            completed_on=epoch_to_datetime(raw.get("completion_on")),
-            trackers_json=json.dumps(domains),
-        )
-    )
-    fetched.content_paths.append(content_path)
-    fetched.file_inodes.append(resolved_inodes)
-    fetched.file_details.append(file_details)
