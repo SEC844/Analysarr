@@ -5,6 +5,7 @@ Aucun test n'appelle un vrai service : toute requête sortante passe par
 `fake_http`, qui route chaque hôte vers une fonction de test."""
 
 import os
+import sys
 import tempfile
 
 # Avant tout import de l'application : la base est ouverte à l'import.
@@ -30,7 +31,7 @@ from sqlmodel import Session, SQLModel  # noqa: E402
 from app.database import engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.settings import Settings  # noqa: E402
-from app.services import rate_limit, service_status, updates  # noqa: E402
+from app.services import hardlink, rate_limit, service_status, updates  # noqa: E402
 
 ADMIN = {"username": "admin", "password": "correct-horse-battery"}
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -112,3 +113,20 @@ def settings(session: Session) -> Settings:
     session.commit()
     session.refresh(row)
     return row
+
+
+@pytest.fixture
+def portable_inodes(monkeypatch):
+    """Sous Windows, st_dev (numéro de série du volume) dépasse l'entier 64 bits
+    signé de SQLite ; sous Linux, dans le conteneur, il reste petit. Les
+    identifiants sont réduits sans changer lesquels sont égaux. Remplacé dans
+    TOUS les modules qui l'importent, pour survivre à une réorganisation."""
+    real = hardlink.stat_inode
+
+    def small(path):
+        found = real(path)
+        return None if found is None else (found[0] % 2**62, found[1] % 2**31)
+
+    for name, module in list(sys.modules.items()):
+        if name.startswith("app.") and getattr(module, "stat_inode", None) is real:
+            monkeypatch.setattr(module, "stat_inode", small)

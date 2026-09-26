@@ -17,15 +17,13 @@ les inodes sur le disque) ; seuls les services externes sont simulés :
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
 import httpx
-import pytest
 from sqlmodel import select
 
 from app.models.media import Media, MediaFile, ScanRun, Torrent
-from app.services import hardlink, scan
+from app.services import scan
 
 TRACKER_A = "https://tracker-a.example/announce?passkey=secret"
 TRACKER_B = "https://tracker-b.example/announce/secret"
@@ -85,23 +83,6 @@ def build_world(tmp_path: Path) -> dict:
         "dark_e1": dark_e1,
         "dark_e2": dark_e2,
     }
-
-
-@pytest.fixture
-def portable_inodes(monkeypatch):
-    """Sous Windows, st_dev (numéro de série du volume) dépasse l'entier 64 bits
-    signé de SQLite ; sous Linux, dans le conteneur, il reste petit. Les
-    identifiants sont réduits sans changer lesquels sont égaux. Remplacé dans
-    TOUS les modules qui l'importent, pour survivre à une réorganisation."""
-    real = hardlink.stat_inode
-
-    def small(path):
-        found = real(path)
-        return None if found is None else (found[0] % 2**62, found[1] % 2**31)
-
-    for name, module in list(sys.modules.items()):
-        if name.startswith("app.") and getattr(module, "stat_inode", None) is real:
-            monkeypatch.setattr(module, "stat_inode", small)
 
 
 def _source(path: str, size: int) -> dict:

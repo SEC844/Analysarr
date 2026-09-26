@@ -9,7 +9,7 @@ from app.clients.emby import EmbyClient
 from app.models.media import (
     MediaFile,
 )
-from app.services.hardlink import stat_inode
+from app.services.hardlink import file_size, stat_inode
 
 
 def _provider_id(provider_ids: dict[str, Any] | None, *keys: str) -> str | None:
@@ -211,6 +211,10 @@ def _common_root(paths: list[str]) -> str | None:
         return usable[0]
 
 
+def _first_known(*values: int | None) -> int | None:
+    return next((value for value in values if value is not None), None)
+
+
 def _library_file(
     source: dict[str, Any],
     label: str | None,
@@ -219,8 +223,10 @@ def _library_file(
     arr_file_id: int | None = None,
     sonarr_episode_id: int | None = None,
 ) -> MediaFile:
-    """Fichier de la bibliothèque, avec son inode lu sur le disque. Seul point
-    du scan qui lit les inodes de la bibliothèque.
+    """Fichier de la bibliothèque, avec son inode et sa taille lus sur le
+    disque. Seul point du scan qui lit les inodes de la bibliothèque. La taille
+    du serveur multimédia ne sert que si le fichier est inaccessible : elle
+    n'est mise à jour qu'au rafraîchissement de l'élément (issue #40).
 
     Valeurs par défaut : fichier d'un média qu'aucun Sonarr/Radarr ne suit — il
     n'a pas d'identité arr, et il est par définition le fichier « actuel »."""
@@ -229,7 +235,7 @@ def _library_file(
     return MediaFile(
         media_id=0,
         path=path or "",
-        size=source.get("Size"),
+        size=_first_known(file_size(path), source.get("Size")),
         inode=inode[0] if inode else None,
         device=inode[1] if inode else None,
         episode_label=label,

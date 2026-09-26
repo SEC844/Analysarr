@@ -49,6 +49,22 @@ def stat_inode(path: str | None) -> tuple[int, int] | None:
     return st.st_ino, st.st_dev
 
 
+def file_size(path: str | None) -> int | None:
+    """Taille réelle du FICHIER sur le disque, ou None s'il est introuvable ou
+    n'est pas un fichier régulier (mêmes règles que `stat_inode`).
+
+    Fait foi sur la taille que publie le serveur multimédia : celle-ci n'est
+    relue qu'au rafraîchissement de l'élément, et restait celle de l'ancien
+    fichier après un remplacement au même chemin (issue #40)."""
+    if not path:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_size if stat_module.S_ISREG(st.st_mode) else None
+
+
 async def resolve_torrent_files(qbit: TorrentClient | None, torrent: Torrent) -> list[tuple[str, int | None]]:
     """[(chemin_absolu, taille)] pour chaque fichier réel du torrent — même
     logique que le scan (torrents/files + save_path), avec repli sur

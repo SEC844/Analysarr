@@ -343,3 +343,36 @@ def test_rescanning_without_a_media_server_is_a_clear_error(admin_client, fake_h
 
     assert response.status_code == 502
     assert "Serveur multimédia non configuré" in response.json()["detail"]
+
+
+def test_a_file_replaced_by_a_hardlink_is_seen_at_once(fake_http, session, settings, tmp_path, portable_inodes):
+    """Issue #40 : fichier de la bibliothèque remplacé, au même chemin, par un
+    hardlink du torrent. Le serveur multimédia annonce encore l'ancienne taille
+    tant qu'il n'a pas relu l'élément : la taille vient du disque, et le
+    torrent devient protégé dès « Analyser ce média »."""
+    library_file = tmp_path / "films" / "Matrix.mkv"
+    library_file.parent.mkdir()
+    library_file.write_bytes(b"a" * 19)
+    torrent_file = tmp_path / "torrents" / "Matrix.mkv"
+    torrent_file.parent.mkdir()
+    torrent_file.write_bytes(b"b" * 21)
+    movie = MOVIE | {"path": str(library_file.parent), "movieFile": {"id": 11, "path": str(library_file), "size": 19}}
+    stale_item = EMBY_MOVIE | {"MediaSources": [{"Path": str(library_file), "Size": 19}]}
+    torrent = TORRENT | {"save_path": str(torrent_file.parent), "content_path": str(torrent_file), "size": 21}
+    fake_http["http://radarr"] = radarr_handler(movie)
+    fake_http["http://emby"] = emby_handler([stale_item])
+    fake_http["http://qbit"] = qbit_handler([torrent])
+    media = Media(
+        media_type=MediaType.movie, title="Matrix", year=1999, radarr_id=1, tmdb_id=603, emby_item_id="emby-1"
+    )
+    session.add(media)
+    session.commit()
+    assert "orphelin_qbit" in asyncio.run(rescan_media(session, settings, media)).statuses
+
+    library_file.unlink()
+    os.link(torrent_file, library_file)
+    result = asyncio.run(rescan_media(session, settings, media))
+
+    assert "orphelin_qbit" not in result.statuses and "manquant_qbit" not in result.statuses
+    assert session.exec(select(Torrent)).one().is_hardlinked
+    assert session.exec(select(MediaFile)).one().size == 21
