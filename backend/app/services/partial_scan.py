@@ -57,7 +57,7 @@ from app.services.queue_issues import issue_rows_for
 from app.services.scan.collect import build_results, library_context, queue_issues
 from app.services.scan.orchestrator import _fail_scan
 from app.services.scan.results import build_untracked_results
-from app.services.scan.statuses import compute_statuses, current_files_size, is_tracked_by_arr
+from app.services.scan.statuses import refresh_media_statuses
 from app.services.scan_scopes import SERVICE_SCOPES
 from app.services.seer import (
     build_request_rows,
@@ -96,22 +96,7 @@ def _recompute_statuses(session: Session, medias: list[Media]) -> None:
     partielle : les statuts croisent plusieurs sources, ils ne peuvent pas
     rester figés parce qu'une seule a été relue."""
     for media in medias:
-        files = list(session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all())
-        torrents = list(session.exec(select(Torrent).where(Torrent.media_id == media.id)).all())
-        issues = list(session.exec(select(ImportIssue).where(ImportIssue.media_id == media.id)).all())
-        statuses, reclaimable = compute_statuses(
-            files,
-            torrents,
-            bool(media.emby_item_id),
-            len([label for label in media.missing_emby_episodes.split(",") if label]),
-            {i.download_id.lower() for i in issues if i.download_id},
-            {i.kind for i in issues},
-            tracked_by_arr=is_tracked_by_arr(media),
-        )
-        media.statuses = ",".join(sorted(statuses))
-        media.reclaimable_bytes = reclaimable
-        media.total_size = current_files_size(files)
-        session.add(media)
+        refresh_media_statuses(session, media)
 
 
 def _views(session: Session, medias: list[Media]) -> list[MediaView]:

@@ -22,7 +22,7 @@ from app.services.scan.results import (
     build_series_result,
     build_untracked_results,
 )
-from app.services.scan.statuses import compute_statuses, current_files_size, is_tracked_by_arr
+from app.services.scan.statuses import apply_statuses
 from app.services.seer import build_request_rows, fetch_request_index, seer_client
 from app.services.torrent_match import FetchedTorrents, MediaView, attach_torrents, fetch_torrents
 from app.services.watch_stats import (
@@ -259,18 +259,7 @@ def _apply_statuses(results: list[MediaBuildResult]) -> None:
         # sans redemander la liste à Sonarr/Radarr.
         result.media.root_path = result.root_path
         result.media.alt_titles = "\n".join(result.alt_titles)
-        statuses, reclaimable = compute_statuses(
-            result.files,
-            result.torrents,
-            bool(result.media.emby_item_id),
-            len(result.missing_emby_episodes),
-            {i.download_id.lower() for i in result.import_issues if i.download_id},
-            {i.kind for i in result.import_issues},
-            tracked_by_arr=is_tracked_by_arr(result.media),
-        )
-        result.media.statuses = ",".join(sorted(statuses))
-        result.media.reclaimable_bytes = reclaimable
-        result.media.total_size = current_files_size(result.files)
+        apply_statuses(result.media, result.files, result.torrents, result.import_issues)
 
 
 async def _apply_watch_stats(settings: Settings, emby: EmbyClient, results: list[MediaBuildResult]) -> list[EmbyUser]:

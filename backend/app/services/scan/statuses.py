@@ -1,8 +1,11 @@
 """Statuts d'un média : liste fermée, calcul à partir de ses fichiers et torrents."""
 
 import json
+from collections.abc import Sequence
 
-from app.models.media import Media, MediaFile, Torrent
+from sqlmodel import Session, col, select
+
+from app.models.media import ImportIssue, Media, MediaFile, Torrent
 from app.services.queue_issues import IMPORT_KIND, STALLED_KIND
 
 # Liste fermée des statuts qu'un média peut porter : elle borne le filtre de
@@ -106,6 +109,41 @@ def compute_statuses(
     if coverage is not None:
         statuses.add(coverage)
     return statuses, (duplicate_bytes or 0) + (orphan_bytes or 0)
+
+
+def apply_statuses(
+    media: Media, files: Sequence[MediaFile], torrents: Sequence[Torrent], issues: Sequence[ImportIssue]
+) -> None:
+    """Statuts, espace récupérable et poids du média, à partir de TOUTES ses
+    sources : fichiers, torrents, file d'attente, épisodes absents du serveur
+    multimédia et suivi Sonarr/Radarr. Seul point qui les écrit : le scan, les
+    analyses et les actions (nettoyage, réparation, suppression) calculent donc
+    exactement la même chose. Bug réel : une action recalculait sans la file
+    d'attente, les épisodes absents ni le suivi, et un média non suivi perdait
+    son alerte jusqu'au scan suivant."""
+    statuses, reclaimable = compute_statuses(
+        list(files),
+        list(torrents),
+        bool(media.emby_item_id),
+        len([label for label in media.missing_emby_episodes.split(",") if label]),
+        {i.download_id.lower() for i in issues if i.download_id},
+        {i.kind for i in issues},
+        tracked_by_arr=is_tracked_by_arr(media),
+    )
+    media.statuses = ",".join(sorted(statuses))
+    media.reclaimable_bytes = reclaimable
+    media.total_size = current_files_size(list(files))
+
+
+def refresh_media_statuses(session: Session, media: Media) -> None:
+    """`apply_statuses` sur ce que la base contient MAINTENANT pour ce média
+    (après une action, ou une analyse qui n'a relu qu'une source). N'enregistre
+    pas : l'appelant committe."""
+    files = session.exec(select(MediaFile).where(col(MediaFile.media_id) == media.id)).all()
+    torrents = session.exec(select(Torrent).where(col(Torrent.media_id) == media.id)).all()
+    issues = session.exec(select(ImportIssue).where(col(ImportIssue.media_id) == media.id)).all()
+    apply_statuses(media, files, torrents, issues)
+    session.add(media)
 
 
 def _duplicate_bytes(files: list[MediaFile]) -> int | None:

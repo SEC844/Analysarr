@@ -11,7 +11,7 @@ from app.schemas.media import (
 )
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.path_guard import ensure_paths_available
-from app.services.scan.statuses import compute_statuses, is_orphan
+from app.services.scan.statuses import is_orphan, refresh_media_statuses
 
 
 def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile], list[Torrent]]:
@@ -107,12 +107,7 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
     # Le statut et l'espace récupérable affichés sont calculés au moment du scan : sans
     # ce recalcul, la fiche resterait "doublon"/"orphelin_qbit" jusqu'au prochain scan
     # complet alors que les éléments concernés viennent d'être supprimés.
-    remaining_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
-    remaining_torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
-    statuses, reclaimable = compute_statuses(list(remaining_files), list(remaining_torrents), bool(media.emby_item_id))
-    media.statuses = ",".join(sorted(statuses))
-    media.reclaimable_bytes = reclaimable
-    session.add(media)
+    refresh_media_statuses(session, media)
     session.commit()
 
     return DeleteExecuteResult(steps=steps)

@@ -22,7 +22,7 @@ from app.services.hardlink import (
     stat_inode,
 )
 from app.services.path_guard import ensure_paths_available, ensure_writable, replace_blockers
-from app.services.scan.statuses import compute_statuses
+from app.services.scan.statuses import refresh_media_statuses
 
 logger = logging.getLogger(__name__)
 
@@ -324,10 +324,7 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
             t.is_hardlinked = True
             session.add(t)
 
-    statuses, reclaimable = compute_statuses(list(all_files), list(all_torrents), bool(media.emby_item_id))
-    media.statuses = ",".join(sorted(statuses))
-    media.reclaimable_bytes = reclaimable
-    session.add(media)
+    refresh_media_statuses(session, media)
     session.commit()
 
     return HardlinkRepairResult(steps=steps, freed_bytes=freed_bytes)
