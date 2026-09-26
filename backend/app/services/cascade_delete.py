@@ -11,7 +11,7 @@ from app.schemas.media import (
 )
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.path_guard import ensure_paths_available
-from app.services.scan.statuses import compute_statuses
+from app.services.scan.statuses import compute_statuses, is_orphan
 
 
 def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile], list[Torrent]]:
@@ -43,8 +43,9 @@ def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile]
     # Un torrent "repairable" a le même contenu qu'un fichier actuellement
     # suivi par la bibliothèque (voir services/scan/statuses.py et torrent_match.py) :
     # ce n'est pas un vrai orphelin, le supprimer perdrait le fichier même que
-    # "Réparer les hardlinks" propose d'utiliser pour protéger le média.
-    orphan_torrents = [t for t in torrents if t.is_hardlinked is False and not t.repairable]
+    # "Réparer les hardlinks" propose d'utiliser pour protéger le média. Un
+    # torrent « non importé » (saisons prises d'avance) n'est pas un orphelin.
+    orphan_torrents = [t for t in torrents if is_orphan(t)]
 
     return duplicate_files, orphan_torrents
 

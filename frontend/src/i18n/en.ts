@@ -751,6 +751,7 @@ export const en: Dictionary = {
     manquant_arr: "Untracked",
     import_rate: "Failed import",
     telechargement_bloque: "Stalled download",
+    non_importe: "Not imported",
   },
   grid: {
     label: "Card size: {size}",
@@ -832,6 +833,8 @@ export const en: Dictionary = {
     notHardlinked: "Not hardlinked",
     notHardlinkedHint: "Same content as the library, but not hardlinked — repairable",
     orphan: "Orphan",
+    notImported: "Not imported",
+    notImportedHint: "Seasons missing from the library: downloaded ahead, not imported yet. Never offered for clean-up.",
     notEvaluated: "Not evaluated",
     seeders: { one: "{count} seeder", other: "{count} seeders" },
     leechers: { one: "{count} leecher", other: "{count} leechers" },

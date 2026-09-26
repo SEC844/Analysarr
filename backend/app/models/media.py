@@ -161,6 +161,13 @@ class Torrent(SQLModel, table=True):
     # actuel (vrai orphelin, ex: ancienne qualité remplacée par un upgrade).
     repairable: bool = False
 
+    # True si is_hardlinked=False, sans être réparable, et qu'AUCUNE des
+    # saisons du torrent n'a de fichier dans la bibliothèque (séries
+    # seulement) : saisons téléchargées d'avance, pas encore importées
+    # (issue #41). Ce n'est pas un orphelin — un orphelin est une ancienne
+    # version d'épisodes présents — et il n'est jamais proposé au nettoyage.
+    not_imported: bool = False
+
     # Données qBittorrent affichées sur la fiche détail (ratio, popularité, ancienneté).
     ratio: float | None = None
     seeders: int | None = None

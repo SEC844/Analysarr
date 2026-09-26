@@ -32,6 +32,8 @@ class TorrentRead(BaseModel):
     is_hardlinked: bool | None
     matched_by_name: bool
     repairable: bool
+    # Saisons téléchargées d'avance, pas encore importées (voir Torrent.not_imported).
+    not_imported: bool
     ratio: float | None
     seeders: int | None
     leechers: int | None

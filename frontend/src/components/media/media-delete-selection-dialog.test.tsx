@@ -31,6 +31,7 @@ function torrent(id: number, name: string, size: number): TorrentRead {
     is_hardlinked: true,
     matched_by_name: false,
     repairable: false,
+    not_imported: false,
     ratio: 1.5,
     seeders: 3,
     leechers: 0,

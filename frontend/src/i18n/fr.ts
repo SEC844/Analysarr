@@ -757,6 +757,7 @@ export const fr = {
     manquant_arr: "Non suivi",
     import_rate: "Import raté",
     telechargement_bloque: "Téléchargement en souffrance",
+    non_importe: "Non importé",
   },
   grid: {
     label: "Taille des cartes : {size}",
@@ -838,6 +839,8 @@ export const fr = {
     notHardlinked: "Non hardlink",
     notHardlinkedHint: "Même contenu que la bibliothèque, mais pas hardlinké — réparable",
     orphan: "Orphelin",
+    notImported: "Non importé",
+    notImportedHint: "Saisons absentes de la bibliothèque : téléchargées d'avance, pas encore importées. Jamais proposé au nettoyage.",
     notEvaluated: "Non évalué",
     seeders: { one: "{count} seeder", other: "{count} seeders" },
     leechers: { one: "{count} leecher", other: "{count} leechers" },

@@ -18,11 +18,13 @@ MEDIA_STATUSES = (
     "manquant_arr",
     "import_rate",
     "telechargement_bloque",
+    "non_importe",
 )
 
-# Statuts purement informatifs : ils décrivent la couverture tracker et
-# n'empêchent jamais un média d'être sain (voir `is_healthy`).
-INFO_STATUSES = frozenset({"tracker_unique", "cross_seed"})
+# Statuts purement informatifs : couverture tracker, et saisons téléchargées
+# mais pas encore importées. Ils n'empêchent jamais un média d'être sain
+# (voir `is_healthy`).
+INFO_STATUSES = frozenset({"tracker_unique", "cross_seed", "non_importe"})
 
 
 def alert_statuses(statuses: set[str] | list[str]) -> set[str]:
@@ -98,6 +100,8 @@ def compute_statuses(
     }
     statuses = {status for status, is_present in present.items() if is_present}
     statuses |= _queue_statuses(kinds)
+    if any(t.not_imported for t in torrents):
+        statuses.add("non_importe")
     coverage = _tracker_coverage(torrents)
     if coverage is not None:
         statuses.add(coverage)
@@ -132,8 +136,9 @@ def _orphan_bytes(torrents: list[Torrent]) -> int | None:
     pas un orphelin à supprimer mais un candidat à la réparation de hardlink.
     Plusieurs orphelins peuvent être des copies cross-seed d'une même ancienne
     version (même inode entre eux) : supprimer l'un ne libère rien tant qu'un
-    autre pointe vers ce fichier, chaque inode n'est donc compté qu'une fois."""
-    orphans = [t for t in torrents if t.is_hardlinked is False and not t.repairable]
+    autre pointe vers ce fichier, chaque inode n'est donc compté qu'une fois.
+    Un torrent « non importé » (saisons prises d'avance) n'est pas un orphelin."""
+    orphans = [t for t in torrents if is_orphan(t)]
     if not orphans:
         return None
     total = 0
@@ -146,6 +151,12 @@ def _orphan_bytes(torrents: list[Torrent]) -> int | None:
             seen_inodes.add(key)
         total += t.size or 0
     return total
+
+
+def is_orphan(torrent: Torrent) -> bool:
+    """Vrai orphelin : ni protégé, ni réparable, ni simplement pas encore
+    importé. Seule définition utilisée par le nettoyage et les automatisations."""
+    return torrent.is_hardlinked is False and not torrent.repairable and not torrent.not_imported
 
 
 def _tracker_coverage(torrents: list[Torrent]) -> str | None:

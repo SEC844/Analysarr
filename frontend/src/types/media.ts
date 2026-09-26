@@ -1,9 +1,10 @@
-/** Couverture tracker : information affichée à côté de « Sain ». */
-export const INFO_STATUSES: MediaStatus[] = ["tracker_unique", "cross_seed"]
+/** Informations affichées à côté de « Sain » : couverture tracker, et saisons
+ * téléchargées mais pas encore importées. */
+export const INFO_STATUSES: MediaStatus[] = ["tracker_unique", "cross_seed", "non_importe"]
 
-/** Statuts d'alerte : ceux qui demandent une action. La couverture tracker
- * (`tracker_unique`, `cross_seed`) est informative et n'en fait pas partie —
- * même découpage que `services/scan.py::INFO_STATUSES`. */
+/** Statuts d'alerte : ceux qui demandent une action. Les statuts de
+ * `INFO_STATUSES` n'en font pas partie — même découpage que
+ * `services/scan/statuses.py::INFO_STATUSES`. */
 export const ALERT_STATUSES = [
   "doublon",
   "orphelin_qbit",
@@ -26,6 +27,7 @@ export type MediaStatus =
   | "cross_seed"
   | "import_rate"
   | "telechargement_bloque"
+  | "non_importe"
 export type MediaTypeFilter = "movie" | "series"
 
 export interface MediaListItem {
@@ -129,6 +131,8 @@ export interface TorrentRead {
   is_hardlinked: boolean | null
   matched_by_name: boolean
   repairable: boolean
+  // Saisons téléchargées d'avance, pas encore importées : ni orphelin, ni nettoyé.
+  not_imported: boolean
   ratio: number | null
   seeders: number | null
   leechers: number | null

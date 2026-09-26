@@ -39,6 +39,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("scanrun", "scope"),
     ("torrentfile", "torrent_hash"),
     ("scanrun", "non_hardlink_count"),
+    ("torrent", "not_imported"),
 ]
 
 
