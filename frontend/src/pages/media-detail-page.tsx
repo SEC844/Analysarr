@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ChevronDown,
   Clapperboard,
+  EyeOff,
   Loader2,
   Search,
   Tv,
@@ -12,6 +13,7 @@ import { toast } from "sonner"
 
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
 import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
+import { FileOptions, MediaAlertOptions } from "@/components/media/ignore-actions"
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { ImportIssues } from "@/components/media/import-issues"
 import { MediaRequests } from "@/components/media/media-requests"
@@ -92,10 +94,10 @@ function groupBySeason(files: MediaFileRead[]): { season: number | null; files: 
     .sort((a, b) => (a.season ?? Number.MAX_SAFE_INTEGER) - (b.season ?? Number.MAX_SAFE_INTEGER))
 }
 
-function FileRow({ f }: { f: MediaFileRead }) {
+function FileRow({ mediaId, f }: { mediaId: number; f: MediaFileRead }) {
   const { t } = useI18n()
   return (
-    <li className="flex items-start justify-between gap-3 py-2">
+    <li className={cn("flex items-start justify-between gap-3 py-2", f.ignored && "opacity-60")}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           {f.episode_label && (
@@ -108,10 +110,18 @@ function FileRow({ f }: { f: MediaFileRead }) {
               {t("media.currentFile")}
             </Badge>
           )}
+          {f.ignored && (
+            <Badge variant="outline" className="shrink-0" title={t("ignore.keptHint")}>
+              <EyeOff className="size-3" /> {t("ignore.kept")}
+            </Badge>
+          )}
         </div>
         <p className="mt-1 break-all">{f.path}</p>
       </div>
-      <span className="text-muted-foreground shrink-0">{formatBytes(f.size)}</span>
+      <div className="flex shrink-0 items-center gap-1">
+        <span className="text-muted-foreground">{formatBytes(f.size)}</span>
+        <FileOptions mediaId={mediaId} file={f} />
+      </div>
     </li>
   )
 }
@@ -198,7 +208,7 @@ export function MediaDetailPage() {
               {totalSize > 0 && <> · {formatBytes(totalSize)}</>}
             </p>
           </div>
-          <StatusBadgeList statuses={media.statuses} />
+          <StatusBadgeList statuses={media.statuses} muted={media.muted_statuses} />
           <WatchSummary mediaId={media.id} />
           <MediaRequests requests={media.requests} />
           <ImportIssues mediaId={media.id} issues={media.import_issues} />
@@ -247,6 +257,7 @@ export function MediaDetailPage() {
               <DeleteCascadeDialog mediaId={media.id} />
             )}
             <MediaDeleteSelectionDialog media={media} onMediaDeleted={() => navigate(-1)} />
+            <MediaAlertOptions media={media} />
           </div>
         </div>
       </div>
@@ -261,14 +272,14 @@ export function MediaDetailPage() {
               title={`${group.season !== null ? t("media.season", { number: group.season }) : t("media.otherFiles")} (${group.files.length})`}
             >
               {group.files.map((f) => (
-                <FileRow key={f.id} f={f} />
+                <FileRow key={f.id} mediaId={media.id} f={f} />
               ))}
             </SeasonGroup>
           ))
         ) : (
           <ul className="divide-border divide-y text-sm">
             {media.files.map((f) => (
-              <FileRow key={f.id} f={f} />
+              <FileRow key={f.id} mediaId={media.id} f={f} />
             ))}
           </ul>
         )}
@@ -280,7 +291,7 @@ export function MediaDetailPage() {
         ) : (
           <ul className="divide-border divide-y text-sm">
             {media.torrents.map((torrent) => (
-              <TorrentRow key={torrent.id} torrent={torrent} />
+              <TorrentRow key={torrent.id} mediaId={media.id} torrent={torrent} />
             ))}
           </ul>
         )}

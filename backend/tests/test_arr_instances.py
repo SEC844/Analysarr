@@ -7,6 +7,7 @@ from app.models.media import Media, MediaType
 from app.schemas.media import MediaDeleteSelection
 from app.services import scan
 from app.services.arr_instances import arr_target_for, arr_targets
+from app.services.ignores import IgnoreSet
 from app.services.media_delete import execute_media_delete
 from tests.test_media_delete import add_media, recorder
 
@@ -111,7 +112,7 @@ def collect(fake_http, session, settings, radarr_files):
     for host, movie_file in radarr_files.items():
         fake_http[host] = radarr_handler(movie_file)
     targets = arr_targets(session, settings, "radarr"), arr_targets(session, settings, "sonarr")
-    return asyncio.run(scan._collect(settings, 0, *targets))[0]
+    return asyncio.run(scan._collect(settings, 0, *targets, IgnoreSet()))[0]
 
 
 def test_single_instance_still_flags_an_untracked_copy_as_duplicate(fake_http, session, settings):

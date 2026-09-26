@@ -49,6 +49,7 @@ from app.models.media import (
 from app.models.settings import Settings
 from app.services.arr_instances import arr_targets
 from app.services.events import scan_events
+from app.services.media_status import refresh_statuses
 from app.services.notifications import ChannelTarget, channel_targets
 from app.services.queue_issues import issue_rows_for
 
@@ -57,7 +58,6 @@ from app.services.queue_issues import issue_rows_for
 from app.services.scan.collect import build_results, library_context, queue_issues
 from app.services.scan.orchestrator import _fail_scan
 from app.services.scan.results import build_untracked_results
-from app.services.scan.statuses import refresh_media_statuses
 from app.services.scan_scopes import SERVICE_SCOPES
 from app.services.seer import (
     build_request_rows,
@@ -95,8 +95,7 @@ def _recompute_statuses(session: Session, medias: list[Media]) -> None:
     de ce que la base contient MAINTENANT. Appelé à la fin de chaque analyse
     partielle : les statuts croisent plusieurs sources, ils ne peuvent pas
     rester figés parce qu'une seule a été relue."""
-    for media in medias:
-        refresh_media_statuses(session, media)
+    refresh_statuses(session, medias)
 
 
 def _views(session: Session, medias: list[Media]) -> list[MediaView]:

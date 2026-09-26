@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.ignores import MutedStatusRead
+
 
 class MediaFileRead(BaseModel):
     id: int
@@ -10,6 +12,11 @@ class MediaFileRead(BaseModel):
     size: int | None
     episode_label: str | None
     is_current: bool
+    # Gardé volontairement (voir services/ignores.py) ; `ignorable` : fait
+    # partie d'un doublon, peut donc l'être ; `ignore_rule_id` : règle à retirer.
+    ignored: bool = False
+    ignorable: bool = False
+    ignore_rule_id: int | None = None
 
 
 class TrackerRead(BaseModel):
@@ -34,6 +41,11 @@ class TorrentRead(BaseModel):
     repairable: bool
     # Saisons téléchargées d'avance, pas encore importées (voir Torrent.not_imported).
     not_imported: bool
+    # Ignoré (voir services/ignores.py) ; `ignorable` : orphelin ou non
+    # hardlinké, peut donc l'être ; `ignore_rule_id` : règle à retirer.
+    ignored: bool = False
+    ignorable: bool = False
+    ignore_rule_id: int | None = None
     ratio: float | None
     seeders: int | None
     leechers: int | None
@@ -48,6 +60,8 @@ class MediaListItem(BaseModel):
     title: str
     year: int | None
     statuses: list[str]
+    # Alertes masquées par l'utilisateur, affichées à part (voir services/ignores.py).
+    muted_statuses: list[str] = Field(default_factory=list)
     reclaimable_bytes: int
     total_size: int
     has_poster: bool
@@ -150,6 +164,8 @@ class MediaDetail(MediaListItem):
     # Vide si Seer n'est pas activé.
     requests: list["MediaRequestRead"]
     import_issues: list["ImportIssueRead"]
+    # Règle de chaque alerte masquée, pour la réafficher.
+    muted_rules: list[MutedStatusRead] = Field(default_factory=list)
 
 
 class ArrCandidateRead(BaseModel):

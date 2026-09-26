@@ -1,16 +1,18 @@
-import { CheckCircle2, HardDriveDownload, Inbox, Link2, Search, XCircle } from "lucide-react"
+import { CheckCircle2, EyeOff, HardDriveDownload, Inbox, Link2, Search, XCircle } from "lucide-react"
 
+import { TorrentOptions } from "@/components/media/ignore-actions"
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/i18n"
 import { formatBytes, formatDate, formatRatio } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { TorrentRead } from "@/types/media"
 
 /** Un torrent de la fiche média : état de protection, trackers et
- * statistiques de partage. */
-export function TorrentRow({ torrent }: { torrent: TorrentRead }) {
+ * statistiques de partage. Un torrent ignoré reste affiché, estompé. */
+export function TorrentRow({ mediaId, torrent }: { mediaId: number; torrent: TorrentRead }) {
   const { t } = useI18n()
   return (
-    <li className="space-y-2 py-3">
+    <li className={cn("space-y-2 py-3", torrent.ignored && "opacity-60")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 break-all font-medium">
@@ -23,10 +25,18 @@ export function TorrentRow({ torrent }: { torrent: TorrentRead }) {
           </p>
           <p className="text-muted-foreground break-all text-xs">{torrent.content_path ?? torrent.save_path}</p>
         </div>
-        <span className="text-muted-foreground shrink-0">{formatBytes(torrent.size)}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="text-muted-foreground">{formatBytes(torrent.size)}</span>
+          <TorrentOptions mediaId={mediaId} torrent={torrent} />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
+        {torrent.ignored && (
+          <Badge variant="outline" title={t("ignore.ignoredHint")}>
+            <EyeOff className="size-3" /> {t("ignore.ignored")}
+          </Badge>
+        )}
         {torrent.is_hardlinked === true && (
           <Badge variant="outline" className="border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="size-3" /> {t("media.protected")}

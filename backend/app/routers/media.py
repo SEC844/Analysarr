@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import httpx
@@ -45,6 +46,8 @@ from app.services.arr_link import ArrLinkError, build_link_preview, link_media
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
+from app.services.ignore_rules import MediaIgnores, media_ignores, torrent_is_ignorable
+from app.services.ignores import duplicate_file_ids
 from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.media_rescan import rescan_media
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
@@ -69,6 +72,7 @@ def _to_list_item(media: Media, seer_enabled: bool = False, names: dict[int, str
         title=media.title,
         year=media.year,
         statuses=[s for s in media.statuses.split(",") if s],
+        muted_statuses=[s for s in media.muted_statuses.split(",") if s],
         reclaimable_bytes=media.reclaimable_bytes,
         total_size=media.total_size,
         has_poster=media.has_poster,
@@ -89,7 +93,8 @@ def _to_list_item(media: Media, seer_enabled: bool = False, names: dict[int, str
 # Filtres à choix multiple : listes fermées, une valeur inconnue est ignorée
 # plutôt qu'interprétée.
 WATCH_FILTERS = ("never", "in_progress", "all")
-HEALTH_FILTERS = ("sain", "alerte")
+# `masque` : médias dont au moins une alerte est masquée (services/ignores.py).
+HEALTH_FILTERS = ("sain", "alerte", "masque")
 
 
 def _selected(value: str | None, allowed: tuple[str, ...]) -> list[str]:
@@ -114,7 +119,7 @@ def _idle_since(media: Media) -> datetime | None:
 
 @router.get("", response_model=MediaListResponse)
 def list_media(
-    health: str | None = Query(None, description="sain | alerte"),
+    health: str | None = Query(None, description="sain | alerte | masque"),
     status: str | None = Query(None, description="statuts séparés par des virgules"),
     match: str = Query("any", description="any (au moins un statut) | all (tous)"),
     media_type: str | None = Query(None, description="movie | series"),
@@ -144,7 +149,9 @@ def _filtered(
     if search:
         needle = search.lower()
         medias = [m for m in medias if needle in m.title.lower()]
-    if health in HEALTH_FILTERS:
+    if health == "masque":
+        medias = [m for m in medias if m.muted_statuses]
+    elif health in HEALTH_FILTERS:
         healthy = health == "sain"
         medias = [m for m in medias if is_healthy(m.statuses.split(",")) is healthy]
     wanted = set(_selected(status, MEDIA_STATUSES))
@@ -212,6 +219,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
     seer_enabled = seer_configured(session.get(Settings, 1))
 
     issues = session.exec(select(ImportIssue).where(ImportIssue.media_id == media_id)).all()
+    ignores = media_ignores(session, media, files, torrents)
 
     return MediaDetail(
         **_to_list_item(media, seer_enabled, instance_names(session)).model_dump(),
@@ -237,35 +245,52 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         tmdb_id=media.tmdb_id,
         tvdb_id=media.tvdb_id,
         imdb_id=media.imdb_id,
-        files=[
-            MediaFileRead(
-                id=row_id(f), path=f.path, size=f.size, episode_label=f.episode_label, is_current=f.is_current
-            )
-            for f in files
-        ],
-        torrents=[
-            TorrentRead(
-                id=row_id(t),
-                hash=t.hash,
-                name=t.name,
-                save_path=t.save_path,
-                content_path=t.content_path,
-                size=t.size,
-                is_cross_seed=_is_cross_seed(t),
-                is_hardlinked=t.is_hardlinked,
-                matched_by_name=t.matched_by_name,
-                repairable=t.repairable,
-                not_imported=t.not_imported,
-                ratio=t.ratio,
-                seeders=t.seeders,
-                leechers=t.leechers,
-                added_on=t.added_on,
-                completed_on=t.completed_on,
-                trackers=[TrackerRead(**d) for d in json.loads(t.trackers_json)],
-            )
-            for t in torrents
-        ],
+        files=_file_reads(files, ignores),
+        torrents=[_torrent_read(t, ignores) for t in torrents],
         missing_emby_episodes=[e for e in media.missing_emby_episodes.split(",") if e],
+        muted_rules=ignores.muted,
+    )
+
+
+def _file_reads(files: Sequence[MediaFile], ignores: MediaIgnores) -> list[MediaFileRead]:
+    in_duplicate = duplicate_file_ids(files)
+    return [
+        MediaFileRead(
+            id=row_id(f),
+            path=f.path,
+            size=f.size,
+            episode_label=f.episode_label,
+            is_current=f.is_current,
+            ignored=f.ignored,
+            ignorable=row_id(f) in in_duplicate,
+            ignore_rule_id=ignores.by_file_path.get(f.path),
+        )
+        for f in files
+    ]
+
+
+def _torrent_read(t: Torrent, ignores: MediaIgnores) -> TorrentRead:
+    return TorrentRead(
+        id=row_id(t),
+        hash=t.hash,
+        name=t.name,
+        save_path=t.save_path,
+        content_path=t.content_path,
+        size=t.size,
+        is_cross_seed=_is_cross_seed(t),
+        is_hardlinked=t.is_hardlinked,
+        matched_by_name=t.matched_by_name,
+        repairable=t.repairable,
+        not_imported=t.not_imported,
+        ignored=t.ignored,
+        ignorable=torrent_is_ignorable(t),
+        ignore_rule_id=ignores.by_torrent_hash.get(t.hash.lower()),
+        ratio=t.ratio,
+        seeders=t.seeders,
+        leechers=t.leechers,
+        added_on=t.added_on,
+        completed_on=t.completed_on,
+        trackers=[TrackerRead(**d) for d in json.loads(t.trackers_json)],
     )
 
 

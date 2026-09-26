@@ -60,19 +60,24 @@ const STATUS_CONFIG: Record<MediaStatus, { icon: typeof Copy; className: string 
   },
 }
 
-export function StatusBadge({ status }: { status: MediaStatus }) {
+export function StatusBadge({ status, muted = false }: { status: MediaStatus; muted?: boolean }) {
   const { t } = useI18n()
   const config = STATUS_CONFIG[status]
   const Icon = config.icon
+  // Alerte masquée : visible, mais barrée et neutre — rien n'est caché.
   return (
-    <Badge variant="outline" className={cn("border-transparent", config.className)}>
+    <Badge
+      variant="outline"
+      className={cn("border-transparent", muted ? "bg-muted text-muted-foreground line-through" : config.className)}
+      title={muted ? t("ignore.mutedHint") : undefined}
+    >
       <Icon className="size-3" />
       {t(`status.${status}`)}
     </Badge>
   )
 }
 
-export function StatusBadgeList({ statuses }: { statuses: MediaStatus[] }) {
+export function StatusBadgeList({ statuses, muted = [] }: { statuses: MediaStatus[]; muted?: MediaStatus[] }) {
   const { t } = useI18n()
   // Sain = aucune alerte. Les statuts informatifs s'affichent à côté, comme
   // un complément d'information (même découpage que le backend).
@@ -89,6 +94,9 @@ export function StatusBadgeList({ statuses }: { statuses: MediaStatus[] }) {
       )}
       {[...alerts, ...info].map((status) => (
         <StatusBadge key={status} status={status} />
+      ))}
+      {muted.map((status) => (
+        <StatusBadge key={`muted-${status}`} status={status} muted />
       ))}
     </div>
   )

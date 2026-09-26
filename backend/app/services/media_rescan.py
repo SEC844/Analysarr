@@ -32,6 +32,7 @@ from app.models.ids import row_id
 from app.models.media import ImportIssue, Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.services.arr_instances import arr_target_for, arr_targets
+from app.services.media_status import refresh_media_statuses
 from app.services.queue_issues import index_queue_issues, issue_rows_for
 from app.services.scan import (
     LibraryContext,
@@ -48,7 +49,6 @@ from app.services.scan.results import (
     series_files,
     sonarr_episodes,
 )
-from app.services.scan.statuses import apply_statuses
 from app.services.torrent_match import (
     FetchedTorrents,
     MediaView,
@@ -109,9 +109,9 @@ async def rescan_media(session: Session, settings: Settings, media: Media) -> Me
     files = await _rebuild_files(session, settings, media, target, entry, is_series)
     torrents = await _rebuild_torrents(session, settings, media, files)
 
-    apply_statuses(media, files, torrents, issues)
-    session.add(media)
-    session.commit()
+    # Fichiers, torrents et file d'attente viennent d'être enregistrés : même
+    # calcul que partout ailleurs, éléments ignorés compris.
+    refresh_media_statuses(session, media)
 
     # Visionnage : rafraîchi en direct pour ce média seulement (appels
     # restreints). Un échec laisse les chiffres du dernier scan.
@@ -195,10 +195,7 @@ async def _rescan_untracked(
     session.commit()
 
     torrents = await _rebuild_torrents(session, settings, media, files)
-    # Média non suivi : aucune file d'attente Sonarr/Radarr ne le concerne.
-    apply_statuses(media, files, torrents, [])
-    session.add(media)
-    session.commit()
+    refresh_media_statuses(session, media)
 
     await refresh_media_watch(session, media, settings)
     session.commit()

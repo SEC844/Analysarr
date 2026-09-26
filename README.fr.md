@@ -56,6 +56,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Réparation des hardlinks en un clic, avec repli par lien symbolique entre systèmes de fichiers.
 - Relance d'un import bloqué (rien n'est supprimé : le fichier déjà sur le disque est simplement redonné à Sonarr/Radarr).
 - Retrait d'un média dont il ne reste rien sur le disque, de Sonarr/Radarr.
+- **Ignorer ce qui est voulu** : le menu ⋯ ignore un torrent, garde volontairement un fichier (une VF et une VOSTFR côte à côte) ou masque une alerte d'un média — par exemple une vidéo de famille qu'aucun Radarr ne connaîtra. Un élément ignoré n'est jamais nettoyé, réparé ni touché par une automatisation, et il est **de nouveau signalé automatiquement dès que sa situation change**. Les alertes masquées restent visibles, barrées ; tout est listé dans Réglages → Éléments ignorés.
 - Recherche cross-seed ciblée par épisode, saison ou série intégrale.
 
 **Aide à la décision**
@@ -64,7 +65,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Tri « candidats au nettoyage » : les gros fichiers que personne n'a regardés depuis longtemps.
 
 **Confort au quotidien**
-- Filtres de la bibliothèque : type de média, état (sain / alerte), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
+- Filtres de la bibliothèque : type de média, état (sain / alerte / alertes masquées), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
 - **Analyses ciblées** : la flèche à côté de **Scanner** lance un seul service — Radarr, Sonarr, le serveur multimédia, le client torrent, la file d'attente, le visionnage ou Seer/Ombi — et chaque fiche média a son bouton **Analyser ce média**. Les deux sont bien plus rapides qu'un scan complet et laissent le reste du cache intact.
 - qBittorrent, Deluge ou Transmission : le client torrent est un réglage, tout le reste fonctionne à l'identique.

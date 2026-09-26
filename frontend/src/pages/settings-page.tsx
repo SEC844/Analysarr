@@ -17,6 +17,7 @@ import { PathsCard } from "@/components/settings/paths-card"
 import { PreferencesSection } from "@/components/settings/preferences-section"
 import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
+import { IgnoredSection } from "@/components/settings/ignored-section"
 import { TrashSection } from "@/components/settings/trash-section"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
@@ -55,6 +56,7 @@ const SECTION_GROUPS = [
       { id: "schedule", label: "settings.sections.schedule" },
       { id: "notifications", label: "settings.sections.notifications" },
       { id: "automations", label: "settings.sections.automations" },
+      { id: "ignored", label: "settings.sections.ignored" },
       { id: "widget", label: "settings.sections.widget" },
       { id: "preferences", label: "settings.sections.preferences" },
     ],
@@ -329,6 +331,8 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
           {section === "notifications" && <NotificationsSection />}
 
           {section === "automations" && <AutomationsSection />}
+
+          {section === "ignored" && <IgnoredSection />}
 
           {section === "widget" && <WidgetSection />}
 

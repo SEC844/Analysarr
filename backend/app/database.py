@@ -40,6 +40,9 @@ _CURRENT_SCHEMA_MARKERS = [
     ("torrentfile", "torrent_hash"),
     ("scanrun", "non_hardlink_count"),
     ("torrent", "not_imported"),
+    ("torrent", "ignored"),
+    ("mediafile", "ignored"),
+    ("media", "muted_statuses"),
 ]
 
 
@@ -192,6 +195,7 @@ def init_db() -> None:
     )
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.automation import Automation  # noqa: F401
+    from app.models.ignore import IgnoreRule  # noqa: F401
     from app.models.media import (  # noqa: F401
         EmbyUser,
         ImportIssue,

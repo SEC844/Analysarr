@@ -1,3 +1,5 @@
+import type { MutedStatusRead } from "@/types/ignores"
+
 /** Informations affichées à côté de « Sain » : couverture tracker, et saisons
  * téléchargées mais pas encore importées. */
 export const INFO_STATUSES: MediaStatus[] = ["tracker_unique", "cross_seed", "non_importe"]
@@ -36,6 +38,8 @@ export interface MediaListItem {
   title: string
   year: number | null
   statuses: MediaStatus[]
+  // Alertes masquées par l'utilisateur, affichées à part (barrées).
+  muted_statuses: MediaStatus[]
   reclaimable_bytes: number
   total_size: number
   has_poster: boolean
@@ -113,6 +117,11 @@ export interface MediaFileRead {
   size: number | null
   episode_label: string | null
   is_current: boolean
+  // Gardé volontairement ; `ignorable` : fait partie d'un doublon ;
+  // `ignore_rule_id` : règle à retirer pour ne plus le garder.
+  ignored: boolean
+  ignorable: boolean
+  ignore_rule_id: number | null
 }
 
 export interface TrackerRead {
@@ -133,6 +142,11 @@ export interface TorrentRead {
   repairable: boolean
   // Saisons téléchargées d'avance, pas encore importées : ni orphelin, ni nettoyé.
   not_imported: boolean
+  // Ignoré ; `ignorable` : orphelin ou non hardlinké, peut donc l'être ;
+  // `ignore_rule_id` : règle à retirer pour ne plus l'ignorer.
+  ignored: boolean
+  ignorable: boolean
+  ignore_rule_id: number | null
   ratio: number | null
   seeders: number | null
   leechers: number | null
@@ -196,6 +210,8 @@ export interface MediaDetail extends MediaListItem {
   missing_emby_episodes: string[]
   requests: MediaRequestRead[]
   import_issues: ImportIssueRead[]
+  // Règle de chaque alerte masquée, pour la réafficher.
+  muted_rules: MutedStatusRead[]
 }
 
 /** Fiche Sonarr/Radarr proposée pour rattacher un média non suivi. */
@@ -326,7 +342,7 @@ export interface MediaListParams {
   status?: MediaStatus[]
   /** "all" : le média porte TOUS les statuts cochés ; sinon au moins un. */
   match?: "all"
-  health?: "sain" | "alerte"
+  health?: "sain" | "alerte" | "masque"
   media_type?: MediaTypeFilter
   watch?: WatchFilter[]
   search?: string

@@ -21,8 +21,8 @@ from app.services.hardlink import (
     resolve_torrent_files,
     stat_inode,
 )
+from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available, ensure_writable, replace_blockers
-from app.services.scan.statuses import refresh_media_statuses
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,8 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
             Torrent.media_id == media.id,
             Torrent.is_hardlinked == False,  # noqa: E712
             Torrent.repairable == True,  # noqa: E712
+            # Ignoré : l'utilisateur a choisi de ne pas le réparer.
+            Torrent.ignored == False,  # noqa: E712
         )
     ).all()
     protected_torrents = session.exec(

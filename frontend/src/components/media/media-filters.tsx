@@ -29,6 +29,7 @@ const HEALTH_OPTIONS: [string, MessageKey][] = [
   ["all", "filters.allHealth"],
   ["sain", "filters.healthy"],
   ["alerte", "filters.alert"],
+  ["masque", "filters.muted"],
 ]
 const WATCH_OPTIONS: [WatchFilter, MessageKey][] = [
   ["never", "watch.filterNever"],
@@ -156,7 +157,7 @@ export function MediaFilters({ value, defaultSort, onChange }: MediaFiltersProps
 
       <Select
         value={value.health ?? "all"}
-        onValueChange={(v) => onChange({ ...value, health: v === "all" ? undefined : (v as "sain" | "alerte") })}
+        onValueChange={(v) => onChange({ ...value, health: v === "all" ? undefined : (v as NonNullable<MediaListParams["health"]>) })}
       >
         <SelectTrigger className="w-40">
           <SelectValue placeholder={t("filters.health")}>{labelOf(HEALTH_OPTIONS)}</SelectValue>

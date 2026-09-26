@@ -28,8 +28,8 @@ from app.schemas.media import (
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.hardlink import resolve_torrent_files
+from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
-from app.services.scan.statuses import refresh_media_statuses
 
 logger = logging.getLogger(__name__)
 

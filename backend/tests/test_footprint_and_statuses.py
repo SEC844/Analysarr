@@ -7,8 +7,8 @@ import pytest
 from app.models.media import ImportIssue, Media, MediaFile, MediaType, Torrent
 from app.services.cascade_delete import execute_delete
 from app.services.media_delete import build_delete_footprint
+from app.services.media_status import refresh_media_statuses
 from app.services.scan import alert_statuses, compute_statuses, is_healthy
-from app.services.scan.statuses import refresh_media_statuses
 from tests.test_trash import FakeTorrentClient, add_movie, add_torrent, patch_client
 
 

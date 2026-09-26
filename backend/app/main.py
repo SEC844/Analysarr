@@ -13,6 +13,7 @@ from app.routers import auth as auth_router
 from app.routers import automations as automations_router
 from app.routers import emby as emby_router
 from app.routers import history as history_router
+from app.routers import ignores as ignores_router
 from app.routers import media as media_router
 from app.routers import notifications as notifications_router
 from app.routers import scan as scan_router
@@ -179,6 +180,7 @@ app.include_router(scan_router.router, prefix="/api/scan", tags=["scan"])
 app.include_router(media_router.router, prefix="/api/media", tags=["media"])
 app.include_router(emby_router.router, prefix="/api/emby", tags=["emby"])
 app.include_router(history_router.router, prefix="/api/history", tags=["history"])
+app.include_router(ignores_router.router, prefix="/api/ignores", tags=["ignores"])
 app.include_router(notifications_router.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(automations_router.router, prefix="/api/automations", tags=["automations"])
 app.include_router(services_router.router, prefix="/api/services", tags=["services"])

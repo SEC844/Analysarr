@@ -19,6 +19,9 @@ function torrent(overrides: Partial<TorrentRead>): TorrentRead {
     matched_by_name: false,
     repairable: false,
     not_imported: false,
+    ignored: false,
+    ignorable: false,
+    ignore_rule_id: null,
     ratio: null,
     seeders: null,
     leechers: null,
@@ -32,7 +35,7 @@ function torrent(overrides: Partial<TorrentRead>): TorrentRead {
 function renderRow(overrides: Partial<TorrentRead>) {
   renderWithProviders(
     <ul>
-      <TorrentRow torrent={torrent(overrides)} />
+      <TorrentRow mediaId={7} torrent={torrent(overrides)} />
     </ul>,
   )
 }

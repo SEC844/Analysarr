@@ -101,11 +101,12 @@ def as_rule(automation: Automation) -> AutomationRule:
 
 def _concerned_torrents(trigger: str, torrents: list[Torrent]) -> list[Torrent]:
     """Torrents sur lesquels portent les conditions : les orphelins pour un
-    nettoyage, les non hardlinkés pour une réparation."""
+    nettoyage, les non hardlinkés pour une réparation. Un torrent ignoré n'est
+    jamais concerné."""
     if trigger == "orphan_detected":
-        return [t for t in torrents if is_orphan(t)]
+        return [t for t in torrents if is_orphan(t) and not t.ignored]
     if trigger == "non_hardlink_detected":
-        return [t for t in torrents if t.is_hardlinked is False and t.repairable]
+        return [t for t in torrents if t.is_hardlinked is False and t.repairable and not t.ignored]
     return list(torrents)
 
 

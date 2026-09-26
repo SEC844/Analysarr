@@ -16,6 +16,7 @@ import type { DiagnosticsResult } from "@/types/diagnostics"
 import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
+import type { IgnoreCreate, IgnoreRuleRead } from "@/types/ignores"
 import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
 import type { ServicesStatus } from "@/types/services"
 import type {
@@ -268,6 +269,19 @@ export function saveAutomationGuard(percent: number): Promise<AutomationGuard> {
 /** Reprise manuelle après une mise en pause automatique. */
 export function resumeAutomations(): Promise<AutomationGuard> {
   return request<AutomationGuard>("/api/automations/guard/resume", { method: "POST" })
+}
+
+// --- Éléments ignorés ---------------------------------------------------------
+export function listIgnores(): Promise<IgnoreRuleRead[]> {
+  return request<IgnoreRuleRead[]>("/api/ignores")
+}
+
+export function createIgnore(payload: IgnoreCreate): Promise<void> {
+  return request<void>("/api/ignores", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function deleteIgnore(id: number): Promise<void> {
+  return request<void>(`/api/ignores/${id}`, { method: "DELETE" })
 }
 
 // --- Corbeille ---------------------------------------------------------------
