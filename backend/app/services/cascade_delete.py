@@ -10,29 +10,21 @@ from app.schemas.media import (
     DeleteStepResult,
 )
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
+from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
-from app.services.scan.statuses import compute_statuses
+from app.services.scan.statuses import duplicate_groups, is_orphan
 
 
 def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile], list[Torrent]]:
     """Fichiers en doublon "non actuels" à supprimer directement, et torrents orphelins
-    à supprimer via qBittorrent. Utilisé identiquement par le preview et l'exécution."""
+    à supprimer via qBittorrent. Utilisé identiquement par le preview et l'exécution.
+    Un fichier gardé volontairement ou un torrent ignoré n'est jamais proposé :
+    les doublons sont cherchés parmi les autres fichiers seulement."""
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
 
-    groups: dict[str | None, list[MediaFile]] = {}
-    for f in files:
-        groups.setdefault(f.episode_label, []).append(f)
-
     duplicate_files: list[MediaFile] = []
-    for group_files in groups.values():
-        if len(group_files) <= 1:
-            continue
-        resolved = [(f.inode, f.device) for f in group_files if f.inode is not None]
-        confirmed_distinct = bool(resolved) and len(set(resolved)) > 1
-        unverifiable = not resolved
-        if not (confirmed_distinct or unverifiable):
-            continue
+    for group_files in duplicate_groups([f for f in files if not f.ignored]):
         candidates = [f for f in group_files if not f.is_current]
         if not candidates:
             # Aucun fichier marqué "actuel" (série non trouvée dans l'historique Sonarr,
@@ -43,8 +35,9 @@ def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile]
     # Un torrent "repairable" a le même contenu qu'un fichier actuellement
     # suivi par la bibliothèque (voir services/scan/statuses.py et torrent_match.py) :
     # ce n'est pas un vrai orphelin, le supprimer perdrait le fichier même que
-    # "Réparer les hardlinks" propose d'utiliser pour protéger le média.
-    orphan_torrents = [t for t in torrents if t.is_hardlinked is False and not t.repairable]
+    # "Réparer les hardlinks" propose d'utiliser pour protéger le média. Un
+    # torrent « non importé » (saisons prises d'avance) n'est pas un orphelin.
+    orphan_torrents = [t for t in torrents if is_orphan(t) and not t.ignored]
 
     return duplicate_files, orphan_torrents
 
@@ -106,12 +99,7 @@ async def execute_delete(session: Session, media: Media, settings: Settings) -> 
     # Le statut et l'espace récupérable affichés sont calculés au moment du scan : sans
     # ce recalcul, la fiche resterait "doublon"/"orphelin_qbit" jusqu'au prochain scan
     # complet alors que les éléments concernés viennent d'être supprimés.
-    remaining_files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
-    remaining_torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
-    statuses, reclaimable = compute_statuses(list(remaining_files), list(remaining_torrents), bool(media.emby_item_id))
-    media.statuses = ",".join(sorted(statuses))
-    media.reclaimable_bytes = reclaimable
-    session.add(media)
+    refresh_media_statuses(session, media)
     session.commit()
 
     return DeleteExecuteResult(steps=steps)

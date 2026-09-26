@@ -50,7 +50,7 @@ export function MediaCard({ media }: { media: MediaListItem }) {
             </p>
           )}
         </div>
-        <StatusBadgeList statuses={media.statuses} />
+        <StatusBadgeList statuses={media.statuses} muted={media.muted_statuses} />
         {(showQuota || showSize || showRequester || showReclaimable) && (
           <div className="text-muted-foreground mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs">
             {showQuota && (

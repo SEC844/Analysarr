@@ -32,6 +32,7 @@ from app.models.ids import row_id
 from app.models.media import ImportIssue, Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.services.arr_instances import arr_target_for, arr_targets
+from app.services.media_status import refresh_media_statuses
 from app.services.queue_issues import index_queue_issues, issue_rows_for
 from app.services.scan import (
     LibraryContext,
@@ -40,8 +41,6 @@ from app.services.scan import (
     _pick_series_item,
     build_untracked_movie,
     build_untracked_series,
-    compute_statuses,
-    current_files_size,
 )
 from app.services.scan.results import (
     apply_media_server_item,
@@ -110,19 +109,9 @@ async def rescan_media(session: Session, settings: Settings, media: Media) -> Me
     files = await _rebuild_files(session, settings, media, target, entry, is_series)
     torrents = await _rebuild_torrents(session, settings, media, files)
 
-    statuses, reclaimable = compute_statuses(
-        files,
-        torrents,
-        bool(media.emby_item_id),
-        len([label for label in media.missing_emby_episodes.split(",") if label]),
-        {i.download_id.lower() for i in issues if i.download_id},
-        {i.kind for i in issues},
-    )
-    media.statuses = ",".join(sorted(statuses))
-    media.reclaimable_bytes = reclaimable
-    media.total_size = current_files_size(files)
-    session.add(media)
-    session.commit()
+    # Fichiers, torrents et file d'attente viennent d'être enregistrés : même
+    # calcul que partout ailleurs, éléments ignorés compris.
+    refresh_media_statuses(session, media)
 
     # Visionnage : rafraîchi en direct pour ce média seulement (appels
     # restreints). Un échec laisse les chiffres du dernier scan.
@@ -133,7 +122,7 @@ async def rescan_media(session: Session, settings: Settings, media: Media) -> Me
         files=len(files),
         torrents=len(torrents),
         import_issues=len(issues),
-        statuses=sorted(statuses),
+        statuses=_statuses(media),
     )
 
 
@@ -206,16 +195,15 @@ async def _rescan_untracked(
     session.commit()
 
     torrents = await _rebuild_torrents(session, settings, media, files)
-    statuses, reclaimable = compute_statuses(files, torrents, bool(media.emby_item_id), tracked_by_arr=False)
-    media.statuses = ",".join(sorted(statuses))
-    media.reclaimable_bytes = reclaimable
-    media.total_size = current_files_size(files)
-    session.add(media)
-    session.commit()
+    refresh_media_statuses(session, media)
 
     await refresh_media_watch(session, media, settings)
     session.commit()
-    return MediaRescanResult(files=len(files), torrents=len(torrents), statuses=sorted(statuses))
+    return MediaRescanResult(files=len(files), torrents=len(torrents), statuses=_statuses(media))
+
+
+def _statuses(media: Media) -> list[str]:
+    return [status for status in media.statuses.split(",") if status]
 
 
 def _delete_media(session: Session, media: Media) -> None:

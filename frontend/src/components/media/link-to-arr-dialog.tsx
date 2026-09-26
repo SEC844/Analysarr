@@ -3,6 +3,7 @@ import { CheckCircle2, Link2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
+import { MuteStatusButton } from "@/components/media/ignore-actions"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -279,6 +280,11 @@ export function LinkToArrDialog({ media }: { media: MediaDetail }) {
         )}
 
         <DialogFooter>
+          {/* Aucune fiche chez Sonarr/Radarr : le média ne pourra pas être
+              rattaché, l'alerte peut être masquée d'ici même. */}
+          {preview.data?.candidates.length === 0 && (
+            <MuteStatusButton mediaId={media.id} status="manquant_arr" onDone={() => handleOpenChange(false)} />
+          )}
           {(preview.data?.candidates.length ?? 0) > 0 && (
             <Button type="button" disabled={!canLink || linkMutation.isPending} onClick={handleLink}>
               {linkMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}

@@ -21,8 +21,8 @@ from app.services.hardlink import (
     resolve_torrent_files,
     stat_inode,
 )
+from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available, ensure_writable, replace_blockers
-from app.services.scan.statuses import compute_statuses
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,8 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
             Torrent.media_id == media.id,
             Torrent.is_hardlinked == False,  # noqa: E712
             Torrent.repairable == True,  # noqa: E712
+            # Ignoré : l'utilisateur a choisi de ne pas le réparer.
+            Torrent.ignored == False,  # noqa: E712
         )
     ).all()
     protected_torrents = session.exec(
@@ -324,10 +326,7 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
             t.is_hardlinked = True
             session.add(t)
 
-    statuses, reclaimable = compute_statuses(list(all_files), list(all_torrents), bool(media.emby_item_id))
-    media.statuses = ",".join(sorted(statuses))
-    media.reclaimable_bytes = reclaimable
-    session.add(media)
+    refresh_media_statuses(session, media)
     session.commit()
 
     return HardlinkRepairResult(steps=steps, freed_bytes=freed_bytes)

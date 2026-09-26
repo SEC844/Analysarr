@@ -4,6 +4,7 @@ automatisations. Le verrou unique et le lancement vivent dans le package
 
 import logging
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlmodel import Session, delete, select
 
@@ -41,9 +42,19 @@ from app.services.scan.results import MediaBuildResult
 from app.services.scan.statuses import DETECTION_EVENTS
 from app.services.torrent_match import FetchedTorrents, persist_files
 
+if TYPE_CHECKING:
+    from app.services.ignores import IgnoreSet
+
 logger = logging.getLogger("analysarr.scan")
 
 
+
+
+def _load_ignores(session: Session) -> "IgnoreSet":
+    # import local : ignores importe scan.statuses, donc ce package (cycle)
+    from app.services.ignores import IgnoreSet
+
+    return IgnoreSet.load(session)
 
 async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
     settings, radarr_targets, sonarr_targets, channels, run_id = _start_run(trigger, scope)
@@ -57,14 +68,20 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         await _fail_scan(run_id, f"Services non configurés : {', '.join(missing)}.", channels, settings)
         return
 
+    with Session(engine) as session:
+        ignores = _load_ignores(session)
     try:
-        results, fetched_torrents, emby_users = await _collect(settings, run_id, radarr_targets, sonarr_targets)
+        results, fetched_torrents, emby_users = await _collect(
+            settings, run_id, radarr_targets, sonarr_targets, ignores
+        )
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
         await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", channels, settings)
         return
 
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
-    previously_flagged, counts, summary = _store_results(run_id, settings, results, fetched_torrents, emby_users)
+    previously_flagged, counts, summary = _store_results(
+        run_id, settings, results, fetched_torrents, emby_users, ignores
+    )
 
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
     notify(channels, "scan_completed", summary)
@@ -111,6 +128,7 @@ def _store_results(
     results: list[MediaBuildResult],
     fetched_torrents: FetchedTorrents,
     emby_users: list[EmbyUser],
+    ignores: "IgnoreSet",
 ) -> tuple[dict[str, set[tuple[str, str, int | None]]], dict[str, int], Notification]:
     """Remplace le cache par le résultat du scan et clôt l'analyse. Une seule
     session : les médias restent lisibles pour les notifications qui suivent."""
@@ -120,6 +138,9 @@ def _store_results(
         # Fichiers des torrents : mémorisés pour que les analyses par service
         # recalculent les hardlinks sans rappeler le client torrent.
         persist_files(session, fetched_torrents)
+        # Situations des éléments ignorés : adoptées, ou règles retirées si
+        # elles ont changé (voir services/ignores.py).
+        ignores.persist(session)
         run = _complete_run(session, run_id, results, fetched_torrents)
         counts = {
             "media_count": run.media_count,

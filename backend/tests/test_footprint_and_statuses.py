@@ -4,9 +4,12 @@ import os
 
 import pytest
 
-from app.models.media import Media, MediaFile, MediaType, Torrent
+from app.models.media import ImportIssue, Media, MediaFile, MediaType, Torrent
+from app.services.cascade_delete import execute_delete
 from app.services.media_delete import build_delete_footprint
+from app.services.media_status import refresh_media_statuses
 from app.services.scan import alert_statuses, compute_statuses, is_healthy
+from tests.test_trash import FakeTorrentClient, add_movie, add_torrent, patch_client
 
 
 def test_hardlinked_copies_share_a_single_disk_unit(session, settings, tmp_path):
@@ -157,3 +160,42 @@ def test_the_watch_filter_accepts_several_values(admin_client, session):
 
     listed = admin_client.get("/api/media?watch=never,in_progress").json()["items"]
     assert sorted(item["title"] for item in listed) == ["En cours", "Jamais vu"]
+
+
+def test_an_action_keeps_every_source_of_the_statuses(session, settings, tmp_path, monkeypatch):
+    """Bug réel : après « Nettoyer », « Réparer » ou une suppression, les
+    statuts étaient recalculés sans la file d'attente, les épisodes absents du
+    serveur multimédia ni le suivi Sonarr/Radarr — un média non suivi perdait
+    son alerte « Non suivi » jusqu'au scan suivant."""
+    patch_client(monkeypatch, FakeTorrentClient())
+    media, _row = add_movie(session, tmp_path, emby_item_id="lib-1", statuses="manquant_arr,orphelin_qbit")
+    add_torrent(session, media, tmp_path)  # orphelin, supprimé par le nettoyage
+
+    asyncio.run(execute_delete(session, media, settings))
+
+    session.refresh(media)
+    assert "orphelin_qbit" not in media.statuses.split(",")
+    assert "manquant_arr" in media.statuses.split(",")
+
+
+def test_refreshing_a_media_reads_its_queue_and_missing_episodes(session):
+    media = Media(
+        media_type=MediaType.series, title="Dark", sonarr_id=7, emby_item_id="e", missing_emby_episodes="S01E02"
+    )
+    session.add(media)
+    session.commit()
+    session.add_all(
+        [
+            MediaFile(media_id=media.id, path="/lib/S01E01.mkv", episode_label="S01E01", is_current=True, size=5),
+            Torrent(media_id=media.id, hash="blocked", name="Dark.S01E03", is_hardlinked=False),
+            ImportIssue(media_id=media.id, kind="import", download_id="BLOCKED", title="Dark.S01E03"),
+        ]
+    )
+    session.commit()
+
+    refresh_media_statuses(session, media)
+
+    statuses = media.statuses.split(",")
+    assert {"manquant_emby", "import_rate"} <= set(statuses)
+    assert "orphelin_qbit" not in statuses  # son import est bloqué : ce n'est pas un orphelin
+    assert media.total_size == 5

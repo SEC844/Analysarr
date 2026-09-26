@@ -31,6 +31,10 @@ function torrent(id: number, name: string, size: number): TorrentRead {
     is_hardlinked: true,
     matched_by_name: false,
     repairable: false,
+    not_imported: false,
+    ignored: false,
+    ignorable: false,
+    ignore_rule_id: null,
     ratio: 1.5,
     seeders: 3,
     leechers: 0,
@@ -41,7 +45,16 @@ function torrent(id: number, name: string, size: number): TorrentRead {
 }
 
 function file(id: number, name: string, size: number, isCurrent: boolean): MediaFileRead {
-  return { id, path: `/data/media/movies/Inception (2010)/${name}`, size, episode_label: null, is_current: isCurrent }
+  return {
+    id,
+    path: `/data/media/movies/Inception (2010)/${name}`,
+    size,
+    episode_label: null,
+    is_current: isCurrent,
+    ignored: false,
+    ignorable: false,
+    ignore_rule_id: null,
+  }
 }
 
 const MEDIA: MediaDetail = {
@@ -50,6 +63,7 @@ const MEDIA: MediaDetail = {
   title: "Inception",
   year: 2010,
   statuses: ["doublon"],
+  muted_statuses: [],
   reclaimable_bytes: 2000,
   total_size: 3000,
   has_poster: false,
@@ -74,6 +88,7 @@ const MEDIA: MediaDetail = {
   missing_emby_episodes: [],
   requests: [],
   import_issues: [],
+  muted_rules: [],
 }
 
 async function openDialog(onMediaDeleted = vi.fn()) {

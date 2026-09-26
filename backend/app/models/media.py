@@ -48,9 +48,14 @@ class Media(SQLModel, table=True):
     root_path: str | None = None
     alt_titles: str = ""
 
-    # Liste de statuts séparés par des virgules parmi doublon/orphelin_qbit/tracker_unique.
-    # Vide = sain. Un média peut cumuler plusieurs statuts.
+    # Statuts séparés par des virgules (liste fermée : scan/statuses.py). Un
+    # média peut en cumuler plusieurs ; aucun statut d'alerte = sain.
     statuses: str = ""
+
+    # Alertes masquées par l'utilisateur tant que leur situation ne change pas
+    # (services/ignores.py). Retirées de `statuses` : elles ne comptent ni pour
+    # la santé, ni pour les filtres, les notifications ou les automatisations.
+    muted_statuses: str = ""
 
     # Séries uniquement : épisodes que Sonarr a téléchargés (episodeFile
     # existant) mais qu'Emby n'a PAS repris dans sa bibliothèque, ex "S05E07,
@@ -117,6 +122,11 @@ class MediaFile(SQLModel, table=True):
     # non gérés par Sonarr/Radarr, candidats à la suppression directe.
     is_current: bool = False
 
+    # Gardé volontairement (ex : VF et VOSTFR côte à côte) : ne compte plus
+    # comme doublon et n'est jamais nettoyé. Recalculé à chaque analyse depuis
+    # les règles de services/ignores.py.
+    ignored: bool = False
+
 
 class Torrent(SQLModel, table=True):
     """Torrent qBittorrent, rattaché à un Média si l'historique Sonarr/Radarr
@@ -160,6 +170,18 @@ class Torrent(SQLModel, table=True):
     # contenu fait foi. False = torrent sans lien de contenu avec un fichier
     # actuel (vrai orphelin, ex: ancienne qualité remplacée par un upgrade).
     repairable: bool = False
+
+    # True si is_hardlinked=False, sans être réparable, et qu'AUCUNE des
+    # saisons du torrent n'a de fichier dans la bibliothèque (séries
+    # seulement) : saisons téléchargées d'avance, pas encore importées
+    # (issue #41). Ce n'est pas un orphelin — un orphelin est une ancienne
+    # version d'épisodes présents — et il n'est jamais proposé au nettoyage.
+    not_imported: bool = False
+
+    # Ignoré par l'utilisateur : n'est plus signalé orphelin ni non hardlinké,
+    # n'est jamais nettoyé, réparé ni touché par une automatisation. Recalculé
+    # à chaque analyse depuis les règles de services/ignores.py.
+    ignored: bool = False
 
     # Données qBittorrent affichées sur la fiche détail (ratio, popularité, ancienneté).
     ratio: float | None = None

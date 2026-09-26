@@ -28,8 +28,8 @@ from app.schemas.media import (
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.hardlink import resolve_torrent_files
+from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
-from app.services.scan.statuses import compute_statuses, current_files_size
 
 logger = logging.getLogger(__name__)
 
@@ -309,10 +309,6 @@ def _refresh_media(session: Session, media: Media) -> bool:
 
     # Recalcul immédiat : sans ça, la fiche resterait fausse (statuts et
     # espace récupérable) jusqu'au prochain scan complet.
-    statuses, reclaimable = compute_statuses(list(remaining_files), list(remaining_torrents), bool(media.emby_item_id))
-    media.statuses = ",".join(sorted(statuses))
-    media.reclaimable_bytes = reclaimable
-    media.total_size = current_files_size(list(remaining_files))
-    session.add(media)
+    refresh_media_statuses(session, media)
     session.commit()
     return False

@@ -398,6 +398,12 @@ def _torrents_by_media(
         torrent_row.is_hardlinked = None if not fetched.file_inodes[pos] else attachment.protected[pos]
         if torrent_row.is_hardlinked is False and _same_content_as_library(views[index], fetched.file_details[pos]):
             torrent_row.repairable = True
+        if (
+            torrent_row.is_hardlinked is False
+            and not torrent_row.repairable
+            and _outside_library(views[index], fetched.file_details[pos])
+        ):
+            torrent_row.not_imported = True
         by_media[index].append(torrent_row)
     return by_media
 
@@ -418,6 +424,21 @@ def _same_content_as_library(view: MediaView, file_details: list[tuple[str, int 
         if current is not None and current.size == size:
             return True
     return False
+
+
+def _outside_library(view: MediaView, file_details: list[tuple[str, int | None]]) -> bool:
+    """Série dont le torrent ne porte QUE des saisons absentes de la
+    bibliothèque : téléchargées d'avance, pas encore importées (issue #41).
+
+    Comparaison à la saison, volontairement prudente : un vrai orphelin est une
+    ancienne version d'épisodes présents, donc d'une saison présente — il ne
+    passe jamais pour « non importé ». Un torrent dont aucun fichier ne porte
+    de numéro d'épisode reste un orphelin : rien ne permet de le situer."""
+    if view.media_type != MediaType.series:
+        return False
+    torrent_seasons = {label[:3] for name, _size in file_details if (label := episode_label_from_filename(name))}
+    library_seasons = {f.episode_label[:3] for f in view.files if f.episode_label}
+    return bool(torrent_seasons) and torrent_seasons.isdisjoint(library_seasons)
 
 
 def persist_files(session: Session, fetched: FetchedTorrents) -> None:

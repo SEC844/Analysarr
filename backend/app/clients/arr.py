@@ -113,19 +113,22 @@ class RadarrClient(ArrClient):
             raise
 
     async def find_movie(self, tmdb_id: int | None, imdb_id: str | None) -> dict[str, Any] | None:
-        """Film DÉJÀ suivi par cette instance, retrouvé par identifiant externe.
-        Sert après un rattachement : la fiche Analysarr doit adopter l'identité
-        Radarr sans attendre le prochain scan complet."""
-        for params in ({"tmdbId": tmdb_id} if tmdb_id else None, {"imdbId": imdb_id} if imdb_id else None):
-            if params is None:
-                continue
-            try:
-                found = await self._get("/api/v3/movie", params=params)
-            except httpx.HTTPStatusError:
-                continue
-            for movie in found or []:
-                if isinstance(movie, dict) and movie.get("id"):
-                    return movie
+        """Film DÉJÀ suivi par cette instance, retrouvé par identifiant externe
+        (rattachement d'un média non suivi, restauration depuis la corbeille).
+
+        `GET /api/v3/movie` ne filtre QUE par `tmdbId` (vérifié dans
+        `MovieController.AllMovie` de Radarr) : un `imdbId` passé en paramètre
+        est ignoré et TOUS les films reviennent. Bug réel : le premier film de
+        la bibliothèque passait pour « déjà suivi », et une restauration ne
+        recréait jamais la fiche supprimée. Chaque résultat est donc vérifié,
+        et l'IMDb est cherché dans la liste complète."""
+        if tmdb_id:
+            found = await self._get("/api/v3/movie", params={"tmdbId": tmdb_id})
+            match = _first_with(found, "tmdbId", tmdb_id)
+            if match is not None or not imdb_id:
+                return match
+        if imdb_id:
+            return _first_with(await self.get_movies(), "imdbId", imdb_id)
         return None
 
     async def get_history_for_movie(self, movie_id: int) -> list[dict[str, Any]]:
@@ -224,14 +227,7 @@ class SonarrClient(ArrClient):
         Sonarr ne filtre que par identifiant TVDB."""
         if not tvdb_id:
             return None
-        try:
-            found = await self._get("/api/v3/series", params={"tvdbId": tvdb_id})
-        except httpx.HTTPStatusError:
-            return None
-        for series in found or []:
-            if isinstance(series, dict) and series.get("id"):
-                return series
-        return None
+        return _first_with(await self._get("/api/v3/series", params={"tvdbId": tvdb_id}), "tvdbId", tvdb_id)
 
     async def get_episode_files(self, series_id: int) -> list[dict[str, Any]]:
         return await self._get("/api/v3/episodefile", params={"seriesId": series_id})
@@ -308,3 +304,13 @@ class SonarrClient(ArrClient):
         if not episode_ids:
             return
         await self._put("/api/v3/episode/monitor", json={"episodeIds": episode_ids, "monitored": monitored})
+
+
+def _first_with(items: Any, field: str, value: object) -> dict[str, Any] | None:
+    """Élément suivi (`id` attribué) dont `field` vaut exactement `value` : un
+    filtre ignoré par Sonarr/Radarr ne doit jamais faire passer n'importe quel
+    média pour celui cherché."""
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and item.get("id") and item.get(field) == value:
+            return item
+    return None

@@ -1,6 +1,8 @@
 """Statuts d'un média : liste fermée, calcul à partir de ses fichiers et torrents."""
 
 import json
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 
 from app.models.media import Media, MediaFile, Torrent
 from app.services.queue_issues import IMPORT_KIND, STALLED_KIND
@@ -18,11 +20,13 @@ MEDIA_STATUSES = (
     "manquant_arr",
     "import_rate",
     "telechargement_bloque",
+    "non_importe",
 )
 
-# Statuts purement informatifs : ils décrivent la couverture tracker et
-# n'empêchent jamais un média d'être sain (voir `is_healthy`).
-INFO_STATUSES = frozenset({"tracker_unique", "cross_seed"})
+# Statuts purement informatifs : couverture tracker, et saisons téléchargées
+# mais pas encore importées. Ils n'empêchent jamais un média d'être sain
+# (voir `is_healthy`).
+INFO_STATUSES = frozenset({"tracker_unique", "cross_seed", "non_importe"})
 
 
 def alert_statuses(statuses: set[str] | list[str]) -> set[str]:
@@ -62,6 +66,25 @@ def is_tracked_by_arr(media: Media) -> bool:
     return media.radarr_id is not None or media.sonarr_id is not None
 
 
+# Statuts calculés sur l'état de hardlink des torrents : tant qu'un torrent
+# n'a pas pu être évalué (chemins inaccessibles), leur situation est
+# incertaine et une alerte masquée n'est ni confirmée ni réactivée.
+HARDLINK_STATUSES = frozenset({"orphelin_qbit", "non_hardlink", "manquant_qbit"})
+
+
+@dataclass
+class StatusEvaluation:
+    statuses: set[str]
+    # Espace récupérable par statut (doublons, torrents orphelins) : masquer
+    # l'alerte retire aussi son espace du total affiché.
+    reclaimable: dict[str, int] = field(default_factory=dict)
+    # Ce qui déclenche chaque alerte (fichiers, torrents, téléchargements en
+    # cause). Une alerte masquée revient dès que cette situation change.
+    situations: dict[str, str] = field(default_factory=dict)
+    # Alertes dont la situation n'a pas pu être évaluée cette fois-ci.
+    uncertain: set[str] = field(default_factory=set)
+
+
 def compute_statuses(
     files: list[MediaFile],
     torrents: list[Torrent],
@@ -72,6 +95,33 @@ def compute_statuses(
     tracked_by_arr: bool = True,
 ) -> tuple[set[str], int]:
     """Statuts du média et espace récupérable (doublons + torrents orphelins)."""
+    evaluation = evaluate_statuses(
+        files,
+        torrents,
+        has_emby_item,
+        missing_emby_episode_count,
+        import_blocked_hashes,
+        queue_kinds,
+        tracked_by_arr,
+    )
+    return evaluation.statuses, sum(evaluation.reclaimable.values())
+
+
+def evaluate_statuses(
+    files: list[MediaFile],
+    torrents: list[Torrent],
+    has_emby_item: bool,
+    missing_emby_episode_count: int = 0,
+    import_blocked_hashes: set[str] | None = None,
+    queue_kinds: set[str] | None = None,
+    tracked_by_arr: bool = True,
+) -> StatusEvaluation:
+    """Statuts, espace récupérable par statut et situation de chaque alerte.
+
+    Un fichier gardé volontairement ou un torrent ignoré (`ignored`, voir
+    services/ignores.py) ne déclenche plus d'alerte le concernant — doublon,
+    orphelin, non hardlinké. Un torrent réparable ignoré seede pourtant
+    toujours le média : il compte encore contre « non seedé »."""
     # Un torrent dont Sonarr/Radarr attend encore l'import n'est ni un
     # orphelin ni une copie à réparer : son fichier n'a simplement pas encore
     # rejoint la bibliothèque. Le proposer au nettoyage supprimerait le
@@ -79,49 +129,97 @@ def compute_statuses(
     blocked = import_blocked_hashes or set()
     torrents = [t for t in torrents if (t.hash or "").lower() not in blocked]
     kinds = queue_kinds or set()
+    found = _Findings.of(files, torrents)
 
-    duplicate_bytes = _duplicate_bytes(files)
-    orphan_bytes = _orphan_bytes(torrents)
-    # Un torrent réparable : ce média EST bien seedé — juste pas protégé par
-    # hardlink. Statut distinct d'orphelin_qbit pour ne pas afficher "non
-    # seedé" à tort, avec son propre filtre et son action de réparation.
-    has_repairable = any(t.is_hardlinked is False and t.repairable for t in torrents)
     present = {
-        "doublon": duplicate_bytes is not None,
-        "orphelin_qbit": orphan_bytes is not None,
-        "non_hardlink": has_repairable,
+        "doublon": bool(found.duplicates),
+        "orphelin_qbit": bool(found.orphans),
+        "non_hardlink": bool(found.repairables),
         "manquant_emby": _missing_from_media_server(files, has_emby_item, missing_emby_episode_count, kinds),
         # Présent dans la bibliothèque mais suivi par aucun Radarr/Sonarr : pas
         # de mise à jour de qualité, pas de suppression propre, pas de renommage.
         "manquant_arr": not tracked_by_arr,
-        "manquant_qbit": _missing_from_torrent_client(torrents, has_repairable, kinds),
+        # Un torrent réparable : ce média EST bien seedé — juste pas protégé
+        # par hardlink, même ignoré.
+        "manquant_qbit": _missing_from_torrent_client(torrents, any(_is_repairable(t) for t in torrents), kinds),
+        "non_importe": found.not_imported,
     }
-    statuses = {status for status, is_present in present.items() if is_present}
-    statuses |= _queue_statuses(kinds)
+    statuses = {status for status, is_present in present.items() if is_present} | _queue_statuses(kinds)
     coverage = _tracker_coverage(torrents)
     if coverage is not None:
         statuses.add(coverage)
-    return statuses, (duplicate_bytes or 0) + (orphan_bytes or 0)
+
+    queue = ",".join(sorted(blocked | kinds))
+    return StatusEvaluation(
+        statuses=statuses,
+        reclaimable={
+            "doublon": _duplicate_bytes(found.active_files) or 0,
+            "orphelin_qbit": _orphan_bytes(found.orphans) or 0,
+        },
+        situations={
+            "doublon": _joined(f.path for f in found.duplicates),
+            "orphelin_qbit": _joined(t.hash.lower() for t in found.orphans),
+            "non_hardlink": _joined(t.hash.lower() for t in found.repairables),
+            "manquant_emby": f"{has_emby_item}:{missing_emby_episode_count}",
+            "import_rate": queue,
+            "telechargement_bloque": queue,
+        },
+        uncertain=set(HARDLINK_STATUSES) if any(t.is_hardlinked is None for t in torrents) else set(),
+    )
 
 
-def _duplicate_bytes(files: list[MediaFile]) -> int | None:
-    """Espace récupérable sur les doublons, ou None s'il n'y en a pas. Un
-    épisode (ou le film) a un doublon quand plusieurs fichiers le portent et
-    que leurs inodes sont différents — ou ne peuvent pas être vérifiés."""
+@dataclass
+class _Findings:
+    """Ce qui déclenche les alertes liées aux fichiers et aux torrents, hors
+    éléments ignorés."""
+
+    active_files: list[MediaFile]
+    duplicates: list[MediaFile]
+    orphans: list[Torrent]
+    repairables: list[Torrent]
+    not_imported: bool
+
+    @classmethod
+    def of(cls, files: list[MediaFile], torrents: list[Torrent]) -> "_Findings":
+        active_files = [f for f in files if not f.ignored]
+        active_torrents = [t for t in torrents if not t.ignored]
+        return cls(
+            active_files=active_files,
+            duplicates=[f for group in duplicate_groups(active_files) for f in group],
+            orphans=[t for t in active_torrents if is_orphan(t)],
+            repairables=[t for t in active_torrents if _is_repairable(t)],
+            not_imported=any(t.not_imported for t in active_torrents),
+        )
+
+
+def _joined(values: Iterable[str]) -> str:
+    return "\n".join(sorted(values))
+
+
+def duplicate_groups(files: Sequence[MediaFile]) -> list[list[MediaFile]]:
+    """Fichiers en doublon, par épisode (ou pour le film) : plusieurs fichiers
+    le portent et leurs inodes sont différents — ou ne peuvent pas être
+    vérifiés. Des hardlinks d'un même fichier ne sont pas des doublons."""
     groups: dict[str | None, list[MediaFile]] = {}
     for f in files:
         groups.setdefault(f.episode_label, []).append(f)
-
-    total: int | None = None
+    duplicates = []
     for group_files in groups.values():
         if len(group_files) <= 1:
             continue
         resolved = [(f.inode, f.device) for f in group_files if f.inode is not None]
-        confirmed_distinct = bool(resolved) and len(set(resolved)) > 1
-        if confirmed_distinct or not resolved:
-            sizes = sorted((f.size or 0 for f in group_files), reverse=True)
-            total = (total or 0) + sum(sizes[1:])
-    return total
+        if not resolved or len(set(resolved)) > 1:
+            duplicates.append(group_files)
+    return duplicates
+
+
+def _duplicate_bytes(files: list[MediaFile]) -> int | None:
+    """Espace récupérable sur les doublons, ou None s'il n'y en a pas : tous
+    les fichiers d'un groupe sauf le plus gros."""
+    groups = duplicate_groups(files)
+    if not groups:
+        return None
+    return sum(sum(sorted((f.size or 0 for f in group), reverse=True)[1:]) for group in groups)
 
 
 def _orphan_bytes(torrents: list[Torrent]) -> int | None:
@@ -132,8 +230,9 @@ def _orphan_bytes(torrents: list[Torrent]) -> int | None:
     pas un orphelin à supprimer mais un candidat à la réparation de hardlink.
     Plusieurs orphelins peuvent être des copies cross-seed d'une même ancienne
     version (même inode entre eux) : supprimer l'un ne libère rien tant qu'un
-    autre pointe vers ce fichier, chaque inode n'est donc compté qu'une fois."""
-    orphans = [t for t in torrents if t.is_hardlinked is False and not t.repairable]
+    autre pointe vers ce fichier, chaque inode n'est donc compté qu'une fois.
+    Un torrent « non importé » (saisons prises d'avance) n'est pas un orphelin."""
+    orphans = [t for t in torrents if is_orphan(t)]
     if not orphans:
         return None
     total = 0
@@ -146,6 +245,16 @@ def _orphan_bytes(torrents: list[Torrent]) -> int | None:
             seen_inodes.add(key)
         total += t.size or 0
     return total
+
+
+def _is_repairable(torrent: Torrent) -> bool:
+    return torrent.is_hardlinked is False and torrent.repairable
+
+
+def is_orphan(torrent: Torrent) -> bool:
+    """Vrai orphelin : ni protégé, ni réparable, ni simplement pas encore
+    importé. Seule définition utilisée par le nettoyage et les automatisations."""
+    return torrent.is_hardlinked is False and not torrent.repairable and not torrent.not_imported
 
 
 def _tracker_coverage(torrents: list[Torrent]) -> str | None:

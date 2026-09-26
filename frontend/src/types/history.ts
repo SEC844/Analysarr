@@ -7,6 +7,9 @@ export type ActionKind =
   | "automation"
   | "trash_restore"
   | "arr_link"
+  | "ignore"
+  | "unignore"
+  | "ignore_expired"
 
 export interface ActionStep {
   label: string

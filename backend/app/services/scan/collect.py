@@ -3,7 +3,7 @@ torrents et calcul des statuts. Une fonction par source, dans l'ordre du scan.""
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -22,7 +22,6 @@ from app.services.scan.results import (
     build_series_result,
     build_untracked_results,
 )
-from app.services.scan.statuses import compute_statuses, current_files_size, is_tracked_by_arr
 from app.services.seer import build_request_rows, fetch_request_index, seer_client
 from app.services.torrent_match import FetchedTorrents, MediaView, attach_torrents, fetch_torrents
 from app.services.watch_stats import (
@@ -32,6 +31,10 @@ from app.services.watch_stats import (
     excluded_user_ids,
     users_from_api,
 )
+
+if TYPE_CHECKING:
+    # Import différé : ignores → scan.statuses → package scan → collect.
+    from app.services.ignores import IgnoreSet
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +48,12 @@ async def _collect(
     run_id: int,
     radarr_targets: list[ArrTarget],
     sonarr_targets: list[ArrTarget],
+    ignores: "IgnoreSet",
 ) -> tuple[list[MediaBuildResult], FetchedTorrents, list[EmbyUser]]:
     """Instances Radarr/Sonarr : la principale d'abord, puis les
     supplémentaires (voir services/arr_instances.py). Chaque film/série suivi
-    par une instance donne un média distinct."""
+    par une instance donne un média distinct. Les éléments ignorés sont
+    appliqués aux statuts ; l'appelant enregistre `ignores`."""
     # Garanti par l'appelant (réglages complets) ; vérifié ici plutôt que par
     # assert, que `python -O` supprimerait.
     emby = media_server_client(settings)
@@ -88,7 +93,7 @@ async def _collect(
     await progress("qbittorrent")
     fetched = await fetch_torrents(settings)
     _attach(settings, results, fetched, hash_to_index)
-    _apply_statuses(results)
+    _apply_statuses(results, ignores)
 
     await progress("visionnage")
     emby_users = await _apply_watch_stats(settings, emby, results)
@@ -252,25 +257,17 @@ def _attach(
         result.torrents.extend(torrents_of_media)
 
 
-def _apply_statuses(results: list[MediaBuildResult]) -> None:
+def _apply_statuses(results: list[MediaBuildResult], ignores: "IgnoreSet") -> None:
+    # import local : media_status importe ignores, qui importe ce package (cycle)
+    from app.services.media_status import apply_statuses
+
     for result in results:
         result.media.missing_emby_episodes = ",".join(result.missing_emby_episodes)
         # Mémorisés pour les analyses partielles, qui rattachent les torrents
         # sans redemander la liste à Sonarr/Radarr.
         result.media.root_path = result.root_path
         result.media.alt_titles = "\n".join(result.alt_titles)
-        statuses, reclaimable = compute_statuses(
-            result.files,
-            result.torrents,
-            bool(result.media.emby_item_id),
-            len(result.missing_emby_episodes),
-            {i.download_id.lower() for i in result.import_issues if i.download_id},
-            {i.kind for i in result.import_issues},
-            tracked_by_arr=is_tracked_by_arr(result.media),
-        )
-        result.media.statuses = ",".join(sorted(statuses))
-        result.media.reclaimable_bytes = reclaimable
-        result.media.total_size = current_files_size(result.files)
+        apply_statuses(result.media, result.files, result.torrents, result.import_issues, ignores)
 
 
 async def _apply_watch_stats(settings: Settings, emby: EmbyClient, results: list[MediaBuildResult]) -> list[EmbyUser]:

@@ -13,6 +13,7 @@ from app.routers import auth as auth_router
 from app.routers import automations as automations_router
 from app.routers import emby as emby_router
 from app.routers import history as history_router
+from app.routers import ignores as ignores_router
 from app.routers import media as media_router
 from app.routers import notifications as notifications_router
 from app.routers import scan as scan_router
@@ -26,6 +27,7 @@ from app.services.path_guard import DiskAccessError
 from app.services.rate_limit import retry_after
 from app.services.scheduler import configure_scan_schedule, configure_trash_purge, refresh_update_watch, scheduler
 from app.services.security import client_ip, parse_trusted_proxies
+from app.static_files import resolve_static_file
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
 # statut/déconnexion) et le healthcheck Docker.
@@ -179,6 +181,7 @@ app.include_router(scan_router.router, prefix="/api/scan", tags=["scan"])
 app.include_router(media_router.router, prefix="/api/media", tags=["media"])
 app.include_router(emby_router.router, prefix="/api/emby", tags=["emby"])
 app.include_router(history_router.router, prefix="/api/history", tags=["history"])
+app.include_router(ignores_router.router, prefix="/api/ignores", tags=["ignores"])
 app.include_router(notifications_router.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(automations_router.router, prefix="/api/automations", tags=["automations"])
 app.include_router(services_router.router, prefix="/api/services", tags=["services"])
@@ -194,7 +197,4 @@ if STATIC_DIR.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str) -> FileResponse:
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(resolve_static_file(STATIC_DIR, full_path) or STATIC_DIR / "index.html")

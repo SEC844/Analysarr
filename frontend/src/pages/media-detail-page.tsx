@@ -2,26 +2,25 @@ import { useState, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import {
   ArrowLeft,
-  CheckCircle2,
   ChevronDown,
   Clapperboard,
-  HardDriveDownload,
-  Link2,
+  EyeOff,
   Loader2,
   Search,
   Tv,
-  XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { DeleteCascadeDialog } from "@/components/media/delete-cascade-dialog"
 import { HardlinkRepairDialog } from "@/components/media/hardlink-repair-dialog"
+import { FileOptions, MediaAlertOptions } from "@/components/media/ignore-actions"
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { ImportIssues } from "@/components/media/import-issues"
 import { MediaRequests } from "@/components/media/media-requests"
 import { LinkToArrDialog } from "@/components/media/link-to-arr-dialog"
 import { RescanMediaButton } from "@/components/media/rescan-media-button"
 import { StatusBadgeList } from "@/components/media/status-badge"
+import { TorrentRow } from "@/components/media/torrent-row"
 import { WatchSummary } from "@/components/media/watch-stats"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,7 +33,7 @@ import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n } from "@/i18n"
 import type { CrossSeedSearchScope } from "@/lib/api"
 import { posterUrl } from "@/lib/api"
-import { formatBytes, formatDate, formatRatio } from "@/lib/format"
+import { formatBytes } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { MediaFileRead } from "@/types/media"
 
@@ -95,10 +94,10 @@ function groupBySeason(files: MediaFileRead[]): { season: number | null; files: 
     .sort((a, b) => (a.season ?? Number.MAX_SAFE_INTEGER) - (b.season ?? Number.MAX_SAFE_INTEGER))
 }
 
-function FileRow({ f }: { f: MediaFileRead }) {
+function FileRow({ mediaId, f }: { mediaId: number; f: MediaFileRead }) {
   const { t } = useI18n()
   return (
-    <li className="flex items-start justify-between gap-3 py-2">
+    <li className={cn("flex items-start justify-between gap-3 py-2", f.ignored && "opacity-60")}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           {f.episode_label && (
@@ -111,10 +110,18 @@ function FileRow({ f }: { f: MediaFileRead }) {
               {t("media.currentFile")}
             </Badge>
           )}
+          {f.ignored && (
+            <Badge variant="outline" className="shrink-0" title={t("ignore.keptHint")}>
+              <EyeOff className="size-3" /> {t("ignore.kept")}
+            </Badge>
+          )}
         </div>
         <p className="mt-1 break-all">{f.path}</p>
       </div>
-      <span className="text-muted-foreground shrink-0">{formatBytes(f.size)}</span>
+      <div className="flex shrink-0 items-center gap-1">
+        <span className="text-muted-foreground">{formatBytes(f.size)}</span>
+        <FileOptions mediaId={mediaId} file={f} />
+      </div>
     </li>
   )
 }
@@ -201,7 +208,7 @@ export function MediaDetailPage() {
               {totalSize > 0 && <> · {formatBytes(totalSize)}</>}
             </p>
           </div>
-          <StatusBadgeList statuses={media.statuses} />
+          <StatusBadgeList statuses={media.statuses} muted={media.muted_statuses} />
           <WatchSummary mediaId={media.id} />
           <MediaRequests requests={media.requests} />
           <ImportIssues mediaId={media.id} issues={media.import_issues} />
@@ -250,6 +257,7 @@ export function MediaDetailPage() {
               <DeleteCascadeDialog mediaId={media.id} />
             )}
             <MediaDeleteSelectionDialog media={media} onMediaDeleted={() => navigate(-1)} />
+            <MediaAlertOptions media={media} />
           </div>
         </div>
       </div>
@@ -264,14 +272,14 @@ export function MediaDetailPage() {
               title={`${group.season !== null ? t("media.season", { number: group.season }) : t("media.otherFiles")} (${group.files.length})`}
             >
               {group.files.map((f) => (
-                <FileRow key={f.id} f={f} />
+                <FileRow key={f.id} mediaId={media.id} f={f} />
               ))}
             </SeasonGroup>
           ))
         ) : (
           <ul className="divide-border divide-y text-sm">
             {media.files.map((f) => (
-              <FileRow key={f.id} f={f} />
+              <FileRow key={f.id} mediaId={media.id} f={f} />
             ))}
           </ul>
         )}
@@ -283,68 +291,7 @@ export function MediaDetailPage() {
         ) : (
           <ul className="divide-border divide-y text-sm">
             {media.torrents.map((torrent) => (
-              <li key={torrent.id} className="space-y-2 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 break-all font-medium">
-                      {torrent.is_cross_seed && (
-                        <span title={t("media.addedByCrossSeed")} className="shrink-0">
-                          <Search className="text-muted-foreground size-3.5" aria-label={t("media.fromCrossSeed")} />
-                        </span>
-                      )}
-                      {torrent.name}
-                    </p>
-                    <p className="text-muted-foreground break-all text-xs">{torrent.content_path ?? torrent.save_path}</p>
-                  </div>
-                  <span className="text-muted-foreground shrink-0">{formatBytes(torrent.size)}</span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {torrent.is_hardlinked === true && (
-                    <Badge variant="outline" className="border-transparent bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 className="size-3" /> {t("media.protected")}
-                    </Badge>
-                  )}
-                  {torrent.is_hardlinked === false && torrent.repairable && (
-                    <Badge
-                      variant="outline"
-                      className="border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                      title={t("media.notHardlinkedHint")}
-                    >
-                      <Link2 className="size-3" /> {t("media.notHardlinked")}
-                    </Badge>
-                  )}
-                  {torrent.is_hardlinked === false && !torrent.repairable && (
-                    <Badge variant="outline" className="border-transparent bg-destructive/10 text-destructive">
-                      <XCircle className="size-3" /> {t("media.orphan")}
-                    </Badge>
-                  )}
-                  {torrent.is_hardlinked === null && (
-                    <Badge variant="outline">
-                      <HardDriveDownload className="size-3" /> {t("media.notEvaluated")}
-                    </Badge>
-                  )}
-                  {torrent.trackers.map((tr, i) => (
-                    <Badge key={i} variant="secondary">
-                      {tr.domain} · {tr.status}
-                    </Badge>
-                  ))}
-                </div>
-
-                {(torrent.seeders !== null || torrent.leechers !== null || torrent.ratio !== null || torrent.completed_on) && (
-                  <p className="text-muted-foreground text-xs">
-                    {torrent.seeders !== null && torrent.leechers !== null && (
-                      <>
-                        {t("media.seeders", { count: torrent.seeders })} · {t("media.leechers", { count: torrent.leechers })}
-                      </>
-                    )}
-                    {torrent.ratio !== null && <> · {t("media.ratio", { ratio: formatRatio(torrent.ratio) ?? "" })}</>}
-                    {formatDate(torrent.completed_on) && (
-                      <> · {t("media.seedingSince", { date: formatDate(torrent.completed_on) ?? "" })}</>
-                    )}
-                  </p>
-                )}
-              </li>
+              <TorrentRow key={torrent.id} mediaId={media.id} torrent={torrent} />
             ))}
           </ul>
         )}

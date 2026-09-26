@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Copy, Hourglass, Link2, PackageX, Radio, Tv2, Unlink, Wifi } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Copy, Hourglass, Inbox, Link2, PackageX, Radio, Tv2, Unlink, Wifi } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/i18n"
@@ -53,24 +53,34 @@ const STATUS_CONFIG: Record<MediaStatus, { icon: typeof Copy; className: string 
     icon: Hourglass,
     className: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
   },
+  // Saisons prises d'avance, en attente d'import : information, pas alerte.
+  non_importe: {
+    icon: Inbox,
+    className: "bg-muted text-muted-foreground",
+  },
 }
 
-export function StatusBadge({ status }: { status: MediaStatus }) {
+export function StatusBadge({ status, muted = false }: { status: MediaStatus; muted?: boolean }) {
   const { t } = useI18n()
   const config = STATUS_CONFIG[status]
   const Icon = config.icon
+  // Alerte masquée : visible, mais barrée et neutre — rien n'est caché.
   return (
-    <Badge variant="outline" className={cn("border-transparent", config.className)}>
+    <Badge
+      variant="outline"
+      className={cn("border-transparent", muted ? "bg-muted text-muted-foreground line-through" : config.className)}
+      title={muted ? t("ignore.mutedHint") : undefined}
+    >
       <Icon className="size-3" />
       {t(`status.${status}`)}
     </Badge>
   )
 }
 
-export function StatusBadgeList({ statuses }: { statuses: MediaStatus[] }) {
+export function StatusBadgeList({ statuses, muted = [] }: { statuses: MediaStatus[]; muted?: MediaStatus[] }) {
   const { t } = useI18n()
-  // Sain = aucune alerte. La couverture tracker s'affiche à côté, comme un
-  // complément d'information (même découpage que le backend).
+  // Sain = aucune alerte. Les statuts informatifs s'affichent à côté, comme
+  // un complément d'information (même découpage que le backend).
   const alerts = statuses.filter((status) => !INFO_STATUSES.includes(status))
   const info = statuses.filter((status) => INFO_STATUSES.includes(status))
 
@@ -84,6 +94,9 @@ export function StatusBadgeList({ statuses }: { statuses: MediaStatus[] }) {
       )}
       {[...alerts, ...info].map((status) => (
         <StatusBadge key={status} status={status} />
+      ))}
+      {muted.map((status) => (
+        <StatusBadge key={`muted-${status}`} status={status} muted />
       ))}
     </div>
   )

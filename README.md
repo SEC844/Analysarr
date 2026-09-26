@@ -43,6 +43,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 
 **Detection**
 - Duplicates, orphan torrents, missing hardlinks, content seeded on a single tracker, media missing from the media server or not seeded at all.
+- Seasons downloaded ahead but not imported yet are shown as **Not imported**, never as orphans: they are never offered for clean-up.
 - **Blocked imports**: downloads Sonarr/Radarr finished but could not move into the library get their own status, with the reason given by Sonarr/Radarr and a one-click retry — a media stuck there is no longer reported as missing from the media server, and its download is never offered for cleanup.
 - **Stalled downloads**: a download that stopped progressing is reported on the media, with the reason. Purely informative: Analysarr never deletes or restarts a download.
 - Torrent ↔ media matching by inode first (works for cross-seed copies living outside Sonarr/Radarr folders), then Sonarr/Radarr history, then title similarity.
@@ -55,6 +56,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - One-click hardlink repair, with a symbolic link fallback across filesystems.
 - Retry a blocked import (nothing is deleted: the file already on disk is simply handed back to Sonarr/Radarr).
 - Remove a media that has nothing left on disk from Sonarr/Radarr.
+- **Ignore what you chose on purpose**: the ⋯ menu ignores a torrent, keeps a file on purpose (a dubbed and a subtitled version side by side) or hides an alert of a media — for instance a home video no Radarr will ever know. Ignored items are never cleaned up, repaired or touched by automations, and each one is **reported again automatically as soon as its situation changes**. Hidden alerts stay visible, struck through; everything is listed in Settings → Ignored items.
 - Targeted cross-seed search per episode, season or whole series.
 
 **Decision support**
@@ -63,7 +65,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - "Cleanup candidates" sort: big files nobody watched for a long time.
 
 **Everyday comfort**
-- Library filters: media type, state (healthy / alert), sorting and search at hand, plus a "Filters" panel where several statuses and watch states can be combined.
+- Library filters: media type, state (healthy / alert / hidden alerts), sorting and search at hand, plus a "Filters" panel where several statuses and watch states can be combined.
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
 - **Targeted scans**: the arrow next to **Scan** runs a single service — Radarr, Sonarr, the media server, the torrent client, the queue, watch activity or Seer/Ombi — and every media page has its own **Scan this media** button. Both are much faster than a full scan and leave the rest of the cache untouched.
 - qBittorrent, Deluge or Transmission: the torrent client is a setting, everything else works the same way.

@@ -43,6 +43,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 
 **Détection**
 - Doublons, torrents orphelins, hardlinks manquants, contenu seedé sur un seul tracker, médias absents du serveur multimédia ou non seedés.
+- Les saisons téléchargées d'avance mais pas encore importées apparaissent **Non importé**, jamais orphelines : elles ne sont jamais proposées au nettoyage.
 - **Imports bloqués** : les téléchargements que Sonarr/Radarr a terminés mais n'a pas réussi à ranger ont leur propre statut, avec le motif donné par Sonarr/Radarr et une relance en un clic — le média concerné n'est plus signalé absent du serveur multimédia, et son téléchargement n'est jamais proposé au nettoyage.
 - **Téléchargements en souffrance** : un téléchargement qui n'avance plus est signalé sur la fiche du média, avec son motif. Purement informatif : Analysarr ne supprime ni ne relance jamais un téléchargement.
 - Rattachement torrent ↔ média par inode d'abord (fonctionne pour les copies cross-seed rangées hors des dossiers Sonarr/Radarr), puis historique Sonarr/Radarr, puis similarité de titre.
@@ -55,6 +56,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Réparation des hardlinks en un clic, avec repli par lien symbolique entre systèmes de fichiers.
 - Relance d'un import bloqué (rien n'est supprimé : le fichier déjà sur le disque est simplement redonné à Sonarr/Radarr).
 - Retrait d'un média dont il ne reste rien sur le disque, de Sonarr/Radarr.
+- **Ignorer ce qui est voulu** : le menu ⋯ ignore un torrent, garde volontairement un fichier (une VF et une VOSTFR côte à côte) ou masque une alerte d'un média — par exemple une vidéo de famille qu'aucun Radarr ne connaîtra. Un élément ignoré n'est jamais nettoyé, réparé ni touché par une automatisation, et il est **de nouveau signalé automatiquement dès que sa situation change**. Les alertes masquées restent visibles, barrées ; tout est listé dans Réglages → Éléments ignorés.
 - Recherche cross-seed ciblée par épisode, saison ou série intégrale.
 
 **Aide à la décision**
@@ -63,7 +65,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Tri « candidats au nettoyage » : les gros fichiers que personne n'a regardés depuis longtemps.
 
 **Confort au quotidien**
-- Filtres de la bibliothèque : type de média, état (sain / alerte), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
+- Filtres de la bibliothèque : type de média, état (sain / alerte / alertes masquées), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
 - Scans planifiés, historique des scans, diagnostic des chemins qui désigne le montage Docker manquant.
 - **Analyses ciblées** : la flèche à côté de **Scanner** lance un seul service — Radarr, Sonarr, le serveur multimédia, le client torrent, la file d'attente, le visionnage ou Seer/Ombi — et chaque fiche média a son bouton **Analyser ce média**. Les deux sont bien plus rapides qu'un scan complet et laissent le reste du cache intact.
 - qBittorrent, Deluge ou Transmission : le client torrent est un réglage, tout le reste fonctionne à l'identique.
