@@ -27,6 +27,7 @@ from app.services.path_guard import DiskAccessError
 from app.services.rate_limit import retry_after
 from app.services.scheduler import configure_scan_schedule, configure_trash_purge, refresh_update_watch, scheduler
 from app.services.security import client_ip, parse_trusted_proxies
+from app.static_files import resolve_static_file
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
 # statut/déconnexion) et le healthcheck Docker.
@@ -196,7 +197,4 @@ if STATIC_DIR.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str) -> FileResponse:
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(resolve_static_file(STATIC_DIR, full_path) or STATIC_DIR / "index.html")
