@@ -5,9 +5,11 @@ Calcul à la volée plutôt qu'une table de scores précalculés : il dépend de
 l'instant (jours sans lecture), des réglages et de l'activité des comptes,
 qu'une table devrait recalculer à chaque changement. Mesure sur 10 000
 médias, 80 000 lignes de visionnage et 10 000 torrents : environ 1 s en
-chargeant des objets ORM, d'où la lecture colonne par colonne (SQLAlchemy
-Core) et des sous-scores en dataclasses, pour rester sous 500 ms
-(tests/test_cleanup.py).
+chargeant des objets ORM ; environ 0,2 s en lisant les colonnes par
+SQLAlchemy Core, avec le visionnage agrégé par SQLite et un score calculé
+en arithmétique (détail construit seulement pour ce qui est affiché). Un
+runner CI étant environ deux fois plus lent, la marge compte : le test
+exige moins de 500 ms (tests/test_cleanup.py).
 
 Rien ici ne supprime quoi que ce soit : la suppression passe par le flux
 existant (suppression sélective « Tout supprimer », aperçu et confirmation)."""
@@ -19,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import Row
+from sqlalchemy import Row, case, func
 from sqlalchemy import select as core_select
 from sqlmodel import Session, col, select
 
@@ -57,11 +59,13 @@ def cleanup_settings(settings: Settings | None) -> CleanupSettings:
 # --- Collecte ---------------------------------------------------------------
 
 
-def _rows(session: Session, *columns: Any, where: Any = None) -> list[Row[Any]]:
+def _rows(session: Session, *columns: Any, where: Any = None, group_by: Any = None) -> list[Row[Any]]:
     """Colonnes brutes, sans objet ORM (voir la mesure en tête de module)."""
     query = core_select(*columns)
     if where is not None:
         query = query.where(where)
+    if group_by is not None:
+        query = query.group_by(group_by)
     return list(session.connection().execute(query).all())
 
 
@@ -98,27 +102,31 @@ def _active_users(session: Session, settings: Settings | None, inactive_days: in
 
 
 def _watch_facts(session: Session, active: dict[str, str]) -> dict[int, _WatchFacts]:
-    facts: dict[int, _WatchFacts] = defaultdict(_WatchFacts)
+    """Agrégé par SQLite : une ligne par média, jamais une par (média,
+    compte) — des dizaines de milliers de lignes sur une grande bibliothèque.
+    Les comptes (identifiants du serveur multimédia, sans virgule) en cours
+    et en favori reviennent concaténés."""
+    facts: dict[int, _WatchFacts] = {}
     if not active:
         return facts
+    user = col(MediaWatch.emby_user_id)
     rows = _rows(
         session,
         col(MediaWatch.media_id),
-        col(MediaWatch.emby_user_id),
-        col(MediaWatch.played),
-        col(MediaWatch.in_progress),
-        col(MediaWatch.favorite),
-        where=col(MediaWatch.emby_user_id).in_(list(active)),
+        func.count(),
+        func.sum(case((col(MediaWatch.played), 0), else_=1)),
+        func.group_concat(case((col(MediaWatch.in_progress), user))),
+        func.group_concat(case((col(MediaWatch.favorite), user))),
+        where=user.in_(list(active)),
+        group_by=col(MediaWatch.media_id),
     )
-    for media_id, user_id, played, in_progress, favorite in rows:
-        entry = facts[media_id]
-        entry.users += 1
-        entry.unfinished += 0 if played else 1
-        name = active[user_id]
-        if in_progress:
-            entry.in_progress = [*(entry.in_progress or []), name]
-        if favorite:
-            entry.favorites = [*(entry.favorites or []), name]
+    for media_id, users, unfinished, in_progress, favorites in rows:
+        facts[media_id] = _WatchFacts(
+            users=users,
+            unfinished=unfinished or 0,
+            in_progress=[active[u] for u in in_progress.split(",")] if in_progress else None,
+            favorites=[active[u] for u in favorites.split(",")] if favorites else None,
+        )
     return facts
 
 
@@ -212,31 +220,46 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
         # Rien sur le disque : rien à libérer.
         where=(col(Media.total_size) > 0) | (col(Media.full_reclaimable_bytes) > 0),
     )
-    for row in rows:
-        media_type = MediaType(row.media_type)
-        arr_id = row.sonarr_id if media_type == MediaType.series else row.radarr_id
-        seen = watch.get(row.id, _WatchFacts())
+    for (
+        media_id,
+        raw_type,
+        title,
+        year,
+        reclaimable,
+        date_added,
+        last_played_at,
+        series_status,
+        has_poster,
+        poster_image_tag,
+        instance_id,
+        radarr_id,
+        sonarr_id,
+        emby_item_id,
+    ) in rows:
+        media_type = MediaType(raw_type)
+        arr_id = sonarr_id if media_type == MediaType.series else radarr_id
+        seen = watch.get(media_id)
         facts.append(
             CandidateFacts(
-                media_id=row.id,
+                media_id=media_id,
                 media_type=media_type.value,
-                title=row.title,
-                year=row.year,
-                reclaimable_bytes=row.full_reclaimable_bytes,
-                date_added=row.emby_date_added,
-                last_played_at=row.last_played_at,
-                series_status=row.series_status,
-                active_users=seen.users,
-                active_unfinished=seen.unfinished,
-                in_progress_names=tuple(seen.in_progress or ()),
-                favorite_names=tuple(seen.favorites or ()),
-                unwatched_requesters=tuple(sorted(unwatched.get(row.id, set()))),
-                unknown_requester=row.id in unknown,
-                seed_obligation=seed.get(row.id),
-                excluded=media_key_of(media_type, arr_id, row.arr_instance_id, row.emby_item_id) in excluded,
-                has_poster=row.has_poster,
-                poster_image_tag=row.poster_image_tag,
-                arr_instance_name=names.get(row.arr_instance_id) if row.arr_instance_id is not None else None,
+                title=title,
+                year=year,
+                reclaimable_bytes=reclaimable,
+                date_added=date_added,
+                last_played_at=last_played_at,
+                series_status=series_status,
+                active_users=seen.users if seen else 0,
+                active_unfinished=seen.unfinished if seen else 0,
+                in_progress_names=tuple(seen.in_progress or ()) if seen else (),
+                favorite_names=tuple(seen.favorites or ()) if seen else (),
+                unwatched_requesters=tuple(sorted(unwatched[media_id])) if media_id in unwatched else (),
+                unknown_requester=media_id in unknown,
+                seed_obligation=seed.get(media_id),
+                excluded=bool(excluded) and media_key_of(media_type, arr_id, instance_id, emby_item_id) in excluded,
+                has_poster=has_poster,
+                poster_image_tag=poster_image_tag,
+                arr_instance_name=names.get(instance_id) if instance_id is not None else None,
             )
         )
     return facts, config

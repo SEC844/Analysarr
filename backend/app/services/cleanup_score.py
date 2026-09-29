@@ -17,7 +17,7 @@ Trois couches :
 import math
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal, NamedTuple
 
 from app.schemas.cleanup import (
     CleanupSettings,
@@ -71,7 +71,7 @@ IN_PROGRESS_FACTOR = 0.25
 SERIES_STATUS_SCORES = {"ended": 100, "deleted": 100, "continuing": 30, "upcoming": 0}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CandidateFacts:
     """Ce que l'assistant sait d'un média, déjà réduit aux comptes ACTIFS
     (non désactivés, non exclus, activité récente)."""
@@ -154,57 +154,60 @@ class Component:
         return ScoreComponentRead(**asdict(self))
 
 
-def _raw_components(facts: CandidateFacts, settings: CleanupSettings, now: datetime) -> list[Component]:
-    """Sous-scores avant pondération."""
+class _Measures(NamedTuple):
+    """Mesures d'un média, calculées une fois : le score (pour tous les
+    médias) et le détail (pour ceux qu'on affiche) en dérivent."""
+
+    since_played: int | None
+    since_added: int | None
+    disinterest_days: int | None
+    # (clé, valeur 0-100) de chaque sous-score applicable.
+    values: tuple[tuple[ComponentKey, int], ...]
+
+
+def _measure(facts: CandidateFacts, settings: CleanupSettings, now: datetime) -> _Measures:
     since_played = _days_since(facts.last_played_at, now)
     since_added = _days_since(facts.date_added, now)
     disinterest_days = since_played if since_played is not None else since_added
-    raw = [
-        Component(
-            key="disinterest",
-            value=_curve(disinterest_days, settings.disinterest_days),
-            days=disinterest_days,
-            since="last_played" if since_played is not None else ("added" if since_added is not None else None),
-        ),
-        Component(
-            key="potential",
-            # Plus personne d'actif pour le regarder : rien à préserver.
-            value=round(100 * (1 - facts.active_unfinished / facts.active_users)) if facts.active_users else 100,
-            users=facts.active_users,
-            unfinished=facts.active_unfinished,
-        ),
-        Component(key="age", value=_curve(since_added, settings.age_days), days=since_added),
+    # Plus personne d'actif pour le regarder : rien à préserver.
+    potential = round(100 * (1 - facts.active_unfinished / facts.active_users)) if facts.active_users else 100
+    values: list[tuple[ComponentKey, int]] = [
+        ("disinterest", _curve(disinterest_days, settings.disinterest_days)),
+        ("potential", potential),
+        ("age", _curve(since_added, settings.age_days)),
     ]
     status_score = SERIES_STATUS_SCORES.get(facts.series_status or "")
     if facts.media_type == "series" and status_score is not None:
-        raw.append(Component(key="series", value=status_score, series_status=facts.series_status))
-    return raw
+        values.append(("series", status_score))
+    return _Measures(since_played, since_added, disinterest_days, tuple(values))
 
 
-def components(facts: CandidateFacts, settings: CleanupSettings, now: datetime) -> list[Component]:
-    """Sous-scores pondérés. Un sous-score qui ne s'applique pas (statut de
-    série pour un film) sort du calcul : les autres poids se partagent sa part."""
-    raw = _raw_components(facts, settings, now)
-    weights = {
-        "disinterest": settings.weights.disinterest,
-        "potential": settings.weights.potential,
-        "age": settings.weights.age,
-        "series": settings.weights.series,
+def _weighted(measures: _Measures, settings: CleanupSettings) -> list[tuple[ComponentKey, int, int, float]]:
+    """(clé, valeur, part en %, contribution). Un sous-score qui ne s'applique
+    pas (statut de série pour un film) sort du calcul : les autres poids se
+    partagent sa part."""
+    weights = settings.weights
+    by_key = {
+        "disinterest": weights.disinterest,
+        "potential": weights.potential,
+        "age": weights.age,
+        "series": weights.series,
     }
-    total = sum(weights[c.key] for c in raw)
-    for c in raw:
-        # Objets tout juste créés : complétés sur place (dataclasses.replace
-        # coûtait un quart du calcul sur 10 000 médias).
-        c.weight = round(100 * weights[c.key] / total) if total else 0
-        c.contribution = round(c.value * weights[c.key] / total, 2) if total else 0.0
-    return raw
+    total = sum(by_key[key] for key, _ in measures.values)
+    if not total:
+        return [(key, value, 0, 0.0) for key, value in measures.values]
+    return [
+        (key, value, round(100 * by_key[key] / total), round(value * by_key[key] / total, 2))
+        for key, value in measures.values
+    ]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Evaluation:
     facts: CandidateFacts
     protections: list[ProtectionRead]
-    components: list[Component]
+    measures: _Measures
+    weighted: list[tuple[ComponentKey, int, int, float]]
     raw_score: int
     score: int
 
@@ -214,16 +217,37 @@ class Evaluation:
 
     @property
     def main_reason(self) -> ComponentKey | None:
-        weighted = [c for c in self.components if c.contribution > 0]
+        contributing = [(contribution, key) for key, _, _, contribution in self.weighted if contribution > 0]
         # Égalité : l'ordre des critères tranche (le désintérêt parle le plus).
-        return max(weighted, key=lambda c: (c.contribution, -REASON_ORDER.index(c.key))).key if weighted else None
+        return max(contributing, key=lambda pair: (pair[0], -REASON_ORDER.index(pair[1])))[1] if contributing else None
+
+    @property
+    def components(self) -> list[Component]:
+        """Détail explicable, construit seulement pour ce qu'on affiche."""
+        m, facts = self.measures, self.facts
+        extras: dict[ComponentKey, dict[str, Any]] = {
+            "disinterest": {
+                "days": m.disinterest_days,
+                "since": "last_played"
+                if m.since_played is not None
+                else ("added" if m.since_added is not None else None),
+            },
+            "potential": {"users": facts.active_users, "unfinished": facts.active_unfinished},
+            "age": {"days": m.since_added},
+            "series": {"series_status": facts.series_status},
+        }
+        return [
+            Component(key=key, value=value, weight=weight, contribution=contribution, **extras[key])
+            for key, value, weight, contribution in self.weighted
+        ]
 
 
 def evaluate(facts: CandidateFacts, settings: CleanupSettings, now: datetime) -> Evaluation:
-    parts = components(facts, settings, now)
-    raw_score = round(sum(c.contribution for c in parts))
+    measures = _measure(facts, settings, now)
+    weighted = _weighted(measures, settings)
+    raw_score = round(sum(contribution for _, _, _, contribution in weighted))
     score = round(raw_score * IN_PROGRESS_FACTOR) if facts.in_progress_names else raw_score
-    return Evaluation(facts, protections(facts, settings, now), parts, raw_score, score)
+    return Evaluation(facts, protections(facts, settings, now), measures, weighted, raw_score, score)
 
 
 def space_scale(reclaimable_bytes: int, largest_bytes: int) -> float:

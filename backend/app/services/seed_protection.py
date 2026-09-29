@@ -20,6 +20,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import Literal, Protocol
 
 from pydantic import ValidationError
@@ -109,12 +110,23 @@ def prompt_pending(settings: Settings | None) -> bool:
     )
 
 
-def _domains(torrent: SeedFacts) -> list[str]:
+def _domains(torrent: SeedFacts) -> tuple[str, ...]:
+    return _parse_domains(torrent.trackers_json or "[]")
+
+
+@lru_cache(maxsize=4096)
+def _parse_domains(trackers_json: str) -> tuple[str, ...]:
+    """Domaines d'une liste de trackers (texte JSON). Mis en cache : la plupart
+    des torrents d'une bibliothèque partagent la même liste de trackers."""
     try:
-        entries = json.loads(torrent.trackers_json or "[]")
+        entries = json.loads(trackers_json)
     except ValueError:
-        return []
-    return [d["domain"] for d in entries if isinstance(d, dict) and isinstance(d.get("domain"), str) and d["domain"]]
+        return ()
+    if not isinstance(entries, list):
+        return ()
+    return tuple(
+        d["domain"] for d in entries if isinstance(d, dict) and isinstance(d.get("domain"), str) and d["domain"]
+    )
 
 
 def _requirements(torrent: SeedFacts, policy: SeedPolicy) -> list[tuple[str | None, int, float | None]]:
