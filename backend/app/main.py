@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
+from ipaddress import IPv4Network, IPv6Network
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
 
-from app.database import engine, init_db
+from app.database import engine, init_db, request_path
 from app.models.settings import Settings
 from app.routers import app as app_router
 from app.routers import auth as auth_router
@@ -99,6 +101,25 @@ async def disk_access_refused(request: Request, exc: DiskAccessError) -> JSONRes
     return JSONResponse({"detail": str(exc)}, status_code=409)
 
 
+# Les middlewares sont async : tout travail de base de données y est confié au
+# pool de threads (`run_in_threadpool`). Bug réel : fait directement dans la
+# boucle asyncio, il attendait une connexion du pool pendant que les requêtes
+# qui les détenaient ne pouvaient plus rendre leur réponse, faute de boucle
+# libre — une salve de jaquettes figeait toute l'application, /api/health
+# compris, jusqu'au redémarrage.
+
+
+def _trusted_proxies() -> list[IPv4Network | IPv6Network]:
+    with Session(engine) as session:
+        settings = session.get(Settings, 1)
+        return parse_trusted_proxies(settings.trusted_proxies if settings else "")
+
+
+def _record_rate_limited_login(ip: str) -> None:
+    with Session(engine) as session:
+        record_attempt(session, username="", ip=ip, success=False, reason="rate_limited")
+
+
 @app.middleware("http")
 async def limit_auth_requests(request: Request, call_next):
     """Fenêtre glissante par adresse IP sur les routes d'authentification
@@ -107,30 +128,37 @@ async def limit_auth_requests(request: Request, call_next):
     if request.url.path not in _RATE_LIMITED_AUTH_PATHS:
         return await call_next(request)
 
-    with Session(engine) as session:
-        settings = session.get(Settings, 1)
-        trusted = parse_trusted_proxies(settings.trusted_proxies if settings else "")
-        ip = client_ip(request, trusted)
-        wait = retry_after(ip or "inconnu")
-        if wait is not None:
-            if request.url.path == "/api/auth/login":
-                record_attempt(session, username="", ip=ip, success=False, reason="rate_limited")
-            return JSONResponse(
-                {"detail": f"Trop de tentatives. Réessayez dans {wait} s."},
-                status_code=429,
-                headers={"Retry-After": str(wait)},
-            )
+    trusted = await run_in_threadpool(_trusted_proxies)
+    ip = client_ip(request, trusted)
+    # Le compteur reste dans la boucle : c'est un dictionnaire en mémoire sans
+    # verrou, qui ne doit pas être modifié depuis plusieurs threads à la fois.
+    wait = retry_after(ip or "inconnu")
+    if wait is not None:
+        if request.url.path == "/api/auth/login":
+            await run_in_threadpool(_record_rate_limited_login, ip)
+        return JSONResponse(
+            {"detail": f"Trop de tentatives. Réessayez dans {wait} s."},
+            status_code=429,
+            headers={"Retry-After": str(wait)},
+        )
     return await call_next(request)
 
 
 @app.middleware("http")
 async def require_auth(request: Request, call_next):
     path = request.url.path
+    # Chemin de la requête, pour le journal des attentes de connexion à la
+    # base (database.py) — jamais la chaîne de requête ni les en-têtes.
+    request_path.set(path)
     is_public = (
         path in _PUBLIC_API_PATHS
         or any(path.startswith(p) for p in _PUBLIC_API_PREFIXES)
     ) and path not in _PROTECTED_AUTH_PATHS
-    if path.startswith("/api/") and not is_public and not is_request_authenticated(request):
+    if (
+        path.startswith("/api/")
+        and not is_public
+        and not await run_in_threadpool(is_request_authenticated, request)
+    ):
         return JSONResponse({"detail": "Non authentifié."}, status_code=401)
     return await call_next(request)
 

@@ -5,6 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlmodel import Session, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import media_server_client
 from app.database import get_session
@@ -28,7 +29,7 @@ _emby = media_server_client
 async def list_emby_users(session: Session = Depends(get_session)) -> list[EmbyUserRead]:
     """Utilisateurs Emby, en direct (repli sur le dernier scan si Emby est
     injoignable) — pour choisir ceux exclus des statistiques de visionnage."""
-    emby = _emby(session.get(Settings, 1))
+    emby = _emby(await run_in_threadpool(session.get, Settings, 1))
     users: list[EmbyUser] | None = None
     if emby is not None:
         try:
@@ -38,7 +39,7 @@ async def list_emby_users(session: Session = Depends(get_session)) -> list[EmbyU
             logger.debug("Utilisateurs du serveur multimédia illisibles", exc_info=True)
             users = None
     if users is None:
-        users = list(session.exec(select(EmbyUser)).all())
+        users = await run_in_threadpool(lambda: list(session.exec(select(EmbyUser)).all()))
     return [
         EmbyUserRead(id=u.id, name=u.name, image_tag=u.image_tag, is_disabled=u.is_disabled)
         for u in sorted(users, key=lambda u: u.name.lower())
@@ -49,22 +50,24 @@ async def list_emby_users(session: Session = Depends(get_session)) -> list[EmbyU
 async def get_user_avatar(user_id: str, session: Session = Depends(get_session)) -> Response:
     if not _USER_ID_PATTERN.match(user_id):
         raise HTTPException(404, "Avatar introuvable.")
-    user = session.get(EmbyUser, user_id)
+    # Base et disque dans le pool de threads, jamais dans la boucle asyncio
+    # (même raison que les jaquettes, voir routers/media.py::get_poster).
+    user = await run_in_threadpool(session.get, EmbyUser, user_id)
     if user is None or not user.image_tag:
         raise HTTPException(404, "Avatar introuvable.")
 
     cache_key = f"user_{user.id}"
-    cached = read_cached_poster(cache_key, user.image_tag)
+    cached = await run_in_threadpool(read_cached_poster, cache_key, user.image_tag)
     if cached is not None:
         content, content_type = cached
     else:
-        emby = _emby(session.get(Settings, 1))
+        emby = _emby(await run_in_threadpool(session.get, Settings, 1))
         result = await emby.fetch_user_avatar(user.id) if emby else None
         image_type = safe_image_type(result[1]) if result else None
         if result is None or image_type is None:
             raise HTTPException(404, "Avatar introuvable.")
         content, content_type = result[0], image_type
-        write_cached_poster(cache_key, user.image_tag, content, content_type)
+        await run_in_threadpool(write_cached_poster, cache_key, user.image_tag, content, content_type)
 
     # URL propre à la version de l'avatar (`?v=<tag>` côté frontend) : mise en
     # cache navigateur indéfinie sans risque de contenu périmé.

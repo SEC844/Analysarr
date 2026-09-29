@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # nécessaire pour comparer ce tag aux autres ci-dessous
 
@@ -68,14 +68,14 @@ jobs:
 
       - name: Set up QEMU
         if: github.event_name != 'pull_request'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -88,7 +88,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         env:
           # Annotations posées aussi sur l'index multi-arch : c'est
           # `org.opencontainers.image.source` à ce niveau qui rattache le
@@ -112,7 +112,7 @@ jobs:
             org.opencontainers.image.licenses=AGPL-3.0-only
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -172,15 +172,28 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # nécessaire pour lire le tag annoté et l'historique ci-dessous
 
+      - name: Generate changelog
+        # Changelog normalisé par git-cliff (configuration .github/cliff.toml,
+        # sur le modèle de Seerr) : commits Conventional Commits depuis la
+        # version précédente, groupés par type, avec liens vers les commits et
+        # les issues. Action épinglée par empreinte de commit.
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
+        with:
+          config: .github/cliff.toml
+          args: --current
+        env:
+          OUTPUT: git-cliff/changelog.md
+          GITHUB_REPO: ${{ github.repository }}
+
       - name: Generate release notes
-        # Notes = résumé du tag annoté + changelog regroupé par type à partir
-        # des commits Conventional Commits depuis la version précédente +
-        # instructions de récupération de l'image. Écrit dans un fichier
-        # (body_path) : aucun contenu de commit n'est interpolé dans le shell.
+        # Notes = introduction facultative (message du tag annoté, quelques
+        # lignes écrites à la main) + changelog + récupération de l'image.
+        # Tout passe par des fichiers : aucun contenu de commit n'est
+        # interpolé dans le shell.
         env:
           IMAGE: ${{ needs.build-and-push.outputs.image }}
         run: |
@@ -188,34 +201,17 @@ jobs:
           version="${tag#v}"
           # actions/checkout remplace le tag annoté par un tag léger pointant
           # sur le commit : %(contents) renverrait alors le message du commit
-          # (ex : "Merge pull request #1") au lieu du résumé du tag.
+          # (ex : "Merge pull request #1") au lieu de celui du tag.
           git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
-          previous=$(git tag -l 'v*.*.*' | sort -V | grep -B1 -x "$tag" | grep -vx "$tag" || true)
-          range="${previous:+${previous}..}${tag}"
-          subjects=$(git log --no-merges --format='%s' "$range")
-
-          section() {
-            local title="$1" pattern="$2" lines
-            lines=$(printf '%s\n' "$subjects" | grep -E "$pattern" \
-              | sed -E 's/^[a-z]+\(([^)]+)\)!?: (.*)$/- **\1** : \2/; t; s/^[a-z]+!?: (.*)$/- \1/' || true)
-            if [ -n "$lines" ]; then
-              printf '### %s\n\n%s\n\n' "$title" "$lines"
-            fi
-          }
+          git tag -l --format='%(contents)' "$tag" > intro.md
 
           {
-            git tag -l --format='%(contents)' "$tag"
-            echo
-            echo "## Changements"
-            echo
-            section "Nouveautés" '^feat(\(.+\))?!?: '
-            section "Corrections" '^fix(\(.+\))?!?: '
-            section "Performances" '^perf(\(.+\))?!?: '
-            section "Maintenance" '^(refactor|build|ci|docs|chore|style|test)(\(.+\))?!?: '
-            if [ -n "$previous" ]; then
-              echo "**Comparatif complet** : https://github.com/${GITHUB_REPOSITORY}/compare/${previous}...${tag}"
+            if [ -s intro.md ] && grep -q '[^[:space:]]' intro.md; then
+              cat intro.md
               echo
             fi
+            cat git-cliff/changelog.md
+            echo
             echo "## Image Docker"
             echo
             echo '```bash'
@@ -226,7 +222,7 @@ jobs:
           } > release-notes.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}

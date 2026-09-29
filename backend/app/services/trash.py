@@ -229,7 +229,7 @@ def _move_aside(
         logger.debug("Fichier déjà absent, rien à mettre de côté : %s", path)
         return None
     item = TrashItem(
-        action_id=action.id,
+        action_id=row_id(action),
         kind="library_file",
         label=label or os.path.basename(path),
         size=size,
@@ -346,7 +346,7 @@ async def trash_torrent(
         payload["trashed_paths"] = moved
         session.add(
             TrashItem(
-                action_id=action.id,
+                action_id=row_id(action),
                 kind="torrent",
                 label=torrent.name,
                 size=size or (torrent.size or 0),

@@ -9,6 +9,7 @@ from sqlmodel import select
 from app.database import get_session
 from app.models.auth import Session as AuthSession
 from app.models.auth import User
+from app.models.ids import row_id
 from app.models.settings import Settings
 from app.schemas.auth import (
     AuthStatus,
@@ -78,22 +79,33 @@ def _current_user(user: User) -> CurrentUser:
     return CurrentUser(username=user.username, two_factor_enabled=bool(user.totp_secret))
 
 
+# Prolongation d'une session glissante enregistrée au plus une fois par
+# intervalle : une page de bibliothèque lance des centaines de requêtes, et
+# une écriture en base pour chacune d'elles saturait SQLite. Face à une durée
+# de session en jours, une minute de décalage ne change rien.
+SESSION_TOUCH_INTERVAL = timedelta(seconds=60)
+
+
 def _touch_session(token: str, session: DbSession) -> User | None:
     """Résout un token de cookie en utilisateur si la session est valide, et
     prolonge son expiration (session glissante). Utilisé à la fois par la
     dépendance FastAPI `get_current_user` et par le middleware global dans
-    main.py — un seul et même chemin de vérification."""
+    main.py — un seul et même chemin de vérification. L'expiration et la
+    révocation sont vérifiées à CHAQUE requête ; seule l'écriture de la
+    prolongation est espacée (`SESSION_TOUCH_INTERVAL`)."""
     auth_session = session.exec(select(AuthSession).where(AuthSession.token_hash == hash_token(token))).first()
-    if auth_session is None or auth_session.expires_at < _utcnow():
+    now = _utcnow()
+    if auth_session is None or auth_session.expires_at < now:
         return None
     user = session.get(User, auth_session.user_id)
     if user is None:
         return None
 
-    auth_session.last_seen_at = _utcnow()
-    auth_session.expires_at = _utcnow() + timedelta(days=SESSION_DURATION_DAYS)
-    session.add(auth_session)
-    session.commit()
+    if now - auth_session.last_seen_at >= SESSION_TOUCH_INTERVAL:
+        auth_session.last_seen_at = now
+        auth_session.expires_at = now + timedelta(days=SESSION_DURATION_DAYS)
+        session.add(auth_session)
+        session.commit()
     return user
 
 
@@ -228,7 +240,7 @@ def login(
 
     token = generate_token()
     auth_session = AuthSession(
-        user_id=user.id,
+        user_id=row_id(user),
         token_hash=hash_token(token),
         expires_at=now + timedelta(days=SESSION_DURATION_DAYS),
     )

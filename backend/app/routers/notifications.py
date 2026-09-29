@@ -9,6 +9,7 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, col, select
+from starlette.concurrency import run_in_threadpool
 
 from app.database import get_session
 from app.models.ids import row_id
@@ -130,6 +131,13 @@ def delete_channel(channel_id: int, session: Session = Depends(get_session)) -> 
 async def test_channel(channel_id: int, session: Session = Depends(get_session)) -> ChannelTestResult:
     """Envoie une notification de test sur ce canal ENREGISTRÉ (jamais sur une
     adresse fournie dans la requête : pas de relais vers une adresse arbitraire)."""
+    target, language = await run_in_threadpool(_test_target, channel_id, session)
+    results = await send([target], build_test_notification(language))
+    error = results.get(target.name)
+    return ChannelTestResult(ok=error is None, error=error)
+
+
+def _test_target(channel_id: int, session: Session) -> tuple[ChannelTarget, str]:
     channel = _get(channel_id, session)
     target = ChannelTarget(
         id=row_id(channel),
@@ -139,7 +147,4 @@ async def test_channel(channel_id: int, session: Session = Depends(get_session))
         token=channel.token,
         events=channel_events(channel),
     )
-    settings = session.get(Settings, 1)
-    results = await send([target], build_test_notification(notification_language(settings)))
-    error = results.get(channel.name)
-    return ChannelTestResult(ok=error is None, error=error)
+    return target, notification_language(session.get(Settings, 1))

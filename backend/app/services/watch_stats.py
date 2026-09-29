@@ -25,6 +25,7 @@ from typing import Any, overload
 
 import httpx
 from sqlmodel import Session, col, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.models.media import EmbyUser, Media, MediaType, MediaWatch
@@ -228,6 +229,15 @@ async def refresh_media_watch(session: Session, media: Media, settings: Settings
     if len(data) < len(active):
         return False  # réponse partielle : mieux vaut le dernier scan complet
 
+    # Écriture hors de la boucle asyncio : la fiche est ouverte pendant que la
+    # bibliothèque charge ses jaquettes (voir main.py).
+    await run_in_threadpool(_store_live_watch, session, media, settings, users, data)
+    return True
+
+
+def _store_live_watch(
+    session: Session, media: Media, settings: Settings | None, users: list[EmbyUser], data: dict[str, UserWatchData]
+) -> None:
     session.exec(delete(EmbyUser))
     for user in users:
         session.add(user)
@@ -238,7 +248,6 @@ async def refresh_media_watch(session: Session, media: Media, settings: Settings
     apply_aggregates(media, rows, excluded_user_ids(settings))
     session.add(media)
     session.commit()
-    return True
 
 
 def build_watch_stats(session: Session, media: Media, settings: Settings | None, live: bool) -> MediaWatchStats:

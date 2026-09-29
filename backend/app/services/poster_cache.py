@@ -16,6 +16,8 @@ _UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]")
 _CONTENT_TYPE_BY_EXT = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 _EXT_BY_CONTENT_TYPE = {v: k for k, v in _CONTENT_TYPE_BY_EXT.items()}
 _DEFAULT_EXT = ".img"
+# Extensions que `write_cached_poster` peut écrire, dans l'ordre de lecture.
+_CACHED_EXTS = (*_CONTENT_TYPE_BY_EXT, _DEFAULT_EXT)
 
 
 def safe_image_type(content_type: str | None) -> str | None:
@@ -35,15 +37,21 @@ def _cache_key(emby_item_id: str, image_tag: str | None) -> str:
 
 
 def read_cached_poster(emby_item_id: str, image_tag: str | None) -> tuple[bytes, str] | None:
+    """Lecture directe des seules extensions que l'écriture peut produire :
+    parcourir tout le dossier à chaque jaquette coûtait cher, une bibliothèque
+    en affiche des centaines d'un coup."""
     key = _cache_key(emby_item_id, image_tag)
-    for path in POSTER_CACHE_DIR.glob(f"{key}.*"):
+    for ext in _CACHED_EXTS:
+        path = POSTER_CACHE_DIR / f"{key}{ext}"
         try:
             content = path.read_bytes()
+        except FileNotFoundError:
+            continue
         except OSError:
             # Cache illisible : l'image est redemandée au serveur multimédia.
             logger.debug("Image du cache illisible : %s", path, exc_info=True)
             return None
-        return content, _CONTENT_TYPE_BY_EXT.get(path.suffix, "application/octet-stream")
+        return content, _CONTENT_TYPE_BY_EXT.get(ext, "application/octet-stream")
     return None
 
 

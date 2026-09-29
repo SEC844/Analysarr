@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, col, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
 from app.database import engine, get_session
@@ -105,7 +106,7 @@ async def scan_stream() -> StreamingResponse:
 
 @router.get("/diagnostics", response_model=DiagnosticsResult)
 async def scan_diagnostics(session: Session = Depends(get_session)) -> DiagnosticsResult:
-    settings = session.get(Settings, 1)
+    settings = await run_in_threadpool(session.get, Settings, 1)
     if settings is None or not (settings.emby_url and settings.emby_api_key):
         raise HTTPException(400, "Serveur multimédia non configuré.")
     if not torrent_client_configured(settings):

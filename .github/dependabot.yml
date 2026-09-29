@@ -36,6 +36,12 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # sqlmodel 0.0.45 impose des dates avec fuseau et refuse les dates
+      # naïves que le projet enregistre en UTC (rupture annoncée malgré un
+      # simple numéro de correctif) : migration à faire à la main, avec les
+      # bases existantes, jamais par une mise à jour automatique.
+      - dependency-name: sqlmodel
+        versions: [">=0.0.45"]
 
   - package-ecosystem: docker
     directory: /
