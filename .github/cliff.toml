@@ -1,0 +1,89 @@
+# git-cliff ~ notes de version d'Analysarr
+# https://git-cliff.org/docs/configuration
+#
+# Notes générées à chaque tag vX.Y.Z (.github/workflows/docker-build.yml, job
+# create-release) à partir des commits Conventional Commits depuis la version
+# précédente, sur le modèle de Seerr. Aperçu de la prochaine version à chaque
+# push sur dev (.github/workflows/ci.yml, job release-notes).
+#
+# Groupe = type du commit ; la portée entre parenthèses est affichée en tête
+# de ligne ; « Closes #N » dans le corps ajoute le lien vers l'issue.
+
+[changelog]
+header = ""
+body = """
+{%- macro remote_url() -%}
+  https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+
+{%- set excluded_users = ["github-actions[bot]", "dependabot[bot]"] -%}
+
+{% macro print_commit(commit) -%}
+    - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+        {% if commit.breaking %}[**rupture**] {% endif %}\
+        {{ commit.message | upper_first }}\
+        {%- for footer in commit.footers | filter(attribute="token", value="Closes") %} \
+          ([#{{ footer.value }}]({{ self::remote_url() }}/issues/{{ footer.value }}))\
+        {%- endfor %} - \
+        ([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }}))\
+{% endmacro -%}
+
+{% if version %}\
+    {% if previous.version %}\
+        ## [{{ version | trim_start_matches(pat="v") }}]({{ self::remote_url() }}/compare/{{ previous.version }}..{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+    {% else %}\
+        ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+    {% endif %}\
+{% else %}\
+    ## [non publié]
+{% endif %}\
+
+{%- for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {%- for commit in commits | filter(attribute="scope") | sort(attribute="scope") %}
+        {{ self::print_commit(commit=commit) }}
+    {%- endfor %}
+    {%- for commit in commits %}
+        {%- if not commit.scope %}
+            {{ self::print_commit(commit=commit) }}
+        {%- endif %}
+    {%- endfor -%}
+{%- endfor -%}
+
+{%- set valid_contributors = [] -%}
+{%- for c in github.contributors | filter(attribute="is_first_time", value=true) %}
+  {%- if c.username and c.username not in excluded_users and c.username not in valid_contributors %}
+    {%- set_global valid_contributors = valid_contributors | concat(with=c.username) %}
+  {%- endif %}
+{%- endfor %}
+
+{%- if valid_contributors | length > 0 %}
+## Nouveaux contributeurs ❤️
+  {%- for username in valid_contributors %}
+* @{{ username }} a fait sa première contribution
+  {%- endfor %}
+{%- endif %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+filter_commits = true
+commit_parsers = [
+  { message = '^\w+\(sécurité\)', group = "<!-- 0 -->🛡️ Sécurité" },
+  { message = "^feat", group = "<!-- 1 -->🚀 Nouveautés" },
+  { message = "^fix", group = "<!-- 2 -->🐛 Corrections" },
+  { message = "^perf", group = "<!-- 3 -->⚡ Performances" },
+  { message = "^refactor", group = "<!-- 4 -->🚜 Refactorisation" },
+  { message = "^doc", group = "<!-- 5 -->📖 Documentation" },
+  { message = "^test", group = "<!-- 6 -->🧪 Tests" },
+  { message = "^build|^ci|^chore|^style", group = "<!-- 7 -->⚙️ Maintenance" },
+  { message = "^revert", group = "<!-- 8 -->◀️ Retours arrière" },
+]
+protect_breaking_commits = false
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
+topo_order = false
+sort_commits = "newest"

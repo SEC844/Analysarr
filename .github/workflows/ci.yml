@@ -75,3 +75,25 @@ jobs:
 
       - name: Audit dependencies
         run: pip-audit -r requirements.txt
+
+  release-notes:
+    # Aperçu des notes de la prochaine version (mêmes réglages que la
+    # publication, .github/cliff.toml) dans le résumé du job : une erreur de
+    # configuration se voit ici, pas le jour du tag.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # tout l'historique et les tags : le changelog part de la dernière version
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
+        with:
+          config: .github/cliff.toml
+          args: --unreleased
+        env:
+          OUTPUT: git-cliff/changelog.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Preview
+        run: cat git-cliff/changelog.md >> "$GITHUB_STEP_SUMMARY"
