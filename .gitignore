@@ -29,3 +29,6 @@ CLAUDE.md
 
 # Tests
 backend/.pytest_cache/
+
+# Graphe de navigation du code (graphify), outil de dev local
+graphify-out/

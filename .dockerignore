@@ -7,3 +7,6 @@
 backend/data
 frontend/node_modules
 .claude
+
+# Graphe de navigation du code (graphify), outil de dev local
+graphify-out/
