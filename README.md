@@ -60,7 +60,8 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Targeted cross-seed search per episode, season or whole series.
 
 **Decision support**
-- Watch activity per user (`3/10` watched it, progress on hover), last played date, date added.
+- Watch activity per user (`3/10` watched it, progress on hover), last played date, date added, favourites and each account's last activity.
+- Series status from Sonarr (continuing, ended) and private torrents flagged, whatever the torrent client.
 - Requests from Seer or Ombi: who asked, when, who approved (Ombi does not record who approved).
 - "Cleanup candidates" sort: big files nobody watched for a long time.
 
@@ -75,6 +76,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
 - Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, blocked imports, stalled downloads, deletion, cleanup, hardlink repair, cross-seed search, automation, update available.
 - Optional automations: on orphans, duplicates, non-hardlinked torrents or blocked imports, clean up, repair, retry the import, search a cross-seed or just notify — with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
+- **Seed protection**: a torrent that has not finished its minimum seeding time is never deleted by a cleanup or an automation — private torrents by default (a torrent whose privacy is unknown counts as private), public ones if you wish, with per-tracker rules (time and optional ratio). The cleanup preview says until when each torrent is protected; a manual deletion stays possible, with a warning. On for new installs; existing installs are offered to turn it on (**Settings → Seed protection**).
 - Mount safety net: any action that touches the disk is refused when a volume is not mounted, so nothing is removed from Sonarr/Radarr or from the database while the files are still there.
 - Optional trash: every deletion is kept as one restorable entry — library files, torrents (removed from the client without touching their data), and Sonarr/Radarr tracking all come back together, hardlinks included (**Settings → Trash**).
 - Hardened for exposure: security headers (strict CSP, clickjacking protection), rate limiting on the sign-in routes, real client address behind a declared reverse proxy, and a sign-in log in **Settings → Account**.

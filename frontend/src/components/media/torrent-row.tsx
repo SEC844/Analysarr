@@ -1,9 +1,10 @@
-import { CheckCircle2, EyeOff, HardDriveDownload, Inbox, Link2, Search, XCircle } from "lucide-react"
+import { CheckCircle2, EyeOff, HardDriveDownload, Inbox, Link2, Lock, Search, ShieldCheck, XCircle } from "lucide-react"
 
 import { TorrentOptions } from "@/components/media/ignore-actions"
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/i18n"
 import { formatBytes, formatDate, formatRatio } from "@/lib/format"
+import { obligationText } from "@/lib/seed"
 import { cn } from "@/lib/utils"
 import type { TorrentRead } from "@/types/media"
 
@@ -64,6 +65,20 @@ export function TorrentRow({ mediaId, torrent }: { mediaId: number; torrent: Tor
         {torrent.is_hardlinked === null && (
           <Badge variant="outline">
             <HardDriveDownload className="size-3" /> {t("media.notEvaluated")}
+          </Badge>
+        )}
+        {torrent.is_private === true && (
+          <Badge variant="outline" title={t("seed.privateHint")}>
+            <Lock className="size-3" /> {t("seed.private")}
+          </Badge>
+        )}
+        {torrent.seed_obligation && (
+          <Badge
+            variant="outline"
+            className="h-auto border-transparent bg-sky-500/10 whitespace-normal text-sky-700 dark:text-sky-300"
+            title={t("seed.badge")}
+          >
+            <ShieldCheck className="size-3" /> {obligationText(t, torrent.seed_obligation)}
           </Badge>
         )}
         {torrent.trackers.map((tr, i) => (

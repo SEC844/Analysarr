@@ -47,6 +47,7 @@ from app.services.scan.results import (
     episode_sources,
     movie_files,
     series_files,
+    series_status,
     sonarr_episodes,
 )
 from app.services.torrent_match import (
@@ -55,6 +56,7 @@ from app.services.torrent_match import (
     add_fetched,
     attach_torrents,
     optional_read,
+    read_private_flag,
 )
 from app.services.watch_stats import refresh_media_watch
 
@@ -227,6 +229,7 @@ def _apply_arr_entry(media: Media, entry: dict[str, Any], is_series: bool) -> No
     media.alt_titles = "\n".join(t for t in alt_titles if t and t != media.title)
     if is_series:
         media.tvdb_id = entry.get("tvdbId") or media.tvdb_id
+        media.series_status = series_status(entry)
     else:
         media.tmdb_id = entry.get("tmdbId") or media.tmdb_id
         media.imdb_id = entry.get("imdbId") or media.imdb_id
@@ -386,8 +389,9 @@ async def _rebuild_torrents(
             raw = listed[pos]
             trackers = await optional_read(client.get_trackers, raw["hash"], "Trackers")
             files_raw = await optional_read(client.get_files, raw["hash"], "Fichiers")
+            private = await read_private_flag(client, raw)
             # Même ligne Torrent que le scan complet (torrent_match.fetch_torrents).
-            add_fetched(fetched, raw, trackers, files_raw)
+            add_fetched(fetched, raw, trackers, files_raw, private)
 
     view = MediaView(
         media_type=media.media_type,

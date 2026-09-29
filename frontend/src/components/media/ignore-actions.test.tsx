@@ -37,6 +37,8 @@ const TORRENT: TorrentRead = {
   added_on: null,
   completed_on: null,
   trackers: [],
+  is_private: null,
+  seed_obligation: null,
 }
 
 const FILE: MediaFileRead = {
@@ -70,6 +72,8 @@ const MEDIA: MediaDetail = {
   last_played_at: null,
   requested_by: null,
   arr_instance_name: null,
+  watch_favorite_count: 0,
+  series_status: null,
   radarr_id: null,
   sonarr_id: null,
   emby_item_id: "e",

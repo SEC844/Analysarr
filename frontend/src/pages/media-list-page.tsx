@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
 import { AutomationsPausedBanner } from "@/components/automations/automations-paused-banner"
+import { SeedProtectionBanner } from "@/components/seed/seed-protection-banner"
 import { GRID_SIZE_CLASSES, type GridSize } from "@/components/media/grid-size"
 import { GridSizeToggle } from "@/components/media/grid-size-toggle"
 import { MediaCard } from "@/components/media/media-card"
@@ -77,9 +78,12 @@ export function MediaListPage() {
       </div>
 
       {/* Automatisations suspendues par le garde-fou : visible dès l'accueil,
-          sinon la pause passerait inaperçue jusqu'à l'ouverture des réglages. */}
-      <div className="mb-6 empty:mb-0">
+          sinon la pause passerait inaperçue jusqu'à l'ouverture des réglages.
+          Même endroit pour la protection du seed proposée aux installations
+          existantes. */}
+      <div className="mb-6 space-y-3 empty:mb-0">
         <AutomationsPausedBanner />
+        <SeedProtectionBanner />
       </div>
 
       <div className="mb-6">

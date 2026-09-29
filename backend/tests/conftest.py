@@ -108,6 +108,9 @@ def settings(session: Session) -> Settings:
         qbittorrent_password="secret",
         emby_library_path=LIBRARY_PATH,
         qbittorrent_download_path=DOWNLOAD_PATH,
+        # Installation existante : protection du seed désactivée (colonne
+        # DEFAULT 0). Elle a ses propres tests (test_seed_protection.py).
+        seed_protection_enabled=False,
     )
     session.add(row)
     session.commit()

@@ -32,6 +32,7 @@ from app.services.hardlink_repair import execute_repair
 from app.services.notifications import ChannelTarget, automation_notification, notification_language, notify
 from app.services.queue_issues import execute_import_retry
 from app.services.scan.statuses import is_orphan
+from app.services.seed_protection import seed_policy, split_protected
 
 logger = logging.getLogger(__name__)
 
@@ -143,11 +144,20 @@ def matches(rule: AutomationRule, media: Media, torrents: list[Torrent], now: da
 def eligible_medias(session: Session, rule: AutomationRule) -> list[tuple[Media, list[Torrent]]]:
     status = TRIGGER_STATUSES[rule.trigger]
     now = datetime.now(UTC)
+    policy = seed_policy(session.get(Settings, 1))
     eligible: list[tuple[Media, list[Torrent]]] = []
     for media in session.exec(select(Media)).all():
         if status not in media.statuses.split(","):
             continue
         torrents = list(session.exec(select(Torrent).where(Torrent.media_id == media.id)).all())
+        if rule.action == "cleanup":
+            # Protection du seed : un orphelin qui n'a pas fini son temps de
+            # seed n'est ni supprimé (le nettoyage l'écarte) ni pris en compte
+            # dans les conditions. Plus aucun orphelin supprimable : la règle
+            # n'a rien à faire sur ce média.
+            torrents, _protected = split_protected(torrents, policy, now)
+            if rule.trigger == "orphan_detected" and not _concerned_torrents(rule.trigger, torrents):
+                continue
         if matches(rule, media, torrents, now):
             eligible.append((media, torrents))
     return eligible

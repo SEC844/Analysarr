@@ -204,7 +204,13 @@ export function MediaDetailPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{media.title}</h1>
             <p className="text-muted-foreground text-sm">
-              {[media.year, media.arr_instance_name].filter(Boolean).join(" · ")}
+              {[
+                media.year,
+                media.arr_instance_name,
+                media.series_status ? t(`media.seriesStatus.${media.series_status}`) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
               {totalSize > 0 && <> · {formatBytes(totalSize)}</>}
             </p>
           </div>

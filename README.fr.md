@@ -60,7 +60,8 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Recherche cross-seed ciblée par épisode, saison ou série intégrale.
 
 **Aide à la décision**
-- Visionnage par utilisateur (`3/10` l'ont vu, progression au survol), dernière lecture, date d'ajout.
+- Visionnage par utilisateur (`3/10` l'ont vu, progression au survol), dernière lecture, date d'ajout, favoris et dernière activité de chaque compte.
+- Statut des séries depuis Sonarr (en cours de diffusion, terminée) et torrents privés signalés, quel que soit le client torrent.
 - Demandes Seer ou Ombi : qui a demandé, quand, qui a approuvé (Ombi ne mémorise pas qui a approuvé).
 - Tri « candidats au nettoyage » : les gros fichiers que personne n'a regardés depuis longtemps.
 
@@ -75,6 +76,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Widget de tableau de bord en lecture seule (`/api/status`) pour Homepage, Homarr ou tout outil capable de lire du JSON.
 - Notifications détaillées sur Discord, ntfy ou Gotify (jaquette, espace libéré, résultat de chaque étape). Plusieurs canaux, chacun avec ses propres événements : scan terminé, échec de scan, orphelins détectés, imports bloqués, téléchargements en souffrance, suppression, nettoyage, réparation des hardlinks, recherche cross-seed, automatisation, mise à jour disponible.
 - Automatisations optionnelles : sur orphelins, doublons, torrents non hardlinkés ou imports bloqués, nettoyer, réparer, relancer l'import, chercher un cross-seed ou simplement notifier — avec conditions (ancienneté du seed, ratio, type de média, espace récupérable), mode simulation et plafond par exécution.
+- **Protection du seed** : un torrent qui n'a pas fini son temps de seed minimum n'est jamais supprimé par un nettoyage ni par une automatisation — les torrents privés par défaut (un torrent dont on ignore s'il est privé compte comme privé), les publics si vous le souhaitez, avec des règles par tracker (durée et ratio facultatif). L'aperçu du nettoyage indique jusqu'à quand chaque torrent est protégé ; une suppression manuelle reste possible, avec un avertissement. Activée pour une nouvelle installation ; une installation existante se la voit proposer (**Réglages → Protection du seed**).
 - Garde-fou des montages : toute action qui touche au disque est refusée quand un volume n'est pas monté, pour ne rien retirer de Sonarr/Radarr ni de la base alors que les fichiers sont toujours là.
 - Corbeille optionnelle : chaque suppression est conservée comme une seule entrée restaurable — fichiers de bibliothèque, torrents (retirés du client sans toucher à leurs données), et suivi Sonarr/Radarr reviennent ensemble, hardlinks compris (**Réglages → Corbeille**).
 - Durci pour une instance exposée : en-têtes de sécurité (CSP stricte, protection contre le clickjacking), limitation de débit sur les routes de connexion, adresse réelle du client derrière un reverse-proxy déclaré, et journal des connexions dans **Réglages → Compte**.

@@ -20,6 +20,7 @@ from app.routers import library as library_router
 from app.routers import media as media_router
 from app.routers import notifications as notifications_router
 from app.routers import scan as scan_router
+from app.routers import seed_protection as seed_protection_router
 from app.routers import services as services_router
 from app.routers import settings as settings_router
 from app.routers import trash as trash_router
@@ -219,6 +220,7 @@ app.include_router(emby_router.router, prefix="/api/emby", tags=["emby"])
 app.include_router(history_router.router, prefix="/api/history", tags=["history"])
 app.include_router(ignores_router.router, prefix="/api/ignores", tags=["ignores"])
 app.include_router(library_router.router, prefix="/api/library", tags=["library"])
+app.include_router(seed_protection_router.router, prefix="/api/seed-protection", tags=["seed-protection"])
 app.include_router(notifications_router.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(automations_router.router, prefix="/api/automations", tags=["automations"])
 app.include_router(services_router.router, prefix="/api/services", tags=["services"])

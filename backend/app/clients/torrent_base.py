@@ -2,7 +2,8 @@
 
 Tous exposent la même interface et renvoient la MÊME forme de données que
 l'API qBittorrent — `hash`, `name`, `save_path`, `content_path`, `category`,
-`size`, `ratio`, `num_seeds`, `num_leechs`, `added_on`, `completion_on` — pour
+`size`, `ratio`, `num_seeds`, `num_leechs`, `added_on`, `completion_on`, et
+`private` quand le client le publie dans sa liste (True/False, None inconnu) — pour
 que le scan, la suppression et les diagnostics ne connaissent qu'un seul
 format, quel que soit le client configuré."""
 
@@ -30,6 +31,12 @@ class TorrentClient:
     async def get_torrents(self) -> list[dict[str, Any]]:
         """Tous les torrents, au format commun décrit en tête de module."""
         raise NotImplementedError
+
+    async def private_flag(self, torrent: dict[str, Any]) -> bool | None:
+        """Torrent privé : True, False, ou None si le client ne le dit pas.
+        Par défaut, la clé `private` du format commun."""
+        value = torrent.get("private")
+        return value if isinstance(value, bool) else None
 
     async def get_trackers(self, torrent_hash: str) -> list[dict[str, Any]]:
         """[{"url": ..., "status": <int|None>}] — `status` n'existe que côté

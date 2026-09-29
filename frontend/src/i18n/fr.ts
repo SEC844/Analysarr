@@ -606,6 +606,7 @@ export const fr = {
       account: "Compte",
       trash: "Corbeille",
       ignored: "Éléments ignorés",
+      seedProtection: "Protection du seed",
       preferences: "Préférences",
       application: "Application",
     },
@@ -713,6 +714,10 @@ export const fr = {
     added: "Ajouté {time}",
     lastPlayed: "dernière lecture {time} par {name}",
     neverPlayed: "jamais lu",
+    favorite: "Favori",
+    favoriteCount: { one: "{count} favori", other: "{count} favoris" },
+    lastActivity: "actif {time}",
+    neverActive: "aucune activité connue",
     noUsers: "Aucun utilisateur {server} n'a accès à ce média",
     stale: "{server} injoignable : chiffres du dernier scan.",
     deleteWarning: {
@@ -893,6 +898,12 @@ export const fr = {
     leechers: { one: "{count} leecher", other: "{count} leechers" },
     ratio: "Ratio {ratio}",
     seedingSince: "Seedé depuis le {date}",
+    seriesStatus: {
+      continuing: "En cours de diffusion",
+      ended: "Terminée",
+      upcoming: "À venir",
+      deleted: "Retirée de TheTVDB",
+    },
   },
   repair: {
     button: "Réparer les hardlinks",
@@ -908,6 +919,58 @@ export const fr = {
       "Réparé par lien symbolique (systèmes de fichiers différents) — vérifiez que le fichier se lit toujours bien dans {server}, ou que le torrent seede toujours normalement.",
     unmatched: "Sans fichier correspondant trouvé avec certitude : {list}",
     confirm: "Confirmer la réparation",
+  },
+  seed: {
+    title: "Protection du seed",
+    description:
+      "Un torrent qui n'a pas encore partagé assez longtemps n'est jamais supprimé par « Nettoyer » ni par une automatisation : les trackers privés sanctionnent un torrent retiré trop tôt (« hit and run »).",
+    enabled: "Protéger le seed avant toute suppression",
+    privateDays: "Durée minimale pour les torrents privés",
+    privateHelp: "Un torrent dont le client ne dit pas s'il est privé est traité comme privé.",
+    publicEnabled: "Protéger aussi les torrents publics",
+    publicDays: "Durée minimale pour les torrents publics",
+    days: "jours",
+    referenceHelp:
+      "Comptée depuis la fin du téléchargement (à défaut, depuis l'ajout). Sans aucune date connue, le torrent reste protégé.",
+    manualHelp:
+      "La suppression manuelle (« Supprimer... ») reste possible : un avertissement signale alors les torrents concernés.",
+    rulesTitle: "Règles par tracker",
+    rulesDescription:
+      "Remplacent la durée générale pour un tracker (et ses sous-domaines), qu'il soit privé ou public. Le ratio, facultatif, s'ajoute à la durée : les deux doivent être atteints.",
+    domain: "Domaine du tracker",
+    domainPlaceholder: "tracker.exemple.org",
+    ratio: "Ratio minimum",
+    ratioPlaceholder: "aucun",
+    addRule: "Ajouter une règle",
+    removeRule: "Retirer la règle {domain}",
+    noRules: "Aucune règle : la durée générale s'applique à tous les trackers.",
+    save: "Enregistrer",
+    saved: "Protection du seed enregistrée.",
+    invalid:
+      "Vérifiez les valeurs : durées de {min} à {max} jours, ratio de 0 à {ratio}, un domaine valide par règle, sans doublon.",
+    prompt: {
+      title: "Protéger le seed de vos torrents ?",
+      body: "Nouveau : « Nettoyer » et les automatisations peuvent épargner les torrents qui n'ont pas fini leur temps de seed minimum ({days} jours par défaut pour les torrents privés). Rien ne change tant que vous ne l'activez pas.",
+      enable: "Activer",
+      dismiss: "Non merci",
+      configure: "Personnaliser",
+      enabled: "Protection du seed activée.",
+    },
+    obligation: {
+      min_seed: "Protégé jusqu'au {date} (seed minimum sur {tracker})",
+      min_seed_general: "Protégé jusqu'au {date} (seed minimum)",
+      min_ratio: "Protégé jusqu'au ratio {ratio} (règle de {tracker})",
+      unknown_date: "Protégé : date de fin de téléchargement inconnue",
+    },
+    badge: "Seed minimum",
+    private: "Privé",
+    privateHint: "Torrent privé : son tracker peut exiger un temps de seed minimum.",
+    cascadeProtected: "Écartés : obligation de seed en cours",
+    selectionWarning: {
+      one: "{count} torrent coché n'a pas fini son temps de seed minimum : le supprimer maintenant peut être sanctionné par son tracker.",
+      other:
+        "{count} torrents cochés n'ont pas fini leur temps de seed minimum : les supprimer maintenant peut être sanctionné par leur tracker.",
+    },
   },
   cascade: {
     button: "Nettoyer",

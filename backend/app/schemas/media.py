@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.ignores import MutedStatusRead
+from app.schemas.seed import SeedObligationRead
 
 
 class MediaFileRead(BaseModel):
@@ -52,6 +53,10 @@ class TorrentRead(BaseModel):
     added_on: datetime | None
     completed_on: datetime | None
     trackers: list[TrackerRead]
+    # Torrent privé : True, False, None si le client ne le dit pas.
+    is_private: bool | None = None
+    # Obligation de seed en cours (protection activée), sinon None.
+    seed_obligation: SeedObligationRead | None = None
 
 
 class MediaListItem(BaseModel):
@@ -78,6 +83,9 @@ class MediaListItem(BaseModel):
     # Instance Sonarr/Radarr supplémentaire qui suit le média (ex : « Radarr
     # 4K ») ; None pour l'instance principale.
     arr_instance_name: str | None = None
+    watch_favorite_count: int = 0
+    # Séries : statut Sonarr (continuing, ended, upcoming, deleted).
+    series_status: str | None = None
 
 
 class SeerUserRead(BaseModel):
@@ -107,6 +115,9 @@ class WatchUser(BaseModel):
     # Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
     progress: float
     last_played_at: datetime | None
+    favorite: bool = False
+    # Dernière activité du compte sur le serveur multimédia.
+    last_activity_at: datetime | None = None
 
 
 class MediaWatchStats(BaseModel):
@@ -118,6 +129,7 @@ class MediaWatchStats(BaseModel):
     users: list[WatchUser]
     played_count: int
     in_progress_count: int
+    favorite_count: int = 0
     last_played_at: datetime | None
     last_played_by: str | None
     date_added: datetime | None
@@ -128,6 +140,7 @@ class EmbyUserRead(BaseModel):
     name: str
     image_tag: str | None
     is_disabled: bool
+    last_activity_at: datetime | None = None
 
 
 class ImportIssueRead(BaseModel):
@@ -247,9 +260,19 @@ class DeletePreviewItem(BaseModel):
     size: int | None
 
 
+class ProtectedTorrentRead(BaseModel):
+    """Torrent orphelin écarté du nettoyage : obligation de seed en cours
+    (voir services/seed_protection.py)."""
+
+    label: str
+    size: int | None
+    obligation: SeedObligationRead
+
+
 class DeletePreview(BaseModel):
     items: list[DeletePreviewItem]
     total_reclaimable_bytes: int
+    protected: list[ProtectedTorrentRead] = Field(default_factory=list)
 
 
 class DeleteStepResult(BaseModel):

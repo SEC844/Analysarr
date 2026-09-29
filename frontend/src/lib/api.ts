@@ -14,6 +14,7 @@ import type {
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
 import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
+import type { SeedProtection, SeedProtectionWrite } from "@/types/seed"
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { IgnoreCreate, IgnoreRuleRead } from "@/types/ignores"
@@ -295,6 +296,19 @@ export function getTrashSettings(): Promise<TrashSettings> {
 
 export function saveTrashSettings(payload: { enabled: boolean; retention_days: number }): Promise<TrashSettings> {
   return request<TrashSettings>("/api/trash/settings", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function getSeedProtection(): Promise<SeedProtection> {
+  return request<SeedProtection>("/api/seed-protection")
+}
+
+export function saveSeedProtection(payload: SeedProtectionWrite): Promise<SeedProtection> {
+  return request<SeedProtection>("/api/seed-protection", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+/** « Non merci » sur le bandeau : la protection reste désactivée. */
+export function dismissSeedProtectionPrompt(): Promise<SeedProtection> {
+  return request<SeedProtection>("/api/seed-protection/dismiss-prompt", { method: "POST" })
 }
 
 /** Restauration d'une suppression entière : fichiers, torrents, Sonarr/Radarr

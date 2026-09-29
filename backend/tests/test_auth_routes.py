@@ -59,7 +59,15 @@ def test_exactly_the_expected_routes_skip_the_session_check(client, monkeypatch)
 
 
 @pytest.mark.parametrize(
-    "path", ["/api/media", "/api/scan/history", "/api/ignores", "/api/auth/login-history", "/api/library/history"]
+    "path",
+    [
+        "/api/media",
+        "/api/scan/history",
+        "/api/ignores",
+        "/api/auth/login-history",
+        "/api/library/history",
+        "/api/seed-protection",
+    ],
 )
 def test_a_protected_route_refuses_a_request_without_cookie(client, path):
     response = client.get(path)

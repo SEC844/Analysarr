@@ -55,6 +55,7 @@ from app.services.notifications import action_notification, channel_targets, not
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.queue_issues import execute_import_retry
 from app.services.scan import MEDIA_STATUSES, is_healthy, is_scan_running, launch_scan
+from app.services.seed_protection import SeedObligation, obligation_read, seed_obligation, seed_policy
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
 
@@ -88,6 +89,8 @@ def _to_list_item(media: Media, seer_enabled: bool = False, names: dict[int, str
         # Seer désactivé : aucune trace dans l'interface, même d'un scan passé.
         requested_by=media.requested_by if seer_enabled else None,
         arr_instance_name=(names or {}).get(media.arr_instance_id) if media.arr_instance_id is not None else None,
+        watch_favorite_count=media.watch_favorite_count,
+        series_status=media.series_status,
     )
 
 
@@ -217,7 +220,10 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
 
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all()
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media_id)).all()
-    seer_enabled = seer_configured(session.get(Settings, 1))
+    settings = session.get(Settings, 1)
+    seer_enabled = seer_configured(settings)
+    policy = seed_policy(settings)
+    now = datetime.now(UTC)
 
     issues = session.exec(select(ImportIssue).where(ImportIssue.media_id == media_id)).all()
     ignores = media_ignores(session, media, files, torrents)
@@ -247,7 +253,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         tvdb_id=media.tvdb_id,
         imdb_id=media.imdb_id,
         files=_file_reads(files, ignores),
-        torrents=[_torrent_read(t, ignores) for t in torrents],
+        torrents=[_torrent_read(t, ignores, seed_obligation(t, policy, now)) for t in torrents],
         missing_emby_episodes=[e for e in media.missing_emby_episodes.split(",") if e],
         muted_rules=ignores.muted,
     )
@@ -270,7 +276,7 @@ def _file_reads(files: Sequence[MediaFile], ignores: MediaIgnores) -> list[Media
     ]
 
 
-def _torrent_read(t: Torrent, ignores: MediaIgnores) -> TorrentRead:
+def _torrent_read(t: Torrent, ignores: MediaIgnores, obligation: SeedObligation | None) -> TorrentRead:
     return TorrentRead(
         id=row_id(t),
         hash=t.hash,
@@ -292,6 +298,8 @@ def _torrent_read(t: Torrent, ignores: MediaIgnores) -> TorrentRead:
         added_on=t.added_on,
         completed_on=t.completed_on,
         trackers=[TrackerRead(**d) for d in json.loads(t.trackers_json)],
+        is_private=t.is_private,
+        seed_obligation=obligation_read(obligation),
     )
 
 

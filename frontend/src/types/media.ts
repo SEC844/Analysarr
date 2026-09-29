@@ -1,4 +1,5 @@
 import type { MutedStatusRead } from "@/types/ignores"
+import type { SeedObligation } from "@/types/seed"
 
 /** Informations affichées à côté de « Sain » : couverture tracker, et saisons
  * téléchargées mais pas encore importées. */
@@ -54,7 +55,13 @@ export interface MediaListItem {
   requested_by: string | null
   // Instance Sonarr/Radarr supplémentaire (ex : « Radarr 4K ») ; null = principale.
   arr_instance_name: string | null
+  // Utilisateurs pris en compte qui ont mis le média en favori.
+  watch_favorite_count: number
+  // Séries : statut Sonarr ; null pour un film.
+  series_status: SeriesStatus | null
 }
+
+export type SeriesStatus = "continuing" | "ended" | "upcoming" | "deleted"
 
 export interface SeerUserRead {
   name: string
@@ -83,6 +90,9 @@ export interface WatchUser {
   // Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
   progress: number
   last_played_at: string | null
+  favorite: boolean
+  // Dernière activité du compte sur le serveur multimédia.
+  last_activity_at: string | null
 }
 
 export interface MediaWatchStats {
@@ -92,6 +102,7 @@ export interface MediaWatchStats {
   users: WatchUser[]
   played_count: number
   in_progress_count: number
+  favorite_count: number
   last_played_at: string | null
   last_played_by: string | null
   date_added: string | null
@@ -102,6 +113,7 @@ export interface EmbyUserRead {
   name: string
   image_tag: string | null
   is_disabled: boolean
+  last_activity_at: string | null
 }
 
 export type WatchFilter = "never" | "in_progress" | "all"
@@ -153,6 +165,10 @@ export interface TorrentRead {
   added_on: string | null
   completed_on: string | null
   trackers: TrackerRead[]
+  // Torrent privé ; null si le client ne le dit pas (traité comme privé).
+  is_private: boolean | null
+  // Obligation de seed en cours (protection activée), sinon null.
+  seed_obligation: SeedObligation | null
 }
 
 export interface ImportIssueRead {
@@ -260,9 +276,17 @@ export interface DeletePreviewItem {
   size: number | null
 }
 
+export interface ProtectedTorrent {
+  label: string
+  size: number | null
+  obligation: SeedObligation
+}
+
 export interface DeletePreview {
   items: DeletePreviewItem[]
   total_reclaimable_bytes: number
+  // Orphelins écartés du nettoyage : obligation de seed en cours.
+  protected: ProtectedTorrent[]
 }
 
 export interface DeleteStepResult {

@@ -357,6 +357,7 @@ def _copy_media_fields(row: Media, source: Media) -> None:
         "emby_date_added",
         "episode_count",
         "missing_emby_episodes",
+        "series_status",
     ):
         setattr(row, name, getattr(source, name))
 

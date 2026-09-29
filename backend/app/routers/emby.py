@@ -13,7 +13,7 @@ from app.models.media import EmbyUser
 from app.models.settings import Settings
 from app.schemas.media import EmbyUserRead
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
-from app.services.watch_stats import users_from_api
+from app.services.watch_stats import as_utc, users_from_api
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,13 @@ async def list_emby_users(session: Session = Depends(get_session)) -> list[EmbyU
     if users is None:
         users = await run_in_threadpool(lambda: list(session.exec(select(EmbyUser)).all()))
     return [
-        EmbyUserRead(id=u.id, name=u.name, image_tag=u.image_tag, is_disabled=u.is_disabled)
+        EmbyUserRead(
+            id=u.id,
+            name=u.name,
+            image_tag=u.image_tag,
+            is_disabled=u.is_disabled,
+            last_activity_at=as_utc(u.last_activity_at),
+        )
         for u in sorted(users, key=lambda u: u.name.lower())
     ]
 

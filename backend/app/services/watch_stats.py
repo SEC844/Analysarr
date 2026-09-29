@@ -44,6 +44,8 @@ class UserWatchData:
     movies: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Séries visibles par l'utilisateur.
     series: set[str] = field(default_factory=set)
+    # Séries mises en favori (les films portent l'information dans leur UserData).
+    series_favorites: set[str] = field(default_factory=set)
     episodes_played: dict[str, int] = field(default_factory=dict)
     series_resuming: set[str] = field(default_factory=set)
     series_last_played: dict[str, datetime] = field(default_factory=dict)
@@ -85,6 +87,7 @@ def users_from_api(raw: list[dict[str, Any]]) -> list[EmbyUser]:
             name=str(u.get("Name") or "?"),
             image_tag=u.get("PrimaryImageTag"),
             is_disabled=bool((u.get("Policy") or {}).get("IsDisabled")),
+            last_activity_at=parse_emby_date(u.get("LastActivityDate")),
         )
         for u in raw
         if u.get("Id")
@@ -103,6 +106,8 @@ async def fetch_user_watch(
     if movie_id is None:
         for item in await emby.get_user_items(user_id, "Series", ids=series_id):
             data.series.add(item["Id"])
+            if (item.get("UserData") or {}).get("IsFavorite"):
+                data.series_favorites.add(item["Id"])
         for flt in ("IsPlayed", "IsResumable"):
             for episode in await emby.get_user_items(user_id, "Episode", parent_id=series_id, filters=flt):
                 sid = episode.get("SeriesId")
@@ -161,6 +166,7 @@ def build_watch_rows(media: Media, users: list[EmbyUser], data: dict[str, UserWa
                     progress=round(percent, 1),
                     in_progress=not played and percent > 0,
                     last_played_at=parse_emby_date(state.get("LastPlayedDate")),
+                    favorite=bool(state.get("IsFavorite")),
                 )
             )
         else:
@@ -178,6 +184,7 @@ def build_watch_rows(media: Media, users: list[EmbyUser], data: dict[str, UserWa
                     progress=watched,
                     in_progress=not played and (watched > 0 or item_id in user_data.series_resuming),
                     last_played_at=user_data.series_last_played.get(item_id),
+                    favorite=item_id in user_data.series_favorites,
                 )
             )
     return rows
@@ -188,6 +195,7 @@ def apply_aggregates(media: Media, rows: list[MediaWatch], excluded: set[str]) -
     media.watch_user_count = len(counted)
     media.watch_played_count = sum(1 for r in counted if r.played)
     media.watch_in_progress_count = sum(1 for r in counted if r.in_progress)
+    media.watch_favorite_count = sum(1 for r in counted if r.favorite)
     dates = [as_utc(r.last_played_at) for r in counted if r.last_played_at]
     media.last_played_at = max(dates) if dates else None
 
@@ -268,6 +276,8 @@ def build_watch_stats(session: Session, media: Media, settings: Settings | None,
                 in_progress=r.in_progress,
                 progress=r.progress,
                 last_played_at=as_utc(r.last_played_at),
+                favorite=r.favorite,
+                last_activity_at=as_utc(users[r.emby_user_id].last_activity_at),
             )
             for r in rows
         ),
@@ -282,6 +292,7 @@ def build_watch_stats(session: Session, media: Media, settings: Settings | None,
         users=watch_users,
         played_count=sum(1 for u in watch_users if u.played),
         in_progress_count=sum(1 for u in watch_users if u.in_progress),
+        favorite_count=sum(1 for u in watch_users if u.favorite),
         last_played_at=last.last_played_at if last else None,
         last_played_by=last.name if last else None,
         date_added=as_utc(media.emby_date_added),

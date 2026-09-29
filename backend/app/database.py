@@ -99,6 +99,11 @@ _CURRENT_SCHEMA_MARKERS = [
     ("torrent", "ignored"),
     ("mediafile", "ignored"),
     ("media", "muted_statuses"),
+    ("torrent", "is_private"),
+    ("media", "series_status"),
+    ("media", "watch_favorite_count"),
+    ("mediawatch", "favorite"),
+    ("embyuser", "last_activity_at"),
 ]
 
 
@@ -176,6 +181,16 @@ _SETTINGS_NEW_COLUMNS = [
     ("trash_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     ("trash_retention_days", "INTEGER NOT NULL DEFAULT 7"),
     ("library_history_retention_days", "INTEGER NOT NULL DEFAULT 730"),
+    # DEFAULT 0 volontaire : une installation existante ne voit jamais ses
+    # nettoyages ni ses automatisations changer en silence — un bandeau lui
+    # propose d'activer la protection. Une nouvelle installation l'a d'office
+    # (valeur du modèle, voir models/settings.py).
+    ("seed_protection_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("seed_protection_prompt_dismissed", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("seed_private_min_days", "INTEGER NOT NULL DEFAULT 14"),
+    ("seed_public_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("seed_public_min_days", "INTEGER NOT NULL DEFAULT 3"),
+    ("seed_tracker_rules", "VARCHAR NOT NULL DEFAULT '[]'"),
 ]
 
 

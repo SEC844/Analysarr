@@ -21,6 +21,7 @@ import httpx
 from sqlmodel import Session, delete, select
 
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_name
+from app.clients.torrent_base import TorrentClient
 from app.models.media import MediaFile, MediaType, Torrent, TorrentFile
 from app.models.settings import Settings
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
@@ -148,6 +149,7 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
                 (
                     await optional_read(client.get_trackers, t["hash"], "Trackers"),
                     await optional_read(client.get_files, t["hash"], "Fichiers"),
+                    await read_private_flag(client, t),
                 )
                 for t in torrents
             ]
@@ -155,8 +157,8 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
         raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée pendant le scan : {exc}") from exc
 
     fetched = FetchedTorrents()
-    for t, (trackers, files) in zip(torrents, details, strict=True):
-        add_fetched(fetched, t, trackers, files)
+    for t, (trackers, files, private) in zip(torrents, details, strict=True):
+        add_fetched(fetched, t, trackers, files, private)
     return fetched
 
 
@@ -172,8 +174,22 @@ async def optional_read(
         return []
 
 
+async def read_private_flag(client: TorrentClient, torrent: dict[str, Any]) -> bool | None:
+    """Drapeau « privé », jamais bloquant : illisible = inconnu (et un torrent
+    inconnu est traité comme privé par la protection du seed)."""
+    try:
+        return await client.private_flag(torrent)
+    except (httpx.HTTPError, ValueError, KeyError):
+        logger.warning("Drapeau « privé » illisible pour le torrent %s", torrent.get("hash"), exc_info=True)
+        return None
+
+
 def add_fetched(
-    fetched: FetchedTorrents, t: dict[str, Any], trackers: list[dict[str, Any]], files: list[dict[str, Any]]
+    fetched: FetchedTorrents,
+    t: dict[str, Any],
+    trackers: list[dict[str, Any]],
+    files: list[dict[str, Any]],
+    private: bool | None = None,
 ) -> None:
     content_path = t.get("content_path") or t.get("save_path")
     save_path = t.get("save_path")
@@ -205,6 +221,7 @@ def add_fetched(
             leechers=t.get("num_leechs"),
             added_on=epoch_to_datetime(t.get("added_on")),
             completed_on=epoch_to_datetime(t.get("completion_on")),
+            is_private=private,
             trackers_json=json.dumps(_tracker_domains(trackers)),
         )
     )
@@ -483,6 +500,7 @@ def torrents_from_cache(session: Session) -> FetchedTorrents:
                 leechers=torrent.leechers,
                 added_on=torrent.added_on,
                 completed_on=torrent.completed_on,
+                is_private=torrent.is_private,
                 trackers_json=torrent.trackers_json,
             )
         )

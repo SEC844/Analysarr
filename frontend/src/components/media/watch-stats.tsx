@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Users } from "lucide-react"
+import { Heart, Users } from "lucide-react"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -55,7 +55,12 @@ function WatchUserRow({ user, stats }: { user: WatchUser; stats: MediaWatchStats
       <UserAvatar user={user} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate text-sm font-medium">{user.name}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-sm font-medium">{user.name}</span>
+            {user.favorite && (
+              <Heart className="size-3 shrink-0 fill-rose-500 text-rose-500" aria-label={t("watch.favorite")} />
+            )}
+          </span>
           <span
             className={cn(
               "shrink-0 text-xs font-medium tabular-nums",
@@ -80,6 +85,11 @@ function WatchUserRow({ user, stats }: { user: WatchUser; stats: MediaWatchStats
             {absolute_dates
               ? t("watch.lastSeenOn", { date: formatDate(user.last_played_at) ?? "" })
               : t("watch.lastSeen", { time: formatRelativeTime(user.last_played_at) ?? "" })}
+          </p>
+        )}
+        {user.last_activity_at && (
+          <p className="text-muted-foreground text-[11px]" title={formatDateTime(user.last_activity_at) ?? undefined}>
+            {t("watch.lastActivity", { time: formatRelativeTime(user.last_activity_at) ?? "" })}
           </p>
         )}
       </div>
@@ -110,6 +120,7 @@ export function WatchQuota({ stats }: { stats: MediaWatchStats }) {
           {stats.played_count}/{total}
         </span>
         {stats.in_progress_count > 0 && <span className="size-1.5 rounded-full bg-amber-500" aria-hidden />}
+        {stats.favorite_count > 0 && <Heart className="size-3 fill-rose-500 text-rose-500" aria-hidden />}
       </PopoverTrigger>
       <PopoverContent>
         <div className="px-1 pb-2">
@@ -117,6 +128,7 @@ export function WatchQuota({ stats }: { stats: MediaWatchStats }) {
           <p className="text-muted-foreground text-xs">
             {summary}
             {stats.in_progress_count > 0 && ` · ${t("watch.inProgressCount", { count: stats.in_progress_count })}`}
+            {stats.favorite_count > 0 && ` · ${t("watch.favoriteCount", { count: stats.favorite_count })}`}
           </p>
         </div>
         <ul className="divide-border divide-y border-t">

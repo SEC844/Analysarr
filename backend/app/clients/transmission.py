@@ -27,6 +27,9 @@ FIELDS = [
     "files",
     "trackers",
     "labels",
+    # Protocole historique (celui qu'utilise ce client) ; `is_private` en
+    # JSON-RPC 2.0 depuis Transmission 4.1, qui accepte encore les deux.
+    "isPrivate",
 ]
 
 
@@ -94,6 +97,7 @@ class TransmissionClient(TorrentClient):
             "added_on": torrent.get("addedDate"),
             # `doneDate` vaut 0 tant que le téléchargement n'est pas terminé.
             "completion_on": torrent.get("doneDate") or None,
+            "private": torrent.get("isPrivate"),
         }
 
     async def get_torrents(self) -> list[dict[str, Any]]:

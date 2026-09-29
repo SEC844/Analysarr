@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { AlertTriangle, Broom, CheckCircle2, Loader2, XCircle } from "lucide-react"
+import { AlertTriangle, Broom, CheckCircle2, Loader2, ShieldCheck, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,7 @@ import {
 import { useDeleteExecuteMutation, useDeletePreviewMutation } from "@/hooks/use-media"
 import { useI18n } from "@/i18n"
 import { formatBytes } from "@/lib/format"
+import { obligationText } from "@/lib/seed"
 import type { DeleteExecuteResult, DeletePreview } from "@/types/media"
 
 export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
@@ -88,6 +89,27 @@ export function DeleteCascadeDialog({ mediaId }: { mediaId: number }) {
                 <p className="text-sm font-medium">
                   {t("cascade.total", { size: formatBytes(preview.total_reclaimable_bytes) })}
                 </p>
+              </div>
+            )}
+
+            {/* Orphelins écartés par la protection du seed : affichés, jamais supprimés. */}
+            {preview && preview.protected.length > 0 && (
+              <div className="space-y-1">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-sky-700 dark:text-sky-300">
+                  <ShieldCheck className="size-3.5" />
+                  {t("seed.cascadeProtected")}
+                </p>
+                <ul className="max-h-40 space-y-1 overflow-y-auto text-sm">
+                  {preview.protected.map((item, i) => (
+                    <li key={i} className="flex items-start justify-between gap-2 py-1">
+                      <div className="min-w-0">
+                        <p className="break-all">{item.label}</p>
+                        <p className="text-muted-foreground text-xs">{obligationText(t, item.obligation)}</p>
+                      </div>
+                      <span className="text-muted-foreground shrink-0 text-xs">{formatBytes(item.size)}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </>

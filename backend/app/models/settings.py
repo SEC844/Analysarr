@@ -84,6 +84,20 @@ class Settings(SQLModel, table=True):
     # Historique de la bibliothèque (services/library_history.py) : nombre de
     # jours de photographies quotidiennes conservés.
     library_history_retention_days: int = 730
+    # Protection du seed (services/seed_protection.py) : un torrent qui n'a
+    # pas fini son temps de seed minimum n'est jamais supprimé par un
+    # nettoyage ni une automatisation. Activée pour une nouvelle installation ;
+    # une installation existante la reçoit désactivée (colonne DEFAULT 0, voir
+    # database.py) avec un bandeau qui propose de l'activer.
+    seed_protection_enabled: bool = True
+    # Bandeau refusé (« Non merci ») ou protection désactivée volontairement.
+    seed_protection_prompt_dismissed: bool = False
+    seed_private_min_days: int = 14
+    seed_public_enabled: bool = False
+    seed_public_min_days: int = 3
+    # Surcharges par tracker (JSON validé par schemas/seed.py::TrackerSeedRule) :
+    # [{"domain": str, "min_days": int, "min_ratio": float | null}].
+    seed_tracker_rules: str = "[]"
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: str | None = None

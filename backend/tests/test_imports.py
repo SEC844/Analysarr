@@ -26,6 +26,8 @@ MODULES = [
     "app.services.library_history",
     "app.services.scheduler",
     "app.routers.library",
+    "app.services.seed_protection",
+    "app.routers.seed_protection",
 ]
 
 

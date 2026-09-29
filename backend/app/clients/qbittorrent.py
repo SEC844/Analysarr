@@ -28,6 +28,11 @@ class QbittorrentClient(TorrentClient):
         self.username = username
         self.password = password
         self._client: httpx.AsyncClient | None = None
+        # qBittorrent 4.5.1 à 4.6 : `is_private` n'existe que dans les
+        # propriétés d'un torrent. Passé à False dès qu'une réponse ne le porte
+        # pas (version plus ancienne) : inutile de le redemander pour chaque
+        # torrent.
+        self._properties_have_private = True
 
     async def __aenter__(self) -> "QbittorrentClient":
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
@@ -58,6 +63,23 @@ class QbittorrentClient(TorrentClient):
         resp = await self.client.get("/api/v2/torrents/info")
         resp.raise_for_status()
         return resp.json()
+
+    async def private_flag(self, torrent: dict[str, Any]) -> bool | None:
+        """Vérifié dans le code de qBittorrent : depuis la 5.0 (Web API 2.11),
+        `private` figure dans `torrents/info` (null sans métadonnées) ; de la
+        4.5.1 à la 4.6, seul `torrents/properties` donne `is_private` ; avant,
+        l'information n'est pas publiée."""
+        if "private" in torrent:
+            return await super().private_flag(torrent)
+        if not self._properties_have_private:
+            return None
+        resp = await self.client.get("/api/v2/torrents/properties", params={"hash": torrent["hash"]})
+        resp.raise_for_status()
+        value = resp.json().get("is_private")
+        if not isinstance(value, bool):
+            self._properties_have_private = False
+            return None
+        return value
 
     async def get_trackers(self, torrent_hash: str) -> list[dict[str, Any]]:
         resp = await self.client.get("/api/v2/torrents/trackers", params={"hash": torrent_hash})

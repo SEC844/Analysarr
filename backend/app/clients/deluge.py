@@ -28,6 +28,8 @@ STATUS_FIELDS = [
     "label",
     "files",
     "trackers",
+    # Deluge 1.3 et 2.x (deluge/core/torrent.py) ; False sans métadonnées.
+    "private",
 ]
 
 
@@ -98,6 +100,7 @@ class DelugeClient(TorrentClient):
             "num_leechs": status.get("num_peers"),
             "added_on": status.get("time_added"),
             "completion_on": status.get("completed_time"),
+            "private": status.get("private"),
         }
 
     async def get_torrents(self) -> list[dict[str, Any]]:

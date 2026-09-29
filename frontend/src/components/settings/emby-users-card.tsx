@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Switch } from "@/components/ui/switch"
 import { useEmbyUsersQuery } from "@/hooks/use-media"
 import { useI18n } from "@/i18n"
+import { formatDateTime, formatRelativeTime } from "@/lib/format"
 
 interface EmbyUsersCardProps {
   excluded: string[]
@@ -43,6 +44,11 @@ export function EmbyUsersCard({ excluded, onExcludedChange }: EmbyUsersCardProps
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{user.name}</p>
                   {user.is_disabled && <p className="text-muted-foreground text-xs">{t("watch.disabled")}</p>}
+                  <p className="text-muted-foreground text-xs" title={formatDateTime(user.last_activity_at) ?? undefined}>
+                    {user.last_activity_at
+                      ? t("watch.lastActivity", { time: formatRelativeTime(user.last_activity_at) ?? "" })
+                      : t("watch.neverActive")}
+                  </p>
                 </div>
                 <Switch
                   checked={!user.is_disabled && !excludedIds.has(user.id)}

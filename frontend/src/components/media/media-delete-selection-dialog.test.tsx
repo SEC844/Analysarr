@@ -41,6 +41,8 @@ function torrent(id: number, name: string, size: number): TorrentRead {
     added_on: null,
     completed_on: null,
     trackers: [],
+    is_private: null,
+    seed_obligation: null,
   }
 }
 
@@ -77,6 +79,8 @@ const MEDIA: MediaDetail = {
   last_played_at: null,
   requested_by: null,
   arr_instance_name: null,
+  watch_favorite_count: 0,
+  series_status: null,
   radarr_id: 5,
   sonarr_id: null,
   emby_item_id: "e-inception",
@@ -122,12 +126,46 @@ describe("MediaDeleteSelectionDialog", () => {
       users: [],
       played_count: 0,
       in_progress_count: 0,
+      favorite_count: 0,
       last_played_at: null,
       last_played_by: null,
       date_added: null,
     })
     vi.mocked(getTrashSettings).mockResolvedValue({ enabled: false, retention_days: 7, min_days: 1, max_days: 90 })
     vi.mocked(deleteSelectionExecute).mockResolvedValue({ steps: [], media_deleted: false })
+  })
+
+  it("warns before deleting a torrent still under its seeding obligation, without blocking", async () => {
+    const protectedTorrent: TorrentRead = {
+      ...torrent(2, "Inception.2010.1080p", 2000),
+      is_private: true,
+      seed_obligation: {
+        reason: "min_seed",
+        until: "2026-10-12T10:00:00",
+        tracker: "tracker.example.org",
+        min_days: 14,
+        min_ratio: null,
+      },
+    }
+    const user = userEvent.setup()
+    const media = { ...MEDIA, torrents: [torrent(1, "Inception.2010.2160p", 3000), protectedTorrent] }
+    renderWithProviders(<MediaDeleteSelectionDialog media={media} onMediaDeleted={vi.fn()} />)
+    await user.click(screen.getByRole("button", { name: en.deleteSelection.trigger }))
+    await screen.findByText(en.deleteSelection.title)
+    expect(screen.queryByText(/minimum seeding time/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("checkbox", { name: en.deleteSelection.torrents }))
+
+    expect(screen.getByText(en.seed.selectionWarning.one.replace("{count}", "1"))).toBeInTheDocument()
+    expect(screen.getByText(/Inception\.2010\.1080p — Protected until .*tracker\.example\.org/)).toBeInTheDocument()
+    await user.click(getConfirm())
+    await waitFor(() =>
+      expect(deleteSelectionExecute).toHaveBeenCalledWith(MEDIA.id, {
+        torrent_ids: [1, 2],
+        media_file_ids: [],
+        remove_from_arr: false,
+      }),
+    )
   })
 
   it("keeps confirmation disabled until something is checked", async () => {
