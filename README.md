@@ -64,6 +64,7 @@ Analysarr shows, for every movie and series, its state across your whole stack â
 - Series status from Sonarr (continuing, ended) and private torrents flagged, whatever the torrent client.
 - Requests from Seer or Ombi: who asked, when, who approved (Ombi does not record who approved).
 - "Cleanup candidates" sort: big files nobody watched for a long time.
+- **Cleanup assistant** (**Cleanup** tab): ranks the media nobody watches any more with a score out of 100 you can open to see why (time without playback, active accounts that have not finished it, age in the library, ended series), next to the space its deletion would **really** free (hardlinks and cross-seed copies counted once). Favourites of active accounts, requests not yet watched by their requester, recent additions, torrents still seeding their minimum and media you excluded are never suggested â€” with the reason shown. Three presets (Cautious, Balanced, Space first) and adjustable weights; deletion goes through the usual selective deletion, one media after the other, after a preview and a confirmation.
 
 **Everyday comfort**
 - Library filters: media type, state (healthy / alert / hidden alerts), sorting and search at hand, plus a "Filters" panel where several statuses and watch states can be combined.

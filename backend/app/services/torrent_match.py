@@ -137,6 +137,10 @@ class FetchedTorrents:
     def __len__(self) -> int:
         return len(self.rows)
 
+    def files_by_hash(self) -> dict[str, list[tuple[str, int | None]]]:
+        """Fichiers de chaque torrent, par hash en minuscules."""
+        return {row.hash.lower(): paths for row, paths in zip(self.rows, self.file_paths, strict=True) if row.hash}
+
 
 async def fetch_torrents(settings: Settings) -> FetchedTorrents:
     """Lit tous les torrents du client configuré, avec leurs trackers et leurs

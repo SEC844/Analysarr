@@ -228,6 +228,8 @@ export interface MediaDetail extends MediaListItem {
   import_issues: ImportIssueRead[]
   // Règle de chaque alerte masquée, pour la réafficher.
   muted_rules: MutedStatusRead[]
+  // Règle « jamais proposé au nettoyage » (assistant de nettoyage), s'il y en a une.
+  cleanup_rule_id: number | null
 }
 
 /** Fiche Sonarr/Radarr proposée pour rattacher un média non suivi. */

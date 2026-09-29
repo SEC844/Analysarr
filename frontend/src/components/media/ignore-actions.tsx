@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Eye, EyeOff, Loader2, MoreHorizontal } from "lucide-react"
+import { Eye, EyeOff, Loader2, MoreHorizontal, ShieldOff } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -33,12 +33,14 @@ function IgnoreDialog({
   description,
   onClose,
   onIgnored,
+  doneMessage,
 }: {
   request: IgnoreCreate | null
   title: string
   description: string
   onClose: () => void
   onIgnored?: () => void
+  doneMessage?: string
 }) {
   const { t } = useI18n()
   const [note, setNote] = useState("")
@@ -54,7 +56,7 @@ function IgnoreDialog({
       { ...request, note: note.trim() || undefined },
       {
         onSuccess: () => {
-          toast.success(t("ignore.done"))
+          toast.success(doneMessage ?? t("ignore.done"))
           close()
           onIgnored?.()
         },
@@ -192,8 +194,8 @@ export function MediaAlertOptions({ media }: { media: MediaDetail }) {
   const { t } = useI18n()
   const unignore = useUnignore()
   const [statuses, setStatuses] = useState<MediaStatus[] | null>(null)
+  const [excluding, setExcluding] = useState(false)
   const alerts = media.statuses.filter((status) => !INFO_STATUSES.includes(status))
-  if (alerts.length === 0 && media.muted_rules.length === 0) return null
 
   const names = (list: MediaStatus[]) =>
     list.map((status) => t("ignore.quoted", { name: t(`status.${status}`) })).join(", ")
@@ -219,8 +221,11 @@ export function MediaAlertOptions({ media }: { media: MediaDetail }) {
               <Eye className="size-4" /> {t("ignore.unmute", { status: t(`status.${rule.status}`) })}
             </DropdownMenuItem>
           ))}
+          {(alerts.length > 0 || media.muted_rules.length > 0) && <DropdownMenuSeparator />}
+          <CleanupExclusionItem ruleId={media.cleanup_rule_id} onExclude={() => setExcluding(true)} />
         </DropdownMenuContent>
       </DropdownMenu>
+      <CleanupExclusionDialog mediaId={media.id} open={excluding} onClose={() => setExcluding(false)} />
       <IgnoreDialog
         request={statuses && { media_id: media.id, kind: "status", statuses }}
         title={t("ignore.muteTitle", { count: statuses?.length ?? 1 })}
@@ -259,6 +264,51 @@ export function MuteStatusButton({
         onClose={() => setOpen(false)}
         onIgnored={onDone}
       />
+    </>
+  )
+}
+
+/** Entrée de menu : exclure le média de l'assistant de nettoyage, ou l'y
+ * remettre s'il l'est déjà. */
+function CleanupExclusionItem({ ruleId, onExclude }: { ruleId: number | null; onExclude: () => void }) {
+  const { t } = useI18n()
+  const unignore = useUnignore()
+  return ruleId === null ? (
+    <DropdownMenuItem onClick={onExclude}>
+      <ShieldOff className="size-4" /> {t("ignore.excludeCleanup")}
+    </DropdownMenuItem>
+  ) : (
+    <DropdownMenuItem onClick={() => unignore(ruleId)}>
+      <Eye className="size-4" /> {t("ignore.includeCleanup")}
+    </DropdownMenuItem>
+  )
+}
+
+function CleanupExclusionDialog({ mediaId, open, onClose }: { mediaId: number; open: boolean; onClose: () => void }) {
+  const { t } = useI18n()
+  return (
+    <IgnoreDialog
+      request={open ? { media_id: mediaId, kind: "cleanup" } : null}
+      title={t("ignore.excludeCleanupTitle")}
+      description={t("ignore.excludeCleanupDescription")}
+      doneMessage={t("ignore.excludeCleanupDone")}
+      onClose={onClose}
+    />
+  )
+}
+
+/** Menu ⋯ d'une ligne de l'assistant de nettoyage. */
+export function CleanupOptions({ mediaId }: { mediaId: number }) {
+  const [excluding, setExcluding] = useState(false)
+  return (
+    <>
+      <DropdownMenu>
+        <OptionsTrigger />
+        <DropdownMenuContent align="end" className={MENU_CLASS}>
+          <CleanupExclusionItem ruleId={null} onExclude={() => setExcluding(true)} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CleanupExclusionDialog mediaId={mediaId} open={excluding} onClose={() => setExcluding(false)} />
     </>
   )
 }

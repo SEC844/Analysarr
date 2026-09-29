@@ -43,6 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // d'abord, sinon l'onglet Application quand une mise à jour attend.
   const navLinks = [
     { to: "/", label: t("nav.home"), serviceDown: false, paused: false },
+    { to: "/cleanup", label: t("nav.cleanup"), serviceDown: false, paused: false },
     { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0, paused: automationsPaused },
   ]
 

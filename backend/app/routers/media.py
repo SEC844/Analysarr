@@ -256,6 +256,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         torrents=[_torrent_read(t, ignores, seed_obligation(t, policy, now)) for t in torrents],
         missing_emby_episodes=[e for e in media.missing_emby_episodes.split(",") if e],
         muted_rules=ignores.muted,
+        cleanup_rule_id=ignores.cleanup_rule_id,
     )
 
 

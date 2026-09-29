@@ -67,6 +67,7 @@ def test_exactly_the_expected_routes_skip_the_session_check(client, monkeypatch)
         "/api/auth/login-history",
         "/api/library/history",
         "/api/seed-protection",
+        "/api/cleanup/candidates",
     ],
 )
 def test_a_protected_route_refuses_a_request_without_cookie(client, path):

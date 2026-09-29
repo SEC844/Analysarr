@@ -1,5 +1,6 @@
 """Écriture des statuts d'un média : seul point qui écrit `statuses`,
-`muted_statuses`, `reclaimable_bytes` et `total_size`.
+`muted_statuses`, `reclaimable_bytes`, `full_reclaimable_bytes` et
+`total_size`.
 
 Le scan complet, les analyses par service, l'analyse d'un média et les
 actions (nettoyage, réparation, suppression) passent tous par ici : ils
@@ -9,13 +10,17 @@ suivi Sonarr/Radarr et éléments ignorés. Bug réel : une action recalculait
 sans la file d'attente, les épisodes absents ni le suivi, et un média non
 suivi perdait son alerte jusqu'au scan suivant."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 
 from sqlmodel import Session, col, select
 
-from app.models.media import ImportIssue, Media, MediaFile, Torrent
+from app.models.media import ImportIssue, Media, MediaFile, Torrent, TorrentFile
+from app.models.settings import Settings
+from app.services.disk_footprint import FilePaths, cached_footprint, whole_media_bytes
 from app.services.ignores import IgnoreSet, media_key
 from app.services.scan.statuses import current_files_size, evaluate_statuses, is_tracked_by_arr
+from app.services.seed_protection import SeedPolicy, seed_obligation, seed_policy
 
 
 def apply_statuses(
@@ -24,12 +29,22 @@ def apply_statuses(
     torrents: Sequence[Torrent],
     issues: Sequence[ImportIssue],
     ignores: IgnoreSet,
+    *,
+    policy: SeedPolicy,
+    torrent_files: Mapping[str, FilePaths],
+    now: datetime | None = None,
 ) -> None:
     """Statuts du média, en mémoire. Les éléments ignorés sont marqués avant
     le calcul, les alertes masquées retirées après ; l'espace récupérable
-    d'une alerte masquée ne compte plus. L'appelant enregistre `ignores`."""
+    d'une alerte masquée ne compte plus, ni celui d'un orphelin protégé par
+    son obligation de seed. `torrent_files` : fichiers de chaque torrent
+    (hash en minuscules), pour l'espace libérable du média entier. L'appelant
+    enregistre `ignores`. Lit le disque (empreinte) : jamais dans la boucle
+    asyncio."""
     key = media_key(media)
     ignores.mark(key, files, torrents)
+    now = now or datetime.now(UTC)
+    protected = frozenset(t.hash.lower() for t in torrents if seed_obligation(t, policy, now) is not None)
     evaluation = evaluate_statuses(
         list(files),
         list(torrents),
@@ -38,12 +53,19 @@ def apply_statuses(
         {i.download_id.lower() for i in issues if i.download_id},
         {i.kind for i in issues},
         tracked_by_arr=is_tracked_by_arr(media),
+        seed_protected=protected,
     )
     muted = ignores.mute(key, evaluation)
     media.statuses = ",".join(sorted(evaluation.statuses - muted))
     media.muted_statuses = ",".join(sorted(muted))
     media.reclaimable_bytes = sum(size for status, size in evaluation.reclaimable.items() if status not in muted)
     media.total_size = current_files_size(list(files))
+    media.full_reclaimable_bytes = whole_media_bytes(
+        cached_footprint(
+            [(f.path, f.size) for f in files],
+            [(t.save_path, t.content_path, t.size, list(torrent_files.get(t.hash.lower(), []))) for t in torrents],
+        )
+    )
 
 
 def refresh_statuses(session: Session, medias: Sequence[Media]) -> None:
@@ -51,11 +73,14 @@ def refresh_statuses(session: Session, medias: Sequence[Media]) -> None:
     (après une action, ou une analyse qui n'a relu qu'une source). Enregistre
     les règles d'ignore réactivées et committe."""
     ignores = IgnoreSet.load(session)
+    policy = seed_policy(session.get(Settings, 1))
+    now = datetime.now(UTC)
     for media in medias:
         files = session.exec(select(MediaFile).where(col(MediaFile.media_id) == media.id)).all()
         torrents = session.exec(select(Torrent).where(col(Torrent.media_id) == media.id)).all()
         issues = session.exec(select(ImportIssue).where(col(ImportIssue.media_id) == media.id)).all()
-        apply_statuses(media, files, torrents, issues, ignores)
+        torrent_files = _torrent_files(session, torrents)
+        apply_statuses(media, files, torrents, issues, ignores, policy=policy, torrent_files=torrent_files, now=now)
         session.add(media)
         session.add_all([*files, *torrents])
     ignores.persist(session)
@@ -63,3 +88,14 @@ def refresh_statuses(session: Session, medias: Sequence[Media]) -> None:
 
 def refresh_media_statuses(session: Session, media: Media) -> None:
     refresh_statuses(session, [media])
+
+
+def _torrent_files(session: Session, torrents: Sequence[Torrent]) -> dict[str, FilePaths]:
+    """Fichiers mémorisés de ces torrents (cache `TorrentFile`)."""
+    hashes = [t.hash.lower() for t in torrents if t.hash]
+    files: dict[str, FilePaths] = {}
+    if not hashes:
+        return files
+    for row in session.exec(select(TorrentFile).where(col(TorrentFile.torrent_hash).in_(hashes))).all():
+        files.setdefault(row.torrent_hash, []).append((row.path, row.size))
+    return files

@@ -68,6 +68,12 @@ class Media(SQLModel, table=True):
     # Taille totale récupérable estimée (fichiers en doublon + torrents orphelins), en octets.
     reclaimable_bytes: int = 0
 
+    # Espace réellement libéré si l'on supprime TOUT le média (fichiers de
+    # bibliothèque et tous ses torrents), hardlinks et copies cross-seed
+    # comptés une seule fois, rien pour un fichier dont un lien vit ailleurs
+    # (voir services/disk_footprint.py). Sert à l'assistant de nettoyage.
+    full_reclaimable_bytes: int = 0
+
     # Taille des fichiers actuellement suivis (hors doublons), en octets —
     # sert au tri "candidats au nettoyage" sans recharger les fichiers.
     total_size: int = 0

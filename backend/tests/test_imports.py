@@ -28,6 +28,10 @@ MODULES = [
     "app.routers.library",
     "app.services.seed_protection",
     "app.routers.seed_protection",
+    "app.services.cleanup",
+    "app.services.cleanup_score",
+    "app.services.disk_footprint",
+    "app.routers.cleanup",
 ]
 
 

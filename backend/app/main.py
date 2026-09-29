@@ -13,6 +13,7 @@ from app.models.settings import Settings
 from app.routers import app as app_router
 from app.routers import auth as auth_router
 from app.routers import automations as automations_router
+from app.routers import cleanup as cleanup_router
 from app.routers import emby as emby_router
 from app.routers import history as history_router
 from app.routers import ignores as ignores_router
@@ -223,6 +224,7 @@ app.include_router(library_router.router, prefix="/api/library", tags=["library"
 app.include_router(seed_protection_router.router, prefix="/api/seed-protection", tags=["seed-protection"])
 app.include_router(notifications_router.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(automations_router.router, prefix="/api/automations", tags=["automations"])
+app.include_router(cleanup_router.router, prefix="/api/cleanup", tags=["cleanup"])
 app.include_router(services_router.router, prefix="/api/services", tags=["services"])
 app.include_router(trash_router.router, prefix="/api/trash", tags=["trash"])
 app.include_router(widget_router.router, prefix="/api/status", tags=["widget"])

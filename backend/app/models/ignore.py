@@ -19,7 +19,8 @@ class IgnoreRule(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow)
 
-    # torrent | file | status
+    # torrent | file | status | cleanup (média jamais proposé par l'assistant
+    # de nettoyage : aucune situation à suivre, la règle n'expire jamais)
     kind: str = Field(index=True)
     # Identité stable du média (services/ignores.py::media_key) : les ids de la
     # table `media` sont régénérés à chaque scan complet.
@@ -27,7 +28,8 @@ class IgnoreRule(SQLModel, table=True):
     # Copiés à la création : affichés même si le média a disparu depuis.
     media_title: str
     media_type: str
-    # Hash du torrent (minuscules), chemin du fichier, ou statut masqué.
+    # Hash du torrent (minuscules), chemin du fichier, statut masqué, ou clé
+    # du média (cleanup).
     target: str = Field(index=True)
     # Libellé lisible de la cible (nom du torrent, chemin, statut).
     label: str = ""

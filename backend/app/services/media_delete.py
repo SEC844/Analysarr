@@ -6,8 +6,6 @@ saison entière, toute la série, ou le film — avec la possibilité d'arrêter
 aussi le suivi Sonarr/Radarr pour éviter un retéléchargement automatique."""
 
 import logging
-import os
-import stat as stat_module
 from collections.abc import Sequence
 
 import httpx
@@ -18,15 +16,14 @@ from app.models.ids import row_id
 from app.models.media import Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
 from app.schemas.media import (
-    DeleteFootprintItem,
     DeleteStepResult,
-    DiskUnit,
     MediaDeleteFootprint,
     MediaDeleteSelection,
     MediaDeleteSelectionResult,
 )
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
+from app.services.disk_footprint import FootprintBuilder, freed_bytes
 from app.services.hardlink import resolve_torrent_files
 from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
@@ -46,28 +43,8 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
 
-    units: list[DiskUnit] = []
-    unit_by_inode: dict[tuple[int, int], int] = {}
-
-    def unit_for(path: str | None, fallback_size: int | None) -> list[int]:
-        if path and os.path.islink(path):
-            return []  # supprimer un lien symbolique ne libère aucun espace
-        try:
-            st = os.stat(path) if path else None
-        except OSError:
-            # Chemin non résolu : estimation prudente ci-dessous.
-            logger.debug("Fichier illisible pour l'empreinte disque : %s", path, exc_info=True)
-            st = None
-        if st is None or not stat_module.S_ISREG(st.st_mode):
-            units.append(DiskUnit(size=fallback_size or 0, links=1))
-            return [len(units) - 1]
-        key = (st.st_ino, st.st_dev)
-        if key not in unit_by_inode:
-            unit_by_inode[key] = len(units)
-            units.append(DiskUnit(size=st.st_size, links=st.st_nlink))
-        return [unit_by_inode[key]]
-
-    file_items = [DeleteFootprintItem(id=row_id(f), units=unit_for(f.path, f.size)) for f in files]
+    builder = FootprintBuilder()
+    file_items = [builder.item(row_id(f), [(f.path, f.size)], f.size) for f in files]
 
     torrent_files: dict[int, list[tuple[str, int | None]]] = {}
     if torrents and torrent_client_configured(settings):
@@ -80,26 +57,19 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
             logger.warning("Fichiers des torrents illisibles pour l'empreinte disque", exc_info=True)
             torrent_files.clear()
 
-    torrent_items: list[DeleteFootprintItem] = []
-    for t in torrents:
-        paths = torrent_files.get(row_id(t)) or await resolve_torrent_files(None, t)
-        unit_ids = [i for path, size in paths for i in unit_for(path, size)] if paths else unit_for(None, t.size)
-        torrent_items.append(DeleteFootprintItem(id=row_id(t), units=unit_ids))
-
-    return MediaDeleteFootprint(units=units, torrents=torrent_items, files=file_items)
+    torrent_items = [
+        builder.item(row_id(t), torrent_files.get(row_id(t)) or await resolve_torrent_files(None, t), t.size)
+        for t in torrents
+    ]
+    return MediaDeleteFootprint(units=builder.units, torrents=torrent_items, files=file_items)
 
 
 def reclaimed_bytes(footprint: MediaDeleteFootprint, torrent_ids: list[int], media_file_ids: list[int]) -> int:
     """Espace réellement libéré par une sélection — même calcul que le
-    frontend (lib/footprint.ts) : une unité disque ne compte que si autant de
-    ses liens sont sélectionnés qu'elle en a (`links`)."""
-    selected_links: dict[int, int] = {}
-    for items, ids in ((footprint.torrents, set(torrent_ids)), (footprint.files, set(media_file_ids))):
-        for item in items:
-            if item.id in ids:
-                for unit in item.units:
-                    selected_links[unit] = selected_links.get(unit, 0) + 1
-    return sum(footprint.units[i].size for i, count in selected_links.items() if count >= footprint.units[i].links)
+    frontend (lib/footprint.ts), voir services/disk_footprint.py."""
+    torrent_set, file_set = set(torrent_ids), set(media_file_ids)
+    selected = [i for i in footprint.torrents if i.id in torrent_set] + [i for i in footprint.files if i.id in file_set]
+    return freed_bytes(footprint, selected)
 
 
 def _already_gone(exc: Exception) -> bool:

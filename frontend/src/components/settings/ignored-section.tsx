@@ -1,4 +1,4 @@
-import { Eye, FileVideo, Loader2, Magnet, TriangleAlert } from "lucide-react"
+import { Eye, FileVideo, Loader2, Magnet, ShieldOff, TriangleAlert } from "lucide-react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -11,7 +11,12 @@ import { useI18n } from "@/i18n"
 import { formatDateTime } from "@/lib/format"
 import type { IgnoreKind, IgnoreRuleRead } from "@/types/ignores"
 
-const KIND_ICONS: Record<IgnoreKind, typeof Magnet> = { torrent: Magnet, file: FileVideo, status: TriangleAlert }
+const KIND_ICONS: Record<IgnoreKind, typeof Magnet> = {
+  torrent: Magnet,
+  file: FileVideo,
+  status: TriangleAlert,
+  cleanup: ShieldOff,
+}
 
 function IgnoredRow({ rule }: { rule: IgnoreRuleRead }) {
   const { t } = useI18n()

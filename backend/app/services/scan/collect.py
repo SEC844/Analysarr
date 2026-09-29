@@ -3,15 +3,18 @@ torrents et calcul des statuts. Une fonction par source, dans l'ordre du scan.""
 
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client_configured
 from app.models.media import EmbyUser
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget
+from app.services.disk_footprint import FilePaths
 from app.services.events import scan_events
 from app.services.queue_issues import index_queue_issues
 from app.services.scan.library import _index_items
@@ -22,6 +25,7 @@ from app.services.scan.results import (
     build_series_result,
     build_untracked_results,
 )
+from app.services.seed_protection import SeedPolicy, seed_policy
 from app.services.seer import build_request_rows, fetch_request_index, seer_client
 from app.services.torrent_match import FetchedTorrents, MediaView, attach_torrents, fetch_torrents
 from app.services.watch_stats import (
@@ -93,7 +97,8 @@ async def _collect(
     await progress("qbittorrent")
     fetched = await fetch_torrents(settings)
     _attach(settings, results, fetched, hash_to_index)
-    _apply_statuses(results, ignores)
+    # Lit le disque (espace libérable) : hors de la boucle asyncio.
+    await run_in_threadpool(_apply_statuses, results, ignores, seed_policy(settings), fetched.files_by_hash())
 
     await progress("visionnage")
     emby_users = await _apply_watch_stats(settings, emby, results)
@@ -257,17 +262,29 @@ def _attach(
         result.torrents.extend(torrents_of_media)
 
 
-def _apply_statuses(results: list[MediaBuildResult], ignores: "IgnoreSet") -> None:
+def _apply_statuses(
+    results: list[MediaBuildResult], ignores: "IgnoreSet", policy: SeedPolicy, torrent_files: dict[str, FilePaths]
+) -> None:
     # import local : media_status importe ignores, qui importe ce package (cycle)
     from app.services.media_status import apply_statuses
 
+    now = datetime.now(UTC)
     for result in results:
         result.media.missing_emby_episodes = ",".join(result.missing_emby_episodes)
         # Mémorisés pour les analyses partielles, qui rattachent les torrents
         # sans redemander la liste à Sonarr/Radarr.
         result.media.root_path = result.root_path
         result.media.alt_titles = "\n".join(result.alt_titles)
-        apply_statuses(result.media, result.files, result.torrents, result.import_issues, ignores)
+        apply_statuses(
+            result.media,
+            result.files,
+            result.torrents,
+            result.import_issues,
+            ignores,
+            policy=policy,
+            torrent_files=torrent_files,
+            now=now,
+        )
 
 
 async def _apply_watch_stats(settings: Settings, emby: EmbyClient, results: list[MediaBuildResult]) -> list[EmbyUser]:

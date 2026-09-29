@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-IgnoreKind = Literal["torrent", "file", "status"]
+IgnoreKind = Literal["torrent", "file", "status", "cleanup"]
 
 
 class IgnoreCreate(BaseModel):

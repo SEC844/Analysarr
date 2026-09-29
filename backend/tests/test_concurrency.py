@@ -63,8 +63,8 @@ def _session_cookies(base_url: str) -> httpx.Cookies:
 
 
 async def _burst(base_url: str, cookies: httpx.Cookies) -> list[int]:
-    reads = ["/api/scan/history", "/api/library/history", "/api/seed-protection"]
-    paths = [f"/api/media/{i}/poster" if i % 2 else reads[i // 2 % 3] for i in range(REQUESTS)]
+    reads = ["/api/scan/history", "/api/library/history", "/api/seed-protection", "/api/cleanup/candidates"]
+    paths = [f"/api/media/{i}/poster" if i % 2 else reads[i // 2 % len(reads)] for i in range(REQUESTS)]
     limits = httpx.Limits(max_connections=REQUESTS, max_keepalive_connections=REQUESTS)
     async with httpx.AsyncClient(base_url=base_url, cookies=cookies, limits=limits, timeout=30) as client:
         responses = await asyncio.wait_for(

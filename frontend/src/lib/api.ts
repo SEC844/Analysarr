@@ -15,6 +15,13 @@ import type {
 import type { DiagnosticsResult } from "@/types/diagnostics"
 import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
 import type { SeedProtection, SeedProtectionWrite } from "@/types/seed"
+import type {
+  CleanupCandidateDetail,
+  CleanupCandidatesPage,
+  CleanupQuery,
+  CleanupSettings,
+  CleanupSettingsRead,
+} from "@/types/cleanup"
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { IgnoreCreate, IgnoreRuleRead } from "@/types/ignores"
@@ -296,6 +303,30 @@ export function getTrashSettings(): Promise<TrashSettings> {
 
 export function saveTrashSettings(payload: { enabled: boolean; retention_days: number }): Promise<TrashSettings> {
   return request<TrashSettings>("/api/trash/settings", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function getCleanupCandidates(query: CleanupQuery): Promise<CleanupCandidatesPage> {
+  const params = new URLSearchParams({
+    page: String(query.page),
+    page_size: String(query.page_size),
+    sort: query.sort,
+    include_protected: String(query.include_protected),
+  })
+  if (query.media_type) params.set("media_type", query.media_type)
+  if (query.search) params.set("search", query.search)
+  return request<CleanupCandidatesPage>(`/api/cleanup/candidates?${params}`)
+}
+
+export function getCleanupCandidate(id: number): Promise<CleanupCandidateDetail> {
+  return request<CleanupCandidateDetail>(`/api/cleanup/candidates/${id}`)
+}
+
+export function getCleanupSettings(): Promise<CleanupSettingsRead> {
+  return request<CleanupSettingsRead>("/api/cleanup/settings")
+}
+
+export function saveCleanupSettings(settings: CleanupSettings): Promise<CleanupSettingsRead> {
+  return request<CleanupSettingsRead>("/api/cleanup/settings", { method: "PUT", body: JSON.stringify(settings) })
 }
 
 export function getSeedProtection(): Promise<SeedProtection> {

@@ -115,13 +115,17 @@ def evaluate_statuses(
     import_blocked_hashes: set[str] | None = None,
     queue_kinds: set[str] | None = None,
     tracked_by_arr: bool = True,
+    seed_protected: frozenset[str] = frozenset(),
 ) -> StatusEvaluation:
     """Statuts, espace récupérable par statut et situation de chaque alerte.
 
     Un fichier gardé volontairement ou un torrent ignoré (`ignored`, voir
     services/ignores.py) ne déclenche plus d'alerte le concernant — doublon,
     orphelin, non hardlinké. Un torrent réparable ignoré seede pourtant
-    toujours le média : il compte encore contre « non seedé »."""
+    toujours le média : il compte encore contre « non seedé ». Un orphelin
+    protégé par son obligation de seed (`seed_protected`, hashes en
+    minuscules) reste un orphelin, mais son espace n'est pas récupérable
+    tant qu'aucun nettoyage ne peut le supprimer."""
     # Un torrent dont Sonarr/Radarr attend encore l'import n'est ni un
     # orphelin ni une copie à réparer : son fichier n'a simplement pas encore
     # rejoint la bibliothèque. Le proposer au nettoyage supprimerait le
@@ -154,7 +158,7 @@ def evaluate_statuses(
         statuses=statuses,
         reclaimable={
             "doublon": _duplicate_bytes(found.active_files) or 0,
-            "orphelin_qbit": _orphan_bytes(found.orphans) or 0,
+            "orphelin_qbit": _orphan_bytes([t for t in found.orphans if t.hash.lower() not in seed_protected]) or 0,
         },
         situations={
             "doublon": _joined(f.path for f in found.duplicates),

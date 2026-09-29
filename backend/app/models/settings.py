@@ -98,6 +98,9 @@ class Settings(SQLModel, table=True):
     # Surcharges par tracker (JSON validé par schemas/seed.py::TrackerSeedRule) :
     # [{"domain": str, "min_days": int, "min_ratio": float | null}].
     seed_tracker_rules: str = "[]"
+    # Assistant de nettoyage (schemas/cleanup.py::CleanupSettings, JSON validé
+    # à la lecture : valeur illisible = préréglage « Équilibré »).
+    cleanup_settings: str = "{}"
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: str | None = None

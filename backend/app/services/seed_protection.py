@@ -20,7 +20,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import ValidationError
 
@@ -31,6 +31,23 @@ from app.schemas.seed import TRACKER_RULES, SeedObligationRead, TrackerSeedRule
 logger = logging.getLogger(__name__)
 
 ObligationReason = Literal["min_seed", "min_ratio", "unknown_date"]
+
+
+class SeedFacts(Protocol):
+    """Ce dont la règle a besoin : un `Torrent`, ou une ligne lue colonne par
+    colonne (l'assistant de nettoyage évalue des milliers de torrents : les
+    charger comme objets ORM coûterait plus que tout le reste du calcul)."""
+
+    @property
+    def is_private(self) -> bool | None: ...
+    @property
+    def completed_on(self) -> datetime | None: ...
+    @property
+    def added_on(self) -> datetime | None: ...
+    @property
+    def ratio(self) -> float | None: ...
+    @property
+    def trackers_json(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -92,7 +109,7 @@ def prompt_pending(settings: Settings | None) -> bool:
     )
 
 
-def _domains(torrent: Torrent) -> list[str]:
+def _domains(torrent: SeedFacts) -> list[str]:
     try:
         entries = json.loads(torrent.trackers_json or "[]")
     except ValueError:
@@ -100,7 +117,7 @@ def _domains(torrent: Torrent) -> list[str]:
     return [d["domain"] for d in entries if isinstance(d, dict) and isinstance(d.get("domain"), str) and d["domain"]]
 
 
-def _requirements(torrent: Torrent, policy: SeedPolicy) -> list[tuple[str | None, int, float | None]]:
+def _requirements(torrent: SeedFacts, policy: SeedPolicy) -> list[tuple[str | None, int, float | None]]:
     """(tracker, jours, ratio) à respecter. Une surcharge vaut pour son
     tracker, que le torrent soit privé ou public ; sinon la règle générale."""
     private = torrent.is_private is not False  # inconnu = privé
@@ -123,7 +140,7 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def _pending(
-    torrent: Torrent, tracker: str | None, days: int, ratio: float | None, now: datetime
+    torrent: SeedFacts, tracker: str | None, days: int, ratio: float | None, now: datetime
 ) -> SeedObligation | None:
     reference = torrent.completed_on or torrent.added_on
     if reference is None:
@@ -143,7 +160,12 @@ def _strength(obligation: SeedObligation) -> tuple[int, datetime]:
     return rank, obligation.until or datetime.max.replace(tzinfo=UTC)
 
 
-def seed_obligation(torrent: Torrent, policy: SeedPolicy, now: datetime | None = None) -> SeedObligation | None:
+def strongest(obligations: list[SeedObligation]) -> SeedObligation | None:
+    """Obligation la plus contraignante d'une liste (celle qu'on affiche)."""
+    return max(obligations, key=_strength) if obligations else None
+
+
+def seed_obligation(torrent: SeedFacts, policy: SeedPolicy, now: datetime | None = None) -> SeedObligation | None:
     """Obligation de seed encore en cours pour ce torrent, ou None s'il peut
     être supprimé (protection désactivée, ou toutes les exigences remplies)."""
     if not policy.enabled:
@@ -154,7 +176,7 @@ def seed_obligation(torrent: Torrent, policy: SeedPolicy, now: datetime | None =
         for tracker, days, ratio in _requirements(torrent, policy)
         if (obligation := _pending(torrent, tracker, days, ratio, now)) is not None
     ]
-    return max(pending, key=_strength) if pending else None
+    return strongest(pending)
 
 
 def split_protected(

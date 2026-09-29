@@ -104,6 +104,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("media", "watch_favorite_count"),
     ("mediawatch", "favorite"),
     ("embyuser", "last_activity_at"),
+    ("media", "full_reclaimable_bytes"),
 ]
 
 
@@ -191,6 +192,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("seed_public_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     ("seed_public_min_days", "INTEGER NOT NULL DEFAULT 3"),
     ("seed_tracker_rules", "VARCHAR NOT NULL DEFAULT '[]'"),
+    ("cleanup_settings", "VARCHAR NOT NULL DEFAULT '{}'"),
 ]
 
 

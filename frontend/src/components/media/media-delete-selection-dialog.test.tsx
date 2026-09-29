@@ -93,6 +93,7 @@ const MEDIA: MediaDetail = {
   requests: [],
   import_issues: [],
   muted_rules: [],
+  cleanup_rule_id: null,
 }
 
 async function openDialog(onMediaDeleted = vi.fn()) {

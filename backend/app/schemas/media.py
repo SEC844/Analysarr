@@ -179,6 +179,8 @@ class MediaDetail(MediaListItem):
     import_issues: list["ImportIssueRead"]
     # Règle de chaque alerte masquée, pour la réafficher.
     muted_rules: list[MutedStatusRead] = Field(default_factory=list)
+    # Règle « jamais proposé au nettoyage » (assistant de nettoyage), s'il y en a une.
+    cleanup_rule_id: int | None = None
 
 
 class ArrCandidateRead(BaseModel):

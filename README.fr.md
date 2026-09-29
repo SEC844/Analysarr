@@ -64,6 +64,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Statut des séries depuis Sonarr (en cours de diffusion, terminée) et torrents privés signalés, quel que soit le client torrent.
 - Demandes Seer ou Ombi : qui a demandé, quand, qui a approuvé (Ombi ne mémorise pas qui a approuvé).
 - Tri « candidats au nettoyage » : les gros fichiers que personne n'a regardés depuis longtemps.
+- **Assistant de nettoyage** (onglet **Nettoyage**) : classe les médias que plus personne ne regarde avec un score sur 100 dont on peut ouvrir le détail (temps sans lecture, comptes actifs qui ne l'ont pas fini, ancienneté, série terminée), à côté de l'espace que sa suppression libérerait **réellement** (hardlinks et copies cross-seed comptés une fois). Les favoris des comptes actifs, les demandes pas encore vues par leur demandeur, les ajouts récents, les torrents qui n'ont pas fini leur seed minimum et les médias exclus à la main ne sont jamais proposés — la raison est affichée. Trois préréglages (Prudent, Équilibré, Place avant tout) et des poids réglables ; la suppression passe par la suppression sélective habituelle, média par média, après aperçu et confirmation.
 
 **Confort au quotidien**
 - Filtres de la bibliothèque : type de média, état (sain / alerte / alertes masquées), tri et recherche sous la main, et un panneau « Filtres » où plusieurs statuts et états de visionnage se combinent.
