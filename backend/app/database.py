@@ -1,19 +1,75 @@
 import json
+import logging
+import time
 from collections.abc import Iterator
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
+from sqlalchemy.pool import ConnectionPoolEntry, QueuePool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import DATABASE_PATH
 
+logger = logging.getLogger(__name__)
+
 db_path = Path(DATABASE_PATH)
 db_path.parent.mkdir(parents=True, exist_ok=True)
 
+# Chemin de la requête en cours (posé par le middleware d'authentification),
+# pour situer une attente anormale de connexion dans le journal.
+request_path: ContextVar[str | None] = ContextVar("request_path", default=None)
+
+# Au-delà, obtenir une connexion est anormal : le journal le signale.
+SLOW_CHECKOUT_SECONDS = 1.0
+
+
+class _TimedQueuePool(QueuePool):
+    """Pool qui signale les attentes de connexion trop longues : c'est le
+    premier symptôme d'un pool saturé, avant l'erreur ou le blocage."""
+
+    def _do_get(self) -> Any:
+        started = time.monotonic()
+        connection = super()._do_get()
+        waited = time.monotonic() - started
+        if waited > SLOW_CHECKOUT_SECONDS:
+            logger.warning(
+                "Connexion à la base obtenue après %.1f s (%s)", waited, request_path.get() or "hors requête"
+            )
+        return connection
+
+
+# Pool plus grand que le pool de threads d'anyio (40 threads par défaut), qui
+# exécute les routes et dépendances synchrones, dont chacune tient une
+# connexion : même 40 requêtes simultanées plus les middlewares et les tâches
+# de fond ne se disputent jamais la dernière connexion. `pool_timeout` borne
+# l'attente : une saturation devient une erreur visible, jamais un blocage.
+# `timeout` (secondes) est celui de sqlite3 : durée d'attente d'un verrou
+# d'écriture avant « database is locked ».
 engine = create_engine(
     f"sqlite:///{db_path}",
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 15},
+    poolclass=_TimedQueuePool,
+    pool_size=20,
+    max_overflow=40,
+    pool_timeout=10,
 )
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_pragmas(dbapi_connection: Any, _record: ConnectionPoolEntry) -> None:
+    """WAL : les lectures ne sont plus bloquées par une écriture en cours (une
+    salve de jaquettes pendant un scan). Le mode est enregistré dans le
+    fichier de la base, et les fichiers `-wal`/`-shm` vivent à côté d'elle,
+    dans le même volume. `busy_timeout` : attente d'un verrou plutôt qu'une
+    erreur immédiate. `synchronous=NORMAL` : réglage recommandé en WAL, sûr
+    face à un plantage de l'application."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=15000")
+    cursor.close()
 
 # (table, colonne) présente dès que ce déploiement a le schéma le plus récent
 # pour cette table. Sert uniquement à détecter un schéma obsolète, voir

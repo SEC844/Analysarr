@@ -6,6 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlmodel import Session, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import media_server_client
 from app.clients.torrent import TorrentAuthError, torrent_client_configured, torrent_client_name
@@ -296,15 +297,19 @@ def _torrent_read(t: Torrent, ignores: MediaIgnores) -> TorrentRead:
 
 @router.get("/{media_id}/poster")
 async def get_poster(media_id: int, session: Session = Depends(get_session)) -> Response:
-    media = session.get(Media, media_id)
+    # Base et disque dans le pool de threads : une bibliothèque demande des
+    # centaines de jaquettes d'un coup, et un accès bloquant dans la boucle
+    # asyncio figeait toute l'application (voir main.py). Seul l'appel au
+    # serveur multimédia reste dans la boucle.
+    media = await run_in_threadpool(session.get, Media, media_id)
     if media is None or not media.emby_item_id:
         raise HTTPException(404, "Pas de jaquette disponible.")
 
-    cached = read_cached_poster(media.emby_item_id, media.poster_image_tag)
+    cached = await run_in_threadpool(read_cached_poster, media.emby_item_id, media.poster_image_tag)
     if cached is not None:
         content, content_type = cached
     else:
-        emby = media_server_client(session.get(Settings, 1))
+        emby = media_server_client(await run_in_threadpool(session.get, Settings, 1))
         if emby is None:
             raise HTTPException(404, "Serveur multimédia non configuré.")
         result = await emby.fetch_poster(media.emby_item_id)
@@ -315,7 +320,7 @@ async def get_poster(media_id: int, session: Session = Depends(get_session)) -> 
         if image_type is None:
             raise HTTPException(404, "Jaquette introuvable.")
         content_type = image_type
-        write_cached_poster(media.emby_item_id, media.poster_image_tag, content, content_type)
+        await run_in_threadpool(write_cached_poster, media.emby_item_id, media.poster_image_tag, content, content_type)
 
     # L'URL est déjà propre à cette version précise de la jaquette (voir
     # `?v=` côté frontend, lib/api.ts::posterUrl) : le contenu d'UNE URL
