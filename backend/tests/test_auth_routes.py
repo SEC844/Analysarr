@@ -58,7 +58,9 @@ def test_exactly_the_expected_routes_skip_the_session_check(client, monkeypatch)
     assert all_paths >= EXPECTED_PUBLIC  # la liste ne désigne que des routes réelles
 
 
-@pytest.mark.parametrize("path", ["/api/media", "/api/scan/history", "/api/ignores", "/api/auth/login-history"])
+@pytest.mark.parametrize(
+    "path", ["/api/media", "/api/scan/history", "/api/ignores", "/api/auth/login-history", "/api/library/history"]
+)
 def test_a_protected_route_refuses_a_request_without_cookie(client, path):
     response = client.get(path)
 

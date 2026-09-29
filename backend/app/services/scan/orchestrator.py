@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlmodel import Session, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import media_server_name
 from app.clients.torrent import torrent_client_configured, torrent_client_name
@@ -26,6 +27,7 @@ from app.models.media import (
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget, arr_targets
 from app.services.events import scan_events
+from app.services.library_history import record_snapshot
 from app.services.notifications import (
     ChannelTarget,
     Notification,
@@ -87,6 +89,11 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
     notify(channels, "scan_completed", summary)
     _notify_new_detections(channels, settings, results, previously_flagged)
     await _run_automations(channels, run_id)
+    # Photographie du jour, APRÈS les automatisations : elle décrit la
+    # bibliothèque telle qu'elle est au bout du scan. Seul le scan complet
+    # passe ici (les analyses par service ne couvrent qu'une partie des
+    # médias). Disque et base lus hors de la boucle asyncio.
+    await run_in_threadpool(record_snapshot)
 
 
 def _start_run(

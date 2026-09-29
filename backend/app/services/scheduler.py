@@ -1,8 +1,12 @@
+from datetime import UTC
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from sqlmodel import Session
 
 from app.database import engine
 from app.models.settings import Settings
+from app.services.library_history import record_missing_snapshot, record_snapshot
 from app.services.notifications import event_has_subscriber
 from app.services.scan import is_scan_running, run_scan
 from app.services.trash import purge_expired
@@ -13,6 +17,11 @@ _UPDATE_JOB_ID = "update_watch"
 _UPDATE_INTERVAL_HOURS = 3
 _TRASH_JOB_ID = "trash_purge"
 _TRASH_INTERVAL_HOURS = 6
+_SNAPSHOT_JOB_ID = "library_snapshot"
+_SNAPSHOT_STARTUP_JOB_ID = "library_snapshot_startup"
+# Planificateur en retard (machine en veille, boucle chargée) : la mesure du
+# jour est encore prise dans l'heure qui suit.
+_SNAPSHOT_GRACE_SECONDS = 3600
 
 scheduler = AsyncIOScheduler()
 
@@ -66,3 +75,21 @@ def configure_scan_schedule(interval_minutes: int | None) -> None:
         scheduler.remove_job(_JOB_ID)
     if interval_minutes and interval_minutes > 0:
         scheduler.add_job(_run_scheduled_scan, "interval", minutes=interval_minutes, id=_JOB_ID)
+
+
+def configure_library_snapshots() -> None:
+    """Historique de la bibliothèque (services/library_history.py) : une
+    photographie par jour, en fin de journée UTC — la dernière mesure du jour
+    est celle qui compte —, plus une au démarrage si la journée n'en a pas
+    encore (conteneur éteint à l'heure du job). Fonctions synchrones :
+    APScheduler les exécute dans un thread, jamais dans la boucle asyncio."""
+    if scheduler.get_job(_SNAPSHOT_JOB_ID) is None:
+        scheduler.add_job(
+            record_snapshot,
+            CronTrigger(hour=23, minute=50, timezone=UTC),
+            id=_SNAPSHOT_JOB_ID,
+            coalesce=True,
+            misfire_grace_time=_SNAPSHOT_GRACE_SECONDS,
+        )
+    if scheduler.get_job(_SNAPSHOT_STARTUP_JOB_ID) is None:
+        scheduler.add_job(record_missing_snapshot, id=_SNAPSHOT_STARTUP_JOB_ID)

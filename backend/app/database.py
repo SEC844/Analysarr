@@ -175,6 +175,7 @@ _SETTINGS_NEW_COLUMNS = [
     ("trusted_proxies", "VARCHAR NOT NULL DEFAULT ''"),
     ("trash_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     ("trash_retention_days", "INTEGER NOT NULL DEFAULT 7"),
+    ("library_history_retention_days", "INTEGER NOT NULL DEFAULT 730"),
 ]
 
 
@@ -252,6 +253,7 @@ def init_db() -> None:
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.automation import Automation  # noqa: F401
     from app.models.ignore import IgnoreRule  # noqa: F401
+    from app.models.library_snapshot import LibrarySnapshot  # noqa: F401
     from app.models.media import (  # noqa: F401
         EmbyUser,
         ImportIssue,

@@ -63,7 +63,8 @@ def _session_cookies(base_url: str) -> httpx.Cookies:
 
 
 async def _burst(base_url: str, cookies: httpx.Cookies) -> list[int]:
-    paths = [f"/api/media/{i}/poster" if i % 2 else "/api/scan/history" for i in range(REQUESTS)]
+    history = ["/api/scan/history", "/api/library/history"]
+    paths = [f"/api/media/{i}/poster" if i % 2 else history[i // 2 % 2] for i in range(REQUESTS)]
     limits = httpx.Limits(max_connections=REQUESTS, max_keepalive_connections=REQUESTS)
     async with httpx.AsyncClient(base_url=base_url, cookies=cookies, limits=limits, timeout=30) as client:
         responses = await asyncio.wait_for(
@@ -79,7 +80,7 @@ def test_a_burst_of_authenticated_requests_never_freezes_the_app(live_server):
     statuses = asyncio.run(_burst(live_server, cookies))
     elapsed = time.monotonic() - started
 
-    # Aucun média en base : les jaquettes répondent 404, l'historique 200.
+    # Aucun média en base : les jaquettes répondent 404, les historiques 200.
     assert set(statuses) <= {200, 404}, statuses
     assert statuses.count(200) == REQUESTS // 2
     print(f"{REQUESTS} requêtes simultanées en {elapsed:.2f} s")

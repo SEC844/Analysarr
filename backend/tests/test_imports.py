@@ -23,6 +23,9 @@ MODULES = [
     "app.services.cascade_delete",
     "app.services.media_rescan",
     "app.services.partial_scan",
+    "app.services.library_history",
+    "app.services.scheduler",
+    "app.routers.library",
 ]
 
 

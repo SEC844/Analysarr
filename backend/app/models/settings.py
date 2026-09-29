@@ -81,6 +81,9 @@ class Settings(SQLModel, table=True):
     # nettoyage tant qu'on ne l'a pas demandé.
     trash_enabled: bool = False
     trash_retention_days: int = 7
+    # Historique de la bibliothèque (services/library_history.py) : nombre de
+    # jours de photographies quotidiennes conservés.
+    library_history_retention_days: int = 730
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: str | None = None

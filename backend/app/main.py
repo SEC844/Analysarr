@@ -16,6 +16,7 @@ from app.routers import automations as automations_router
 from app.routers import emby as emby_router
 from app.routers import history as history_router
 from app.routers import ignores as ignores_router
+from app.routers import library as library_router
 from app.routers import media as media_router
 from app.routers import notifications as notifications_router
 from app.routers import scan as scan_router
@@ -27,7 +28,13 @@ from app.routers.auth import is_request_authenticated
 from app.services.login_log import record_attempt
 from app.services.path_guard import DiskAccessError
 from app.services.rate_limit import retry_after
-from app.services.scheduler import configure_scan_schedule, configure_trash_purge, refresh_update_watch, scheduler
+from app.services.scheduler import (
+    configure_library_snapshots,
+    configure_scan_schedule,
+    configure_trash_purge,
+    refresh_update_watch,
+    scheduler,
+)
 from app.services.security import client_ip, parse_trusted_proxies
 from app.static_files import resolve_static_file
 
@@ -85,6 +92,7 @@ async def lifespan(app: FastAPI):
             configure_scan_schedule(settings.scan_schedule_interval_minutes)
         refresh_update_watch(session)
     configure_trash_purge()
+    configure_library_snapshots()
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
@@ -210,6 +218,7 @@ app.include_router(media_router.router, prefix="/api/media", tags=["media"])
 app.include_router(emby_router.router, prefix="/api/emby", tags=["emby"])
 app.include_router(history_router.router, prefix="/api/history", tags=["history"])
 app.include_router(ignores_router.router, prefix="/api/ignores", tags=["ignores"])
+app.include_router(library_router.router, prefix="/api/library", tags=["library"])
 app.include_router(notifications_router.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(automations_router.router, prefix="/api/automations", tags=["automations"])
 app.include_router(services_router.router, prefix="/api/services", tags=["services"])
