@@ -336,13 +336,14 @@ async def get_poster(media_id: int, session: Session = Depends(get_session)) -> 
 @router.get("/{media_id}/watch", response_model=MediaWatchStats)
 async def get_media_watch(media_id: int, session: Session = Depends(get_session)) -> MediaWatchStats:
     """Visionnage par utilisateur Emby, rafraîchi en direct à l'ouverture de
-    la fiche (repli sur le dernier scan si Emby est injoignable)."""
-    media = session.get(Media, media_id)
+    la fiche (repli sur le dernier scan si Emby est injoignable). Base hors de
+    la boucle asyncio, appels au serveur multimédia dans la boucle."""
+    media = await run_in_threadpool(session.get, Media, media_id)
     if media is None:
         raise HTTPException(404, "Média introuvable.")
-    settings = session.get(Settings, 1)
+    settings = await run_in_threadpool(session.get, Settings, 1)
     live = await refresh_media_watch(session, media, settings)
-    return build_watch_stats(session, media, settings, live)
+    return await run_in_threadpool(build_watch_stats, session, media, settings, live)
 
 
 @router.post("/{media_id}/delete/preview", response_model=DeletePreview)

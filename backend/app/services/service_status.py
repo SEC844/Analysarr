@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import media_server_name
 from app.clients.torrent import torrent_client_configured, torrent_client_kind, torrent_client_name
@@ -111,7 +112,9 @@ async def _run(check: _Check) -> ServiceStatusRead:
 
 
 async def services_status(session: Session, settings: Settings | None, refresh: bool = False) -> ServicesStatus:
-    checks = _checks(session, settings)
+    # Relu toutes les deux minutes par chaque onglet ouvert : la base (instances
+    # Sonarr/Radarr) est lue hors de la boucle asyncio.
+    checks = await run_in_threadpool(_checks, session, settings)
     signature = _signature(checks)
     cached = _cache.entry
     if (

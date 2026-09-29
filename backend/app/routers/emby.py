@@ -29,7 +29,7 @@ _emby = media_server_client
 async def list_emby_users(session: Session = Depends(get_session)) -> list[EmbyUserRead]:
     """Utilisateurs Emby, en direct (repli sur le dernier scan si Emby est
     injoignable) — pour choisir ceux exclus des statistiques de visionnage."""
-    emby = _emby(session.get(Settings, 1))
+    emby = _emby(await run_in_threadpool(session.get, Settings, 1))
     users: list[EmbyUser] | None = None
     if emby is not None:
         try:
@@ -39,7 +39,7 @@ async def list_emby_users(session: Session = Depends(get_session)) -> list[EmbyU
             logger.debug("Utilisateurs du serveur multimédia illisibles", exc_info=True)
             users = None
     if users is None:
-        users = list(session.exec(select(EmbyUser)).all())
+        users = await run_in_threadpool(lambda: list(session.exec(select(EmbyUser)).all()))
     return [
         EmbyUserRead(id=u.id, name=u.name, image_tag=u.image_tag, is_disabled=u.is_disabled)
         for u in sorted(users, key=lambda u: u.name.lower())

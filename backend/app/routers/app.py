@@ -5,6 +5,7 @@ from typing import cast
 from fastapi import APIRouter, Depends
 from pydantic import ValidationError
 from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.config import APP_BUILD_DATE, APP_REVISION, APP_VERSION, GITHUB_REPOSITORY
 from app.database import get_session
@@ -43,7 +44,9 @@ def _to_info(settings: Settings | None, update: UpdateStatus | None) -> AppInfo:
 
 @router.get("/info", response_model=AppInfo)
 async def get_app_info(session: Session = Depends(get_session)) -> AppInfo:
-    settings = session.get(Settings, 1)
+    # Appelée à chaque chargement de page : la base est lue hors de la boucle
+    # asyncio (voir main.py), seule la vérification des mises à jour y reste.
+    settings = await run_in_threadpool(session.get, Settings, 1)
     enabled = settings.update_check_enabled if settings else True
     return _to_info(settings, await status_for_page(enabled))
 
@@ -52,11 +55,17 @@ async def get_app_info(session: Session = Depends(get_session)) -> AppInfo:
 async def check_updates(session: Session = Depends(get_session)) -> AppInfo:
     """Vérification explicite demandée par l'utilisateur : autorisée même si
     la vérification automatique est désactivée."""
-    return _to_info(session.get(Settings, 1), await get_update_status(force=True))
+    settings = await run_in_threadpool(session.get, Settings, 1)
+    return _to_info(settings, await get_update_status(force=True))
 
 
 @router.put("/preferences", response_model=AppInfo)
 async def put_preferences(payload: AppPreferencesWrite, session: Session = Depends(get_session)) -> AppInfo:
+    row = await run_in_threadpool(_save_preferences, payload, session)
+    return _to_info(row, await status_for_page(row.update_check_enabled))
+
+
+def _save_preferences(payload: AppPreferencesWrite, session: Session) -> Settings:
     row = session.get(Settings, 1)
     if row is None:
         row = Settings(id=1)
@@ -71,4 +80,4 @@ async def put_preferences(payload: AppPreferencesWrite, session: Session = Depen
     # La vérification périodique ne sert qu'aux notifications : elle suit
     # l'interrupteur de vérification des mises à jour.
     refresh_update_watch(session)
-    return _to_info(row, await status_for_page(row.update_check_enabled))
+    return row
