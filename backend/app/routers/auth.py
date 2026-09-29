@@ -9,6 +9,7 @@ from sqlmodel import select
 from app.database import get_session
 from app.models.auth import Session as AuthSession
 from app.models.auth import User
+from app.models.ids import row_id
 from app.models.settings import Settings
 from app.schemas.auth import (
     AuthStatus,
@@ -239,7 +240,7 @@ def login(
 
     token = generate_token()
     auth_session = AuthSession(
-        user_id=user.id,
+        user_id=row_id(user),
         token_hash=hash_token(token),
         expires_at=now + timedelta(days=SESSION_DURATION_DAYS),
     )
