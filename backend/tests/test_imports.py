@@ -32,6 +32,11 @@ MODULES = [
     "app.services.cleanup_score",
     "app.services.disk_footprint",
     "app.routers.cleanup",
+    "app.services.realtime.supervisor",
+    "app.services.realtime.hub",
+    "app.routers.realtime",
+    "app.routers.webhooks",
+    "app.routers.events",
 ]
 
 

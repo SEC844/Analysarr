@@ -22,7 +22,7 @@ function savedNothing(): SettingsRead {
     paths: { emby_library_path: null, qbittorrent_download_path: null },
     cross_seed: { enabled: false, url: null, api_key_set: false, library_path: null },
     seer: { enabled: false, kind: "seer", url: null, api_key_set: false },
-    schedule: { enabled: false, interval_minutes: null },
+    schedule: { enabled: false, interval_minutes: null, mode: "interval", nightly_hour: 4 },
   }
 }
 

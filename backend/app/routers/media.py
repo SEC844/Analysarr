@@ -54,7 +54,7 @@ from app.services.media_rescan import rescan_media
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
 from app.services.queue_issues import execute_import_retry
-from app.services.scan import MEDIA_STATUSES, is_healthy, is_scan_running, launch_scan
+from app.services.scan import MEDIA_STATUSES, is_healthy, is_scan_running, launch_scan, short_analysis
 from app.services.seed_protection import SeedObligation, obligation_read, seed_obligation, seed_policy
 from app.services.seer import build_requests_read, seer_configured
 from app.services.watch_stats import as_utc, build_watch_stats, refresh_media_watch
@@ -492,7 +492,9 @@ async def rescan_one_media(media_id: int, session: Session = Depends(get_session
         raise HTTPException(409, "Une analyse est déjà en cours.")
 
     try:
-        result = await rescan_media(session, settings, media)
+        # Jamais en même temps qu'un lot du temps réel sur le même cache.
+        async with short_analysis():
+            result = await rescan_media(session, settings, media)
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(502, f"{type(exc).__name__} : {exc}") from exc
     return MediaRescanResultRead(

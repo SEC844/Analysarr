@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from app.clients.torrent_base import TorrentAuthError, TorrentClient, content_path_for
+from app.clients.torrent_base import Fingerprint, TorrentAuthError, TorrentClient, content_path_for, fingerprint
 
 SESSION_HEADER = "X-Transmission-Session-Id"
 FIELDS = [
@@ -31,6 +31,8 @@ FIELDS = [
     # JSON-RPC 2.0 depuis Transmission 4.1, qui accepte encore les deux.
     "isPrivate",
 ]
+# Temps réel : de quoi calculer l'empreinte, rien de plus.
+WATCH_FIELDS = ["id", "hashString", "name", "downloadDir", "labels", "percentDone"]
 
 
 class TransmissionClient(TorrentClient):
@@ -43,6 +45,10 @@ class TransmissionClient(TorrentClient):
         self._client: httpx.AsyncClient | None = None
         self._session_id = ""
         self._torrents: dict[str, dict[str, Any]] = {}
+        # Temps réel : état reconstruit par `recently-active` (voir fingerprints).
+        self._watch: dict[str, dict[str, Any]] = {}
+        self._watch_ids: dict[Any, str] = {}
+        self._watch_ready = False
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -98,6 +104,35 @@ class TransmissionClient(TorrentClient):
             # `doneDate` vaut 0 tant que le téléchargement n'est pas terminé.
             "completion_on": torrent.get("doneDate") or None,
             "private": torrent.get("isPrivate"),
+        }
+
+    async def fingerprints(self) -> dict[str, Fingerprint]:
+        """Liste complète au premier appel, puis `ids: "recently-active"` :
+        Transmission ne renvoie que les torrents actifs depuis peu, et la
+        liste `removed` des identifiants retirés (vérifié dans la
+        spécification RPC). Les identifiants numériques sont propres à
+        Transmission : la correspondance avec les hashes est conservée."""
+        arguments = await self._rpc(
+            "torrent-get",
+            {"fields": WATCH_FIELDS, "ids": "recently-active"} if self._watch_ready else {"fields": WATCH_FIELDS},
+        )
+        for torrent in arguments.get("torrents") or []:
+            torrent_hash = str(torrent.get("hashString") or "").lower()
+            if torrent_hash:
+                self._watch[torrent_hash] = torrent
+                self._watch_ids[torrent.get("id")] = torrent_hash
+        for torrent_id in arguments.get("removed") or []:
+            self._watch.pop(self._watch_ids.pop(torrent_id, ""), None)
+        self._watch_ready = True
+        return {
+            torrent_hash: fingerprint(
+                t.get("name"),
+                t.get("downloadDir"),
+                None,
+                next(iter(t.get("labels") or []), None),
+                (t.get("percentDone") or 0) >= 1,
+            )
+            for torrent_hash, t in self._watch.items()
         }
 
     async def get_torrents(self) -> list[dict[str, Any]]:

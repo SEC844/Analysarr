@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useCleanupCandidatesQuery } from "@/hooks/use-cleanup"
+import { useRecentlyUpdated } from "@/hooks/use-recently-updated"
 import { useI18n, type MessageKey } from "@/i18n"
 import { posterUrl } from "@/lib/api"
 import { mainReasonText, protectionText, selectionSize } from "@/lib/cleanup"
@@ -52,10 +53,11 @@ function CandidateRow({
 }) {
   const { t } = useI18n()
   const isProtected = candidate.protections.length > 0
+  const recentlyUpdated = useRecentlyUpdated(candidate.media_id)
   const reason = mainReasonText(t, candidate)
 
   return (
-    <li className={cn("flex items-center gap-3 py-3", isProtected && "opacity-70")}>
+    <li className={cn("flex items-center gap-3 rounded-md py-3", isProtected && "opacity-70", recentlyUpdated && "live-updated")}>
       {isProtected ? (
         <span className="size-4 shrink-0" />
       ) : (

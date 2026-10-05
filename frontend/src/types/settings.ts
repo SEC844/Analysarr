@@ -43,9 +43,14 @@ export interface CrossSeedRead {
   library_path: string | null
 }
 
+export type ScheduleMode = "interval" | "nightly"
+
 export interface ScheduleRead {
   enabled: boolean
   interval_minutes: number | null
+  /** `nightly` : une fois par nuit à `nightly_hour` heures (heure du conteneur). */
+  mode: ScheduleMode
+  nightly_hour: number
 }
 
 export interface WidgetKeyRead {
@@ -115,6 +120,8 @@ export interface SettingsWrite {
   seer_api_key: string
   scan_schedule_enabled: boolean
   scan_schedule_interval_minutes: number | null
+  scan_schedule_mode: ScheduleMode
+  scan_nightly_hour: number
   arr_instances: ArrInstanceForm[]
   excluded_emby_user_ids: string[]
 }
@@ -172,6 +179,8 @@ export function emptySettingsWrite(): SettingsWrite {
     seer_api_key: "",
     scan_schedule_enabled: false,
     scan_schedule_interval_minutes: null,
+    scan_schedule_mode: "interval",
+    scan_nightly_hour: 4,
     arr_instances: [],
     excluded_emby_user_ids: [],
   }
@@ -202,6 +211,8 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     seer_api_key: "",
     scan_schedule_enabled: s.schedule.enabled,
     scan_schedule_interval_minutes: s.schedule.interval_minutes,
+    scan_schedule_mode: s.schedule.mode,
+    scan_nightly_hour: s.schedule.nightly_hour,
     arr_instances: s.arr_instances.map((i) => ({
       key: `saved-${i.id}`,
       id: i.id,

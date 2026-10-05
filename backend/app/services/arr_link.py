@@ -33,6 +33,7 @@ from typing import Any
 import httpx
 from sqlmodel import Session, select
 
+from app.clients.arr import http_error_text
 from app.models.media import Media, MediaFile, MediaType
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget, arr_target_by_id, arr_targets
@@ -365,16 +366,7 @@ async def link_media(
             }
             await target.sonarr().import_series([body])
     except httpx.HTTPError as exc:
-        raise ArrLinkError(_error_text(exc)) from exc
+        raise ArrLinkError(http_error_text(exc)) from exc
     return candidate.title
 
 
-def _error_text(exc: httpx.HTTPError) -> str:
-    """Message utile : Sonarr/Radarr explique le refus dans le corps de la
-    réponse (dossier inaccessible, média déjà présent...), un code HTTP seul
-    n'aiderait personne. Aucune clé API n'y transite (en-tête)."""
-    response = getattr(exc, "response", None)
-    if response is None:
-        return f"{type(exc).__name__} : {exc}"
-    body = " ".join((response.text or "").split())
-    return f"HTTP {response.status_code}{' — ' + body[:200] if body else ''}"

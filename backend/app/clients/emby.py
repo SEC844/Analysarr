@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -44,7 +45,8 @@ class EmbyClient:
 
     # Valeurs acceptées par les deux serveurs (sous-ensemble de l'énumération
     # ItemFields de Jellyfin). Tout le reste n'est envoyé qu'à Emby.
-    _SHARED_FIELDS = frozenset({"ProviderIds", "Path", "MediaSources", "DateCreated"})
+    # `DateLastSaved` et `Etag` : vérifiés dans `ItemFields` de Jellyfin.
+    _SHARED_FIELDS = frozenset({"ProviderIds", "Path", "MediaSources", "DateCreated", "DateLastSaved", "Etag"})
 
     # Jamais de repli des collections (voir docstring), compris par les deux.
     _NO_COLLAPSE = {"CollapseBoxSetItems": "false"}
@@ -94,6 +96,52 @@ class EmbyClient:
             )
             resp.raise_for_status()
             return _without_collections(resp.json().get("Items", []))
+
+    async def get_changed_items(self, since: datetime, limit: int) -> list[dict[str, Any]]:
+        """Films, séries, saisons et épisodes enregistrés depuis `since`
+        (`MinDateLastSaved`, présent sur Emby comme sur Jellyfin) : le temps
+        réel interroge ainsi la bibliothèque toutes les quelques secondes pour
+        une réponse presque toujours vide. Le WebSocket ne convient pas : avec
+        une clé API, Jellyfin n'y envoie aucun changement de bibliothèque (il
+        ne les adresse qu'aux sessions d'un utilisateur, vérifié dans
+        `LibraryChangedNotifier`)."""
+        async with self._client() as client:
+            resp = await client.get(
+                "/Items",
+                params={
+                    "Recursive": "true",
+                    "IncludeItemTypes": "Movie,Series,Season,Episode",
+                    "MinDateLastSaved": _iso(since),
+                    "Limit": str(limit),
+                    "EnableImages": "false",
+                    **self._NO_COLLAPSE,
+                    "Fields": self._fields("DateLastSaved", "Etag"),
+                },
+            )
+            resp.raise_for_status()
+            return _without_collections(resp.json().get("Items", []))
+
+    async def get_user_changed_items(self, user_id: str, since: datetime, limit: int) -> list[dict[str, Any]]:
+        """Films et épisodes dont l'état de lecture de CET utilisateur a changé
+        depuis `since` (`MinDateLastSavedForUser`) : lecture, vu, favori."""
+        params = {
+            "Recursive": "true",
+            "IncludeItemTypes": "Movie,Episode",
+            "MinDateLastSavedForUser": _iso(since),
+            "Limit": str(limit),
+            "EnableUserData": "true",
+            "EnableImages": "false",
+            **self._NO_COLLAPSE,
+        }
+        if self.is_jellyfin:
+            path = "/Items"
+            params["userId"] = user_id
+        else:
+            path = f"/Users/{quote(user_id, safe='')}/Items"
+        async with self._client() as client:
+            resp = await client.get(path, params=params)
+            resp.raise_for_status()
+            return resp.json().get("Items", [])
 
     async def get_episodes(self, series_item_id: str) -> list[dict[str, Any]]:
         async with self._client() as client:
@@ -169,6 +217,11 @@ class EmbyClient:
         if self.is_jellyfin:
             return await self._fetch_image("/UserImage", params={"userId": user_id})
         return await self._fetch_image(f"/Users/{quote(user_id, safe='')}/Images/Primary")
+
+
+def _iso(value: datetime) -> str:
+    """Date ISO 8601 en UTC, comprise par Emby et Jellyfin."""
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _without_collections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

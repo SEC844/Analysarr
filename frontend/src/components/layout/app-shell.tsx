@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { LogOut } from "lucide-react"
 import { Link, NavLink } from "react-router-dom"
 
+import { LiveEventsProvider } from "@/components/realtime/live-events-provider"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/logo"
 import { PulseDot } from "@/components/ui/pulse-dot"
@@ -112,7 +113,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main>{children}</main>
+      <main>
+        <LiveEventsProvider>{children}</LiveEventsProvider>
+      </main>
     </div>
   )
 }

@@ -12,6 +12,8 @@ Ce module réexporte l'API utilisée ailleurs : les imports
 `from app.services.scan import ...` n'ont pas à connaître ce découpage."""
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 from app.services.scan.collect import _collect
 from app.services.scan.library import (
@@ -48,19 +50,66 @@ from app.services.scan.statuses import (
 )
 from app.services.scan_scopes import SERVICE_SCOPES
 
-_scan_lock = asyncio.Lock()
+
+class _AnalysisLock:
+    """Un seul verrou pour TOUT ce qui écrit dans le cache média : scans
+    (complet ou par service) et analyses courtes (un média, lot du temps
+    réel). Un scan et une analyse courte n'écrivent jamais en même temps.
+
+    Une analyse courte n'est pas « un scan en cours » : elle ne bloque ni le
+    bouton Scanner ni le planificateur, qui l'attendent simplement quelques
+    secondes au lieu d'abandonner."""
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.short_running = False
+        self.scan_waiting = False
+
+    def scan_running(self) -> bool:
+        return self.scan_waiting or (self.lock.locked() and not self.short_running)
+
+    @asynccontextmanager
+    async def short(self) -> AsyncIterator[None]:
+        async with self.lock:
+            self.short_running = True
+            try:
+                yield
+            finally:
+                self.short_running = False
+
+    @asynccontextmanager
+    async def scan(self) -> AsyncIterator[None]:
+        self.scan_waiting = True
+        try:
+            await self.lock.acquire()
+        finally:
+            self.scan_waiting = False
+        try:
+            yield
+        finally:
+            self.lock.release()
+
+
+_analysis = _AnalysisLock()
 
 
 def is_scan_running() -> bool:
-    return _scan_lock.locked()
+    """Scan (complet ou par service) en cours ou sur le point de démarrer."""
+    return _analysis.scan_running()
+
+
+def short_analysis() -> AbstractAsyncContextManager[None]:
+    """Analyse courte (un média, un lot du temps réel) : attend la fin d'un
+    scan en cours, puis tient le verrou le temps de son travail."""
+    return _analysis.short()
 
 
 async def run_scan(trigger: str = "manual", scope: str = "full") -> None:
     """Un seul verrou pour TOUTES les analyses : une analyse partielle et un
     scan complet ne peuvent jamais écrire en même temps dans le cache."""
-    if _scan_lock.locked():
+    if is_scan_running():
         return
-    async with _scan_lock:
+    async with _analysis.scan():
         if scope in SERVICE_SCOPES:
             # import local : évite le cycle scan ↔ partial_scan (qui importe ce package)
             from app.services.partial_scan import run_service_scan
@@ -119,4 +168,5 @@ __all__ = [
     "is_tracked_by_arr",
     "launch_scan",
     "run_scan",
+    "short_analysis",
 ]

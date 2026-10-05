@@ -32,6 +32,7 @@ from app.database import engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.settings import Settings  # noqa: E402
 from app.services import hardlink, rate_limit, service_status, updates  # noqa: E402
+from app.services import scan as scan_package  # noqa: E402
 
 ADMIN = {"username": "admin", "password": "correct-horse-battery"}
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -46,6 +47,9 @@ def fresh_database():
     updates._cache.clear()
     service_status._cache.clear()
     rate_limit.reset()  # compteur global en mémoire : chaque test repart à zéro
+    # Verrou asyncio lié à la boucle qui l'a attendu : chaque test (une boucle
+    # neuve par asyncio.run) repart d'un verrou neuf.
+    scan_package._analysis = scan_package._AnalysisLock()
 
 
 @pytest.fixture

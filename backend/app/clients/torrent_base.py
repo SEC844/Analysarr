@@ -16,6 +16,19 @@ class TorrentAuthError(Exception):
     """Identifiants refusés par le client torrent."""
 
 
+# Ce qui, dans un torrent, peut changer son rattachement ou son état dans
+# Analysarr : nom, dossiers, catégorie, téléchargement terminé. Le ratio, la
+# vitesse ou le nombre de pairs changent sans cesse et ne déclenchent rien.
+Fingerprint = tuple[str, str | None, str | None, str | None, bool]
+
+
+def fingerprint(name: Any, save_path: Any, content_path: Any, category: Any, complete: bool) -> Fingerprint:
+    def text(value: Any) -> str | None:
+        return value if isinstance(value, str) and value else None
+
+    return (text(name) or "", text(save_path), text(content_path), text(category), complete)
+
+
 class TorrentClient:
     """Interface commune. Chaque client s'utilise via `async with`."""
 
@@ -37,6 +50,23 @@ class TorrentClient:
         Par défaut, la clé `private` du format commun."""
         value = torrent.get("private")
         return value if isinstance(value, bool) else None
+
+    async def fingerprints(self) -> dict[str, Fingerprint]:
+        """Empreinte de CHAQUE torrent (hash en minuscules), pour le temps
+        réel : appelée toutes les quelques secondes, chaque client la fournit
+        par sa voie la moins coûteuse (incrémentale quand il en a une). Par
+        défaut, la liste complète."""
+        return {
+            t["hash"].lower(): fingerprint(
+                t.get("name"),
+                t.get("save_path"),
+                t.get("content_path"),
+                t.get("category"),
+                bool(t.get("completion_on")),
+            )
+            for t in await self.get_torrents()
+            if t.get("hash")
+        }
 
     async def get_trackers(self, torrent_hash: str) -> list[dict[str, Any]]:
         """[{"url": ..., "status": <int|None>}] — `status` n'existe que côté

@@ -39,9 +39,15 @@ class SeerRead(BaseModel):
     api_key_set: bool = False
 
 
+ScheduleMode = Literal["interval", "nightly"]
+
+
 class ScheduleRead(BaseModel):
     enabled: bool = False
     interval_minutes: int | None = None
+    # `nightly` : une fois par nuit à `nightly_hour` heures (heure du conteneur).
+    mode: ScheduleMode = "interval"
+    nightly_hour: int = 4
 
 
 class WatchRead(BaseModel):
@@ -120,6 +126,9 @@ class SettingsWrite(BaseModel):
 
     scan_schedule_enabled: bool = False
     scan_schedule_interval_minutes: int | None = None
+    # Absents = inchangés (un client plus ancien ne remet jamais le mode à zéro).
+    scan_schedule_mode: ScheduleMode | None = None
+    scan_nightly_hour: int | None = Field(default=None, ge=0, le=23)
 
     # Instances Sonarr/Radarr supplémentaires : la liste envoyée remplace la
     # liste enregistrée ; absente (None) = inchangée.

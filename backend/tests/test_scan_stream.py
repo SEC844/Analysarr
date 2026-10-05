@@ -1,12 +1,13 @@
 import asyncio
 
+from app import sse
 from app.routers import scan as scan_router
 from app.services import scan as scan_service
 from app.services.events import scan_events
 
 
 def test_stream_opens_immediately_and_is_never_buffered_by_a_proxy(monkeypatch):
-    monkeypatch.setattr(scan_router, "STREAM_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(sse, "HEARTBEAT_SECONDS", 0.01)
 
     async def run():
         response = await scan_router.scan_stream()

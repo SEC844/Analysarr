@@ -193,6 +193,14 @@ _SETTINGS_NEW_COLUMNS = [
     ("seed_public_min_days", "INTEGER NOT NULL DEFAULT 3"),
     ("seed_tracker_rules", "VARCHAR NOT NULL DEFAULT '[]'"),
     ("cleanup_settings", "VARCHAR NOT NULL DEFAULT '{}'"),
+    ("realtime_debounce_seconds", "INTEGER NOT NULL DEFAULT 3"),
+    ("realtime_torrents_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("realtime_torrents_interval", "INTEGER NOT NULL DEFAULT 3"),
+    ("realtime_media_server_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("realtime_media_server_interval", "INTEGER NOT NULL DEFAULT 5"),
+    ("analysarr_url", "VARCHAR NOT NULL DEFAULT ''"),
+    ("scan_schedule_mode", "VARCHAR NOT NULL DEFAULT 'interval'"),
+    ("scan_nightly_hour", "INTEGER NOT NULL DEFAULT 4"),
 ]
 
 
@@ -263,6 +271,7 @@ def _migrate_legacy_notifications() -> None:
 def init_db() -> None:
     from app.models.activity import ActionLog  # noqa: F401
     from app.models.arr_instance import ArrInstance  # noqa: F401
+    from app.models.arr_webhook import ArrWebhook  # noqa: F401
     from app.models.auth import (
         LoginAttempt,  # noqa: F401
         User,  # noqa: F401

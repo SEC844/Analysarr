@@ -3,6 +3,18 @@ from typing import Any
 import httpx
 
 
+def http_error_text(exc: httpx.HTTPError) -> str:
+    """Message utile : le code HTTP ET ce que Sonarr/Radarr explique dans le
+    corps de la réponse (tronqué) — dossier inaccessible, média déjà présent,
+    webhook injoignable... — plutôt qu'un « 400 Bad Request » opaque. Aucune
+    clé API n'y transite : elle voyage dans un en-tête."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return f"{type(exc).__name__} : {exc}"
+    body = " ".join((response.text or "").split())
+    return f"HTTP {response.status_code}{' — ' + body[:200] if body else ''}"
+
+
 class ArrClient:
     """Base commune Sonarr/Radarr : même schéma d'authentification (X-Api-Key) et d'API v3."""
 
@@ -34,6 +46,34 @@ class ArrClient:
             resp = await client.post(path, json=json)
             resp.raise_for_status()
             return resp.json() if resp.content else None
+
+    # --- Notifications (webhooks du temps réel) ---------------------------------
+
+    async def get_notification_schema(self) -> list[dict[str, Any]]:
+        return await self._get("/api/v3/notification/schema")
+
+    async def get_notifications(self) -> list[dict[str, Any]]:
+        return await self._get("/api/v3/notification")
+
+    async def get_notification(self, notification_id: int) -> dict[str, Any]:
+        return await self._get(f"/api/v3/notification/{notification_id}")
+
+    async def save_notification(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Crée (sans `id`) ou met à jour la notification. Sonarr/Radarr la
+        TESTE avant de l'enregistrer : l'adresse doit déjà répondre."""
+        async with self._client() as client:
+            if body.get("id"):
+                resp = await client.put(f"/api/v3/notification/{body['id']}", json=body)
+            else:
+                resp = await client.post("/api/v3/notification", json=body)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def test_notification(self, body: dict[str, Any]) -> None:
+        await self._post("/api/v3/notification/test", body)
+
+    async def delete_notification(self, notification_id: int) -> None:
+        await self._delete(f"/api/v3/notification/{notification_id}")
 
     async def get_root_folders(self) -> list[dict[str, Any]]:
         """Dossiers racine déclarés dans Sonarr/Radarr. Un ajout ne peut viser

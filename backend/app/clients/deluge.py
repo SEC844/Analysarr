@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from app.clients.torrent_base import TorrentAuthError, TorrentClient, content_path_for
+from app.clients.torrent_base import Fingerprint, TorrentAuthError, TorrentClient, content_path_for, fingerprint
 
 # `download_location` est le nom Deluge 2 ; `save_path` celui de Deluge 1.
 STATUS_FIELDS = [
@@ -31,6 +31,9 @@ STATUS_FIELDS = [
     # Deluge 1.3 et 2.x (deluge/core/torrent.py) ; False sans métadonnées.
     "private",
 ]
+# Temps réel : de quoi calculer l'empreinte, sans fichiers ni trackers (les
+# champs coûteux) — Deluge n'a pas de lecture incrémentale.
+WATCH_FIELDS = ["name", "download_location", "save_path", "label", "progress"]
 
 
 class DelugeClient(TorrentClient):
@@ -101,6 +104,19 @@ class DelugeClient(TorrentClient):
             "added_on": status.get("time_added"),
             "completion_on": status.get("completed_time"),
             "private": status.get("private"),
+        }
+
+    async def fingerprints(self) -> dict[str, Fingerprint]:
+        statuses = await self._rpc("core.get_torrents_status", [{}, WATCH_FIELDS]) or {}
+        return {
+            torrent_hash.lower(): fingerprint(
+                status.get("name"),
+                status.get("download_location") or status.get("save_path"),
+                None,
+                status.get("label"),
+                (status.get("progress") or 0) >= 100,
+            )
+            for torrent_hash, status in statuses.items()
         }
 
     async def get_torrents(self) -> list[dict[str, Any]]:

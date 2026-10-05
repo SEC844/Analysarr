@@ -22,6 +22,7 @@ _SNAPSHOT_STARTUP_JOB_ID = "library_snapshot_startup"
 # Planificateur en retard (machine en veille, boucle chargée) : la mesure du
 # jour est encore prise dans l'heure qui suit.
 _SNAPSHOT_GRACE_SECONDS = 3600
+DEFAULT_NIGHTLY_HOUR = 4
 
 scheduler = AsyncIOScheduler()
 
@@ -67,14 +68,30 @@ def configure_trash_purge() -> None:
         scheduler.add_job(_run_trash_purge, "interval", hours=_TRASH_INTERVAL_HOURS, id=_TRASH_JOB_ID)
 
 
-def configure_scan_schedule(interval_minutes: int | None) -> None:
-    """(Re)programme le scan périodique. `None` ou une valeur <= 0 retire le
-    job. Appelé au démarrage (lifespan) et à chaque sauvegarde des réglages
-    pour prendre effet immédiatement sans redémarrer le conteneur."""
+def configure_scan_schedule(
+    interval_minutes: int | None, mode: str = "interval", nightly_hour: int = DEFAULT_NIGHTLY_HOUR
+) -> None:
+    """(Re)programme le scan complet. Mode `interval` : toutes les
+    `interval_minutes` minutes (`None` ou <= 0 retire le job). Mode
+    `nightly` : une fois par nuit à `nightly_hour` heures, heure du conteneur
+    — le filet de sécurité du temps réel. Appelé au démarrage (lifespan) et à
+    chaque sauvegarde des réglages : effet immédiat, sans redémarrage."""
     if scheduler.get_job(_JOB_ID) is not None:
         scheduler.remove_job(_JOB_ID)
-    if interval_minutes and interval_minutes > 0:
+    if mode == "nightly":
+        scheduler.add_job(_run_scheduled_scan, CronTrigger(hour=nightly_hour, minute=0), id=_JOB_ID)
+    elif interval_minutes and interval_minutes > 0:
         scheduler.add_job(_run_scheduled_scan, "interval", minutes=interval_minutes, id=_JOB_ID)
+
+
+def configure_scan_schedule_from(settings: Settings | None) -> None:
+    """Planification enregistrée (désactivée = aucun scan planifié)."""
+    if settings is None or not settings.scan_schedule_enabled:
+        configure_scan_schedule(None)
+        return
+    configure_scan_schedule(
+        settings.scan_schedule_interval_minutes, settings.scan_schedule_mode, settings.scan_nightly_hour
+    )
 
 
 def configure_library_snapshots() -> None:

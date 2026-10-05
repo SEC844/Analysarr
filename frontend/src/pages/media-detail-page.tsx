@@ -29,6 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Skeleton } from "@/components/ui/skeleton"
 import { usePreferences } from "@/hooks/use-app"
 import { useCrossSeedSearchMutation, useMediaDetailQuery } from "@/hooks/use-media"
+import { useRecentlyUpdated } from "@/hooks/use-recently-updated"
 import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n } from "@/i18n"
 import type { CrossSeedSearchScope } from "@/lib/api"
@@ -133,6 +134,7 @@ export function MediaDetailPage() {
   const navigate = useNavigate()
 
   const { data: media, isLoading, isError } = useMediaDetailQuery(mediaId)
+  const recentlyUpdated = useRecentlyUpdated(mediaId)
   const { data: settings } = useSettingsQuery()
   const crossSeed = useCrossSeedSearchMutation()
 
@@ -192,7 +194,12 @@ export function MediaDetailPage() {
       </Button>
 
       <div className="flex flex-col gap-6 sm:flex-row">
-        <div className="bg-muted flex aspect-2/3 w-40 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+        <div
+          className={cn(
+            "bg-muted flex aspect-2/3 w-40 shrink-0 items-center justify-center overflow-hidden rounded-lg",
+            recentlyUpdated && "live-updated",
+          )}
+        >
           {media.has_poster ? (
             <img src={posterUrl(media.id, media.poster_image_tag)} alt="" className="h-full w-full object-cover" />
           ) : (

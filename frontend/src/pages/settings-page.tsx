@@ -19,6 +19,7 @@ import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { IgnoredSection } from "@/components/settings/ignored-section"
 import { SeedProtectionSection } from "@/components/settings/seed-protection-section"
+import { RealtimeSection } from "@/components/realtime/realtime-section"
 import { TrashSection } from "@/components/settings/trash-section"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
@@ -55,6 +56,7 @@ const SECTION_GROUPS = [
     sections: [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
+      { id: "realtime", label: "settings.sections.realtime" },
       { id: "notifications", label: "settings.sections.notifications" },
       { id: "automations", label: "settings.sections.automations" },
       { id: "seed-protection", label: "settings.sections.seedProtection" },
@@ -78,7 +80,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "seed-protection", "widget", "history", "account", "trash", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "seed-protection", "realtime", "widget", "history", "account", "trash", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -325,6 +327,10 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
                 onEnabledChange={(v) => set("scan_schedule_enabled", v)}
                 intervalMinutes={form.scan_schedule_interval_minutes}
                 onIntervalMinutesChange={(v) => set("scan_schedule_interval_minutes", v)}
+                mode={form.scan_schedule_mode}
+                onModeChange={(v) => set("scan_schedule_mode", v)}
+                nightlyHour={form.scan_nightly_hour}
+                onNightlyHourChange={(v) => set("scan_nightly_hour", v)}
               />
               <ScanHistoryTable trigger="scheduled" />
             </div>
@@ -336,6 +342,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
 
           {section === "ignored" && <IgnoredSection />}
           {section === "seed-protection" && <SeedProtectionSection />}
+          {section === "realtime" && <RealtimeSection />}
 
           {section === "widget" && <WidgetSection />}
 

@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from ipaddress import IPv4Network, IPv6Network
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -15,34 +14,41 @@ from app.routers import auth as auth_router
 from app.routers import automations as automations_router
 from app.routers import cleanup as cleanup_router
 from app.routers import emby as emby_router
+from app.routers import events as events_router
 from app.routers import history as history_router
 from app.routers import ignores as ignores_router
 from app.routers import library as library_router
 from app.routers import media as media_router
 from app.routers import notifications as notifications_router
+from app.routers import realtime as realtime_router
 from app.routers import scan as scan_router
 from app.routers import seed_protection as seed_protection_router
 from app.routers import services as services_router
 from app.routers import settings as settings_router
 from app.routers import trash as trash_router
+from app.routers import webhooks as webhooks_router
 from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
 from app.services.login_log import record_attempt
 from app.services.path_guard import DiskAccessError
 from app.services.rate_limit import retry_after
+from app.services.realtime.supervisor import supervisor as realtime_supervisor
 from app.services.scheduler import (
     configure_library_snapshots,
-    configure_scan_schedule,
+    configure_scan_schedule_from,
     configure_trash_purge,
     refresh_update_watch,
     scheduler,
 )
-from app.services.security import client_ip, parse_trusted_proxies
+from app.services.security import client_ip, load_trusted_proxies
 from app.static_files import resolve_static_file
 
 # Chemins sous /api/ accessibles sans session : l'auth elle-même (login/setup/
 # statut/déconnexion) et le healthcheck Docker.
-_PUBLIC_API_PREFIXES = ("/api/auth/",)
+# `/api/webhooks/` : appels de Sonarr/Radarr (temps réel), qui ne peuvent pas
+# ouvrir de session — protégés par un secret propre à chaque instance, une
+# limite de débit et une taille de corps bornée (routers/webhooks.py).
+_PUBLIC_API_PREFIXES = ("/api/auth/", "/api/webhooks/")
 # `/api/status` : widget externe, protégé par sa propre clé API (routers/widget.py).
 _PUBLIC_API_PATHS = ("/api/health", "/api/status")
 # Exception dans `/api/auth/` : le journal de connexion n'a rien de public.
@@ -90,13 +96,14 @@ async def lifespan(app: FastAPI):
     init_db()
     with Session(engine) as session:
         settings = session.get(Settings, 1)
-        if settings is not None and settings.scan_schedule_enabled:
-            configure_scan_schedule(settings.scan_schedule_interval_minutes)
+        configure_scan_schedule_from(settings)
         refresh_update_watch(session)
     configure_trash_purge()
     configure_library_snapshots()
     scheduler.start()
+    await realtime_supervisor.start()
     yield
+    await realtime_supervisor.stop()
     scheduler.shutdown(wait=False)
 
 
@@ -119,12 +126,6 @@ async def disk_access_refused(request: Request, exc: DiskAccessError) -> JSONRes
 # compris, jusqu'au redémarrage.
 
 
-def _trusted_proxies() -> list[IPv4Network | IPv6Network]:
-    with Session(engine) as session:
-        settings = session.get(Settings, 1)
-        return parse_trusted_proxies(settings.trusted_proxies if settings else "")
-
-
 def _record_rate_limited_login(ip: str) -> None:
     with Session(engine) as session:
         record_attempt(session, username="", ip=ip, success=False, reason="rate_limited")
@@ -138,7 +139,7 @@ async def limit_auth_requests(request: Request, call_next):
     if request.url.path not in _RATE_LIMITED_AUTH_PATHS:
         return await call_next(request)
 
-    trusted = await run_in_threadpool(_trusted_proxies)
+    trusted = await run_in_threadpool(load_trusted_proxies)
     ip = client_ip(request, trusted)
     # Le compteur reste dans la boucle : c'est un dictionnaire en mémoire sans
     # verrou, qui ne doit pas être modifié depuis plusieurs threads à la fois.
@@ -228,6 +229,9 @@ app.include_router(cleanup_router.router, prefix="/api/cleanup", tags=["cleanup"
 app.include_router(services_router.router, prefix="/api/services", tags=["services"])
 app.include_router(trash_router.router, prefix="/api/trash", tags=["trash"])
 app.include_router(widget_router.router, prefix="/api/status", tags=["widget"])
+app.include_router(realtime_router.router, prefix="/api/realtime", tags=["realtime"])
+app.include_router(events_router.router, prefix="/api/events", tags=["events"])
+app.include_router(webhooks_router.router, prefix="/api/webhooks", tags=["webhooks"])
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 

@@ -101,6 +101,22 @@ class Settings(SQLModel, table=True):
     # Assistant de nettoyage (schemas/cleanup.py::CleanupSettings, JSON validé
     # à la lecture : valeur illisible = préréglage « Équilibré »).
     cleanup_settings: str = "{}"
+    # Temps réel (services/realtime/) : chaque source s'active séparément, tout
+    # est désactivé par défaut. Les webhooks Sonarr/Radarr vivent dans la
+    # table ArrWebhook (un par instance).
+    realtime_debounce_seconds: int = 3
+    realtime_torrents_enabled: bool = False
+    realtime_torrents_interval: int = 3
+    realtime_media_server_enabled: bool = False
+    realtime_media_server_interval: int = 5
+    # Adresse d'Analysarr vue depuis Sonarr/Radarr (webhooks) : Analysarr ne
+    # peut pas deviner comment les autres conteneurs le joignent.
+    analysarr_url: str = ""
+    # Planification du scan complet : `interval` (historique, toutes les N
+    # minutes) ou `nightly` (une fois par nuit, filet de sécurité du temps
+    # réel) à `scan_nightly_hour` heures, heure du conteneur.
+    scan_schedule_mode: str = "interval"
+    scan_nightly_hour: int = 4
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: str | None = None

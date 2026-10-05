@@ -1,5 +1,3 @@
-import asyncio
-import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -20,13 +18,13 @@ from app.services.diagnostics import (
 from app.services.events import scan_events
 from app.services.scan import is_scan_running, launch_scan
 from app.services.scan_scopes import SCAN_SCOPES
+from app.sse import sse_response
 
 router = APIRouter()
 
 
 # Ping SSE (commentaire ignoré par EventSource) : garde la connexion vivante
 # derrière un reverse-proxy qui coupe les connexions inactives.
-STREAM_HEARTBEAT_SECONDS = 15
 
 
 def _to_read(run: ScanRun) -> ScanRunRead:
@@ -73,35 +71,8 @@ def scan_history(limit: int = 50, session: Session = Depends(get_session)) -> li
 
 @router.get("/stream")
 async def scan_stream() -> StreamingResponse:
-    queue = scan_events.subscribe()
-
-    async def gen():
-        try:
-            # Premier octet immédiat : le frontend attend l'ouverture du flux
-            # (`onopen`) pour lancer le scan. Sans rien à envoyer avant le
-            # premier événement, un reverse-proxy qui met la réponse en tampon
-            # ne transmet jamais l'ouverture — l'interface restait bloquée sur
-            # « Démarrage du scan... » sans que le scan ne parte.
-            yield ": connected\n\n"
-            while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=STREAM_HEARTBEAT_SECONDS)
-                except TimeoutError:
-                    yield ": ping\n\n"
-                    continue
-                yield f"data: {json.dumps(event)}\n\n"
-                if event.get("type") in ("completed", "failed"):
-                    break
-        finally:
-            scan_events.unsubscribe(queue)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        # no-transform + X-Accel-Buffering : ni compression ni mise en tampon
-        # par un proxy (nginx, Nginx Proxy Manager, SWAG...).
-        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
-    )
+    """Progression du scan (voir app/sse.py) ; le flux se ferme à la fin."""
+    return sse_response(scan_events, stop_on=("completed", "failed"))
 
 
 @router.get("/diagnostics", response_model=DiagnosticsResult)

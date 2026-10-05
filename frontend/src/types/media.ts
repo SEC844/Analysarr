@@ -391,7 +391,8 @@ export interface ScanRunRead {
   tracker_unique_count: number
   qbittorrent_torrent_count: number
   qbittorrent_matched_count: number
-  trigger: "manual" | "scheduled"
+  // `realtime` : analyse déclenchée par le temps réel (affichée avec les automatiques).
+  trigger: "manual" | "scheduled" | "realtime"
   // Périmètre analysé : "full" pour une analyse complète.
   scope: ScanScope
 }

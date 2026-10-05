@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from sqlmodel import select
 
-from app.clients.arr import ArrClient
+from app.clients.arr import ArrClient, http_error_text
 from app.models.media import ImportIssue, MediaType
 from app.schemas.media import DeleteStepResult
 from app.services.arr_instances import arr_target_for
@@ -243,15 +243,6 @@ async def retry_import(
     return len(files), list(dict.fromkeys(rejections))
 
 
-def _error_text(exc: httpx.HTTPError) -> str:
-    """Message d'erreur utile : le code HTTP ET ce que Sonarr/Radarr explique
-    dans le corps de la réponse (tronqué), plutôt qu'un « 400 Bad Request »
-    opaque. Aucune clé API n'y transite : elle voyage dans un en-tête."""
-    response = getattr(exc, "response", None)
-    if response is None:
-        return f"{type(exc).__name__} : {exc}"
-    body = " ".join((response.text or "").split())
-    return f"HTTP {response.status_code}{' — ' + body[:200] if body else ''}"
 
 
 async def safe_retry_import(
@@ -261,7 +252,7 @@ async def safe_retry_import(
     try:
         imported, rejections = await retry_import(client, download_id, is_series, output_path)
     except httpx.HTTPError as exc:
-        return 0, [], _error_text(exc)
+        return 0, [], http_error_text(exc)
     return imported, rejections, None
 
 

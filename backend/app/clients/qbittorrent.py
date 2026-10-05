@@ -3,7 +3,7 @@ from typing import Any
 
 import httpx
 
-from app.clients.torrent_base import TorrentAuthError, TorrentClient
+from app.clients.torrent_base import Fingerprint, TorrentAuthError, TorrentClient, fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,9 @@ class QbittorrentClient(TorrentClient):
         # pas (version plus ancienne) : inutile de le redemander pour chaque
         # torrent.
         self._properties_have_private = True
+        # Temps réel : état reconstruit par `sync/maindata` (voir fingerprints).
+        self._sync_rid = 0
+        self._sync_state: dict[str, dict[str, Any]] = {}
 
     async def __aenter__(self) -> "QbittorrentClient":
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
@@ -63,6 +66,34 @@ class QbittorrentClient(TorrentClient):
         resp = await self.client.get("/api/v2/torrents/info")
         resp.raise_for_status()
         return resp.json()
+
+    async def fingerprints(self) -> dict[str, Fingerprint]:
+        """`sync/maindata` : seuls les champs modifiés depuis l'appel précédent
+        (`rid`) reviennent — l'interface web de qBittorrent l'interroge ainsi
+        chaque seconde. Réponse complète (`full_update`) au premier appel ou
+        quand qBittorrent ne peut plus fournir le différentiel."""
+        resp = await self.client.get("/api/v2/sync/maindata", params={"rid": self._sync_rid})
+        resp.raise_for_status()
+        data = resp.json()
+        torrents = data.get("torrents") or {}
+        if data.get("full_update"):
+            self._sync_state = {h.lower(): dict(v) for h, v in torrents.items()}
+        else:
+            for torrent_hash, changes in torrents.items():
+                self._sync_state.setdefault(torrent_hash.lower(), {}).update(changes)
+            for torrent_hash in data.get("torrents_removed") or []:
+                self._sync_state.pop(str(torrent_hash).lower(), None)
+        self._sync_rid = int(data.get("rid") or 0)
+        return {
+            torrent_hash: fingerprint(
+                t.get("name"),
+                t.get("save_path"),
+                t.get("content_path"),
+                t.get("category"),
+                (t.get("progress") or 0) >= 1,
+            )
+            for torrent_hash, t in self._sync_state.items()
+        }
 
     async def private_flag(self, torrent: dict[str, Any]) -> bool | None:
         """Vérifié dans le code de qBittorrent : depuis la 5.0 (Web API 2.11),

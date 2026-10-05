@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
 import { AutomationsPausedBanner } from "@/components/automations/automations-paused-banner"
+import { RealtimeIndicator } from "@/components/realtime/realtime-indicator"
 import { SeedProtectionBanner } from "@/components/seed/seed-protection-banner"
 import { GRID_SIZE_CLASSES, type GridSize } from "@/components/media/grid-size"
 import { GridSizeToggle } from "@/components/media/grid-size-toggle"
@@ -72,6 +73,7 @@ export function MediaListPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <RealtimeIndicator />
           <ScanButton />
           <GridSizeToggle value={gridSize} onChange={setGridOverride} />
         </div>

@@ -4,12 +4,15 @@ import { Clapperboard, HardDrive, Tv, UserPlus, Users } from "lucide-react"
 
 import { StatusBadgeList } from "@/components/media/status-badge"
 import { usePreferences } from "@/hooks/use-app"
+import { useRecentlyUpdated } from "@/hooks/use-recently-updated"
 import { useI18n } from "@/i18n"
 import { posterUrl } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { MediaListItem } from "@/types/media"
 
 export function MediaCard({ media }: { media: MediaListItem }) {
+  const recentlyUpdated = useRecentlyUpdated(media.id)
   const { t } = useI18n()
   const prefs = usePreferences()
   const [imgError, setImgError] = useState(false)
@@ -24,7 +27,10 @@ export function MediaCard({ media }: { media: MediaListItem }) {
   return (
     <Link
       to={`/media/${media.id}`}
-      className="group border-border bg-card hover:border-foreground/20 flex flex-col overflow-hidden rounded-lg border transition-colors"
+      className={cn(
+        "group border-border bg-card hover:border-foreground/20 flex flex-col overflow-hidden rounded-lg border transition-colors",
+        recentlyUpdated && "live-updated",
+      )}
     >
       <div className="bg-muted relative aspect-2/3 w-full overflow-hidden">
         {media.has_poster && !imgError ? (
