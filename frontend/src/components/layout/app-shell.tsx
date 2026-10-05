@@ -51,7 +51,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="bg-background min-h-svh">
       <header className="border-border border-b">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6">
+        {/* Sur un téléphone, la navigation passe sous la marque plutôt que de
+            déborder de l'écran (trois liens + déconnexion ne tiennent pas
+            à côté du nom sous ~450 px). */}
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-y-2 px-4 py-3 sm:px-6">
           {/* Marque et version alignées sur la même ligne : `items-center` sur
               le conteneur, la version décalée d'un cheveu pour retomber sur la
               ligne de base du nom. */}
@@ -72,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <nav className="flex gap-1">
               {navLinks.map((link) => (
                 <NavLink
@@ -81,7 +84,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   end={link.to === "/"}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
+                      "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors sm:px-3",
                       isActive
                         ? "bg-secondary text-secondary-foreground"
                         : "text-muted-foreground hover:text-foreground",
