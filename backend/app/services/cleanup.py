@@ -268,7 +268,7 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
 # --- Lecture ------------------------------------------------------------------
 
 
-def _read(evaluation: Evaluation, rank: float) -> CleanupCandidateRead:
+def candidate_read(evaluation: Evaluation, rank: float) -> CleanupCandidateRead:
     facts = evaluation.facts
     return CleanupCandidateRead(
         media_id=facts.media_id,
@@ -296,6 +296,13 @@ def _evaluate_all(session: Session, now: datetime) -> tuple[list[Evaluation], di
     evaluations = [evaluate(f, config, now) for f in facts]
     ranks = {e.facts.media_id: rank for e, rank in ranked(evaluations, config)}
     return evaluations, ranks
+
+
+def ranked_candidates(session: Session, now: datetime | None = None) -> list[tuple[Evaluation, float]]:
+    """Candidats non protégés, dans l'ordre de l'assistant (rang décroissant)."""
+    now = now or datetime.now(UTC)
+    facts, config = collect_facts(session, now)
+    return ranked([evaluate(f, config, now) for f in facts], config)
 
 
 _SORTS = {
@@ -334,7 +341,7 @@ def candidates_page(session: Session, query: CandidateQuery, now: datetime | Non
     shown.sort(key=lambda e: (e.protected, _SORTS.get(query.sort, _SORTS["rank"])(e, ranks)))
     start = (query.page - 1) * query.page_size
     return CleanupCandidatesPage(
-        items=[_read(e, ranks.get(e.facts.media_id, 0.0)) for e in shown[start : start + query.page_size]],
+        items=[candidate_read(e, ranks.get(e.facts.media_id, 0.0)) for e in shown[start : start + query.page_size]],
         total=len(shown),
         candidate_count=len(candidates),
         protected_count=len(matching) - len(candidates),
@@ -349,7 +356,7 @@ def candidate_detail(session: Session, media_id: int, now: datetime | None = Non
     if found is None:
         return None
     return CleanupCandidateDetail(
-        **_read(found, ranks.get(media_id, 0.0)).model_dump(),
+        **candidate_read(found, ranks.get(media_id, 0.0)).model_dump(),
         components=[c.read() for c in found.components],
         raw_score=found.raw_score,
         in_progress_users=sorted(found.facts.in_progress_names),

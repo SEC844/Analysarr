@@ -13,12 +13,15 @@ import type {
   TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
+import type { Forecast } from "@/types/forecast"
 import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
 import type { SeedProtection, SeedProtectionWrite } from "@/types/seed"
 import type { RealtimeSettings, RealtimeSettingsWrite, RealtimeStatus, WebhookPreview } from "@/types/realtime"
 import type {
   CleanupCandidateDetail,
   CleanupCandidatesPage,
+  CleanupPlan,
+  CleanupPlanRequest,
   CleanupQuery,
   CleanupSettings,
   CleanupSettingsRead,
@@ -320,6 +323,15 @@ export function getCleanupCandidates(query: CleanupQuery): Promise<CleanupCandid
 
 export function getCleanupCandidate(id: number): Promise<CleanupCandidateDetail> {
   return request<CleanupCandidateDetail>(`/api/cleanup/candidates/${id}`)
+}
+
+/** Mode objectif : simulation, rien n'est supprimé. */
+export function simulateCleanupPlan(payload: CleanupPlanRequest): Promise<CleanupPlan> {
+  return request<CleanupPlan>("/api/cleanup/plan", { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function getForecast(): Promise<Forecast> {
+  return request<Forecast>("/api/library/forecast")
 }
 
 export function getCleanupSettings(): Promise<CleanupSettingsRead> {

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -121,3 +121,68 @@ class CleanupCandidatesPage(BaseModel):
     candidate_count: int
     protected_count: int
     total_reclaimable_bytes: int
+
+
+# --- Mode objectif (services/cleanup_plan.py) ---------------------------------
+
+# Clé d'un disque de la prévision : ses racines jointes par « + ».
+_DISK_KEY = r"^(library|downloads)(\+(library|downloads))?$"
+
+
+class CleanupPlanRequest(BaseModel):
+    """`free` : libérer `target_bytes` octets. `until` : que le disque `disk`
+    tienne jusqu'au `until` (espace à libérer tiré de la prévision)."""
+
+    goal: Literal["free", "until"]
+    # 1 Mo à 1 Po.
+    target_bytes: int | None = Field(default=None, ge=1_000_000, le=10**15)
+    until: date | None = None
+    disk: str | None = Field(default=None, max_length=40, pattern=_DISK_KEY)
+
+    @model_validator(mode="after")
+    def _goal_fields(self) -> "CleanupPlanRequest":
+        if self.goal == "free" and self.target_bytes is None:
+            raise ValueError("Indiquez l'espace à libérer.")
+        if self.goal == "until" and (self.until is None or self.disk is None):
+            raise ValueError("Indiquez la date et le disque.")
+        return self
+
+
+class PlanLossMedia(BaseModel):
+    media_id: int
+    title: str
+    media_type: str
+    in_progress: bool
+    favorite: bool
+    # Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
+    progress: float
+
+
+class PlanLossRead(BaseModel):
+    """Un compte et ce qu'il perdrait : médias commencés ou mis en favori."""
+
+    user_id: str
+    name: str
+    image_tag: str | None
+    media: list[PlanLossMedia]
+
+
+class CleanupPlanRead(BaseModel):
+    """Simulation, sans aucun effet. `target_bytes` : espace à libérer
+    (0 en mode `until` quand le disque tient déjà). `shortfall_bytes` : ce
+    qui manque, faute de candidats (ou plafond `max_items` atteint)."""
+
+    goal: Literal["free", "until"]
+    target_bytes: int
+    freed_bytes: int
+    shortfall_bytes: int
+    limited: bool
+    max_items: int
+    items: list[CleanupCandidateRead]
+    losses: list[PlanLossRead]
+    # Mode `until` : disque visé, espace libre aujourd'hui, jours jusqu'à la
+    # date et croissance prudente retenue (octets par jour).
+    disk: str | None = None
+    free_bytes: int | None = None
+    days: int | None = None
+    growth_per_day: float | None = None

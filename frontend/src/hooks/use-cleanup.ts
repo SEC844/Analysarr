@@ -1,7 +1,14 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { getCleanupCandidate, getCleanupCandidates, getCleanupSettings, saveCleanupSettings } from "@/lib/api"
-import type { CleanupQuery, CleanupSettings } from "@/types/cleanup"
+import {
+  getCleanupCandidate,
+  getCleanupCandidates,
+  getCleanupSettings,
+  getForecast,
+  saveCleanupSettings,
+  simulateCleanupPlan,
+} from "@/lib/api"
+import type { CleanupPlanRequest, CleanupQuery, CleanupSettings } from "@/types/cleanup"
 
 const CLEANUP_QUERY_KEY = ["cleanup"] as const
 
@@ -33,4 +40,15 @@ export function useSaveCleanupSettingsMutation() {
     // Réglages changés : tout le classement est à relire.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: CLEANUP_QUERY_KEY }),
   })
+}
+
+/** Prévisions d'espace disque : une photographie par jour, rien ne change
+ * d'une minute à l'autre. */
+export function useForecastQuery() {
+  return useQuery({ queryKey: ["library", "forecast"], queryFn: getForecast, staleTime: 10 * 60_000 })
+}
+
+/** Simulation du mode objectif : sans effet, donc rien à invalider. */
+export function useCleanupPlanMutation() {
+  return useMutation({ mutationFn: (payload: CleanupPlanRequest) => simulateCleanupPlan(payload) })
 }

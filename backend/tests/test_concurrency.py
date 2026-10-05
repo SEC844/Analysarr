@@ -66,6 +66,7 @@ async def _burst(base_url: str, cookies: httpx.Cookies) -> list[int]:
     reads = [
         "/api/scan/history",
         "/api/library/history",
+        "/api/library/forecast",
         "/api/seed-protection",
         "/api/cleanup/candidates",
         "/api/realtime/status",

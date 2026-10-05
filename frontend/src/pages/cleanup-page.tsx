@@ -3,8 +3,10 @@ import { Link } from "react-router-dom"
 import { Clapperboard, Loader2, Play, ShieldCheck, Trash2, Tv } from "lucide-react"
 
 import { CleanupDeleteDialog } from "@/components/cleanup/cleanup-delete-dialog"
+import { CleanupGoalCard } from "@/components/cleanup/cleanup-goal-card"
 import { CleanupSettingsPanel } from "@/components/cleanup/cleanup-settings-panel"
 import { ScoreBreakdown } from "@/components/cleanup/score-breakdown"
+import { ForecastSection } from "@/components/forecast/forecast-section"
 import { CleanupOptions } from "@/components/media/ignore-actions"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -137,6 +139,10 @@ export function CleanupPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t("cleanup.title")}</h1>
         <p className="text-muted-foreground text-sm">{t("cleanup.description")}</p>
       </div>
+
+      <ForecastSection />
+
+      <CleanupGoalCard onSelect={(items) => setSelected(new Map(items.map((item) => [item.media_id, item])))} />
 
       <CleanupSettingsPanel />
 

@@ -12,10 +12,13 @@ from app.models.settings import Settings
 from app.schemas.cleanup import (
     CleanupCandidateDetail,
     CleanupCandidatesPage,
+    CleanupPlanRead,
+    CleanupPlanRequest,
     CleanupSettings,
     CleanupSettingsRead,
 )
 from app.services.cleanup import CandidateQuery, candidate_detail, candidates_page, cleanup_settings
+from app.services.cleanup_plan import PlanError, build_plan
 from app.services.cleanup_score import PRESETS
 
 router = APIRouter()
@@ -50,6 +53,16 @@ def read_candidate(media_id: int, session: Session = Depends(get_session)) -> Cl
     if detail is None:
         raise HTTPException(404, "Média introuvable ou sans rien à libérer.")
     return detail
+
+
+@router.post("/plan", response_model=CleanupPlanRead)
+def simulate_plan(payload: CleanupPlanRequest, session: Session = Depends(get_session)) -> CleanupPlanRead:
+    """Mode objectif : simulation sans effet (POST pour son corps, rien n'est
+    écrit). La suppression passe ensuite par le dialogue de l'assistant."""
+    try:
+        return build_plan(session, payload)
+    except PlanError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def _settings_read(session: Session) -> CleanupSettingsRead:

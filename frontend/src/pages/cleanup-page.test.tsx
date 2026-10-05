@@ -9,8 +9,10 @@ import {
   getCleanupCandidate,
   getCleanupCandidates,
   getCleanupSettings,
+  getForecast,
   getMedia,
   saveCleanupSettings,
+  simulateCleanupPlan,
 } from "@/lib/api"
 import { CleanupPage } from "@/pages/cleanup-page"
 import { renderWithProviders } from "@/test/render"
@@ -26,6 +28,8 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   saveCleanupSettings: vi.fn(),
   getMedia: vi.fn(),
   deleteSelectionExecute: vi.fn(),
+  getForecast: vi.fn(),
+  simulateCleanupPlan: vi.fn(),
 }))
 
 function candidate(overrides: Partial<CleanupCandidate>): CleanupCandidate {
@@ -107,6 +111,16 @@ function renderPage() {
 describe("CleanupPage", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getForecast).mockResolvedValue({
+      window_days: 30,
+      min_history_days: 14,
+      horizon_days: 90,
+      history_days: 0,
+      enough_history: false,
+      latest_day: null,
+      library: null,
+      disks: [],
+    })
     vi.mocked(getCleanupCandidates).mockImplementation(async (query) => ({
       items: query.include_protected ? [FORGOTTEN, OLD_SERIES, FAVOURITE] : [FORGOTTEN, OLD_SERIES],
       total: query.include_protected ? 3 : 2,
@@ -186,6 +200,32 @@ describe("CleanupPage", () => {
 
     await user.click(screen.getByRole("checkbox", { name: "Select Old series" }))
     expect(screen.getByText("2 media selected · 6.0 GB")).toBeInTheDocument()
+  })
+
+  it("fills the selection from a goal, deletion still waiting for the dialog", async () => {
+    const user = userEvent.setup()
+    vi.mocked(simulateCleanupPlan).mockResolvedValue({
+      goal: "free",
+      target_bytes: 5 * 1024 ** 3,
+      freed_bytes: 6 * 1024 ** 3,
+      shortfall_bytes: 0,
+      limited: false,
+      max_items: 200,
+      items: [FORGOTTEN, OLD_SERIES],
+      losses: [],
+      disk: null,
+      free_bytes: null,
+      days: null,
+      growth_per_day: null,
+    })
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: en.cleanup.goal.simulate }))
+    await user.click(await screen.findByRole("button", { name: en.cleanup.goal.select }))
+
+    expect(screen.getByText("2 media selected · 6.0 GB")).toBeInTheDocument()
+    expect(screen.getByRole("checkbox", { name: "Select Forgotten" })).toBeChecked()
+    expect(deleteSelectionExecute).not.toHaveBeenCalled()
   })
 
   it("never deletes anything when the dialog is closed", async () => {

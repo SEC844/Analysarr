@@ -93,3 +93,17 @@ export function selectionSize(selected: Iterable<{ reclaimable_bytes: number }>)
   for (const item of selected) total += item.reclaimable_bytes
   return formatBytes(total)
 }
+
+const GIB = 1024 ** 3
+// Borne du serveur (schemas/cleanup.py : au plus 1 Po).
+const MAX_GIB = 900_000
+
+/** Mode objectif : octets à libérer, ou null si la saisie n'est pas un
+ * nombre de Go valide (virgule décimale acceptée). Go binaires, comme
+ * l'affichage des tailles (formatBytes). */
+export function amountToBytes(value: string): number | null {
+  const trimmed = value.trim().replace(",", ".")
+  const gib = trimmed === "" ? Number.NaN : Number(trimmed)
+  if (!Number.isFinite(gib) || gib <= 0 || gib > MAX_GIB) return null
+  return Math.round(gib * GIB)
+}

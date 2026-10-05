@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { componentDetail, mainReasonText, protectionText, scoreTone, selectionSize } from "@/lib/cleanup"
+import { amountToBytes, componentDetail, mainReasonText, protectionText, scoreTone, selectionSize } from "@/lib/cleanup"
 import type { CleanupCandidate, ScoreComponent } from "@/types/cleanup"
 
 // Traduction factice : la clé et ses variables, pour vérifier le choix du texte.
@@ -117,5 +117,16 @@ describe("componentDetail", () => {
 describe("selectionSize", () => {
   it("adds up the space of the selection", () => {
     expect(selectionSize([{ reclaimable_bytes: 1024 }, { reclaimable_bytes: 1024 }])).toMatch(/^2\.0 /)
+  })
+})
+
+describe("amountToBytes", () => {
+  it("reads binary gigabytes, with a decimal comma", () => {
+    expect(amountToBytes("100")).toBe(100 * 1024 ** 3)
+    expect(amountToBytes(" 1,5 ")).toBe(1.5 * 1024 ** 3)
+  })
+
+  it("refuses what the server would refuse", () => {
+    for (const value of ["", "0", "-3", "abc", "1e9"]) expect(amountToBytes(value)).toBeNull()
   })
 })

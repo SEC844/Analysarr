@@ -1,6 +1,8 @@
 """Historique de la bibliothèque, en lecture (voir services/library_history.py).
 Routes synchrones : FastAPI les exécute hors de la boucle asyncio."""
 
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
@@ -8,10 +10,27 @@ from app.database import get_session
 from app.models.library_snapshot import LibrarySnapshot
 from app.models.settings import Settings
 from app.schemas.library import (
+    DiskForecastRead,
+    DiskPointRead,
     DiskUsageRead,
+    FillRead,
+    ForecastRead,
+    LibraryGrowthRead,
     LibraryHistorySettings,
     LibraryHistorySettingsWrite,
     LibrarySnapshotRead,
+    ProjectionPointRead,
+    TrendRead,
+)
+from app.services.forecast import (
+    HORIZON_DAYS,
+    MIN_HISTORY_DAYS,
+    WINDOW_DAYS,
+    DiskForecast,
+    FillEstimate,
+    Forecast,
+    Trend,
+    load_forecast,
 )
 from app.services.library_history import (
     DEFAULT_RETENTION_DAYS,
@@ -90,3 +109,64 @@ def update_settings(
     session.add(settings)
     session.commit()
     return _settings(session)
+
+
+def trend_read(trend: Trend | None) -> TrendRead | None:
+    return None if trend is None else TrendRead(per_day=trend.per_day, low=trend.low, high=trend.high)
+
+
+def _after(day: date, days: float | None) -> date | None:
+    return None if days is None else day + timedelta(days=round(days))
+
+
+def _fill_read(fill: FillEstimate | None, day: date) -> FillRead | None:
+    if fill is None:
+        return None
+    return FillRead(
+        earliest_days=fill.earliest_days,
+        latest_days=fill.latest_days,
+        earliest_date=day + timedelta(days=round(fill.earliest_days)),
+        latest_date=_after(day, fill.latest_days),
+    )
+
+
+def _disk_forecast_read(disk: DiskForecast, day: date) -> DiskForecastRead:
+    return DiskForecastRead(
+        key=disk.key,
+        roles=list(disk.roles),
+        paths=disk.paths,
+        available=disk.available,
+        total=disk.total,
+        used=disk.used,
+        free=disk.free,
+        history=[DiskPointRead(day=p.day, used=p.used, total=p.total) for p in disk.history],
+        history_days=disk.history_days,
+        trend=trend_read(disk.trend),
+        fill=_fill_read(disk.fill, day),
+        projection=[ProjectionPointRead(day=p.day, used=p.used, low=p.low, high=p.high) for p in disk.projection],
+    )
+
+
+def forecast_read(forecast: Forecast) -> ForecastRead:
+    day = forecast.latest_day
+    return ForecastRead(
+        window_days=WINDOW_DAYS,
+        min_history_days=MIN_HISTORY_DAYS,
+        horizon_days=HORIZON_DAYS,
+        history_days=forecast.history_days,
+        enough_history=forecast.enough_history,
+        latest_day=day,
+        library=(
+            None
+            if forecast.library_size is None
+            else LibraryGrowthRead(size=forecast.library_size, trend=trend_read(forecast.library_trend))
+        ),
+        disks=[_disk_forecast_read(disk, day) for disk in forecast.disks] if day else [],
+    )
+
+
+@router.get("/forecast", response_model=ForecastRead)
+def read_forecast(session: Session = Depends(get_session)) -> ForecastRead:
+    """Prévisions d'espace disque (voir services/forecast.py) : une requête
+    sur au plus 90 lignes, calcul en mémoire."""
+    return forecast_read(load_forecast(session))

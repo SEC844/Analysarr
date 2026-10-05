@@ -94,3 +94,42 @@ export interface CleanupQuery {
   search?: string
   include_protected: boolean
 }
+
+/** Mode objectif (backend : services/cleanup_plan.py) : simulation sans effet. */
+export type CleanupPlanRequest =
+  | { goal: "free"; target_bytes: number }
+  | { goal: "until"; until: string; disk: string }
+
+export interface PlanLossMedia {
+  media_id: number
+  title: string
+  media_type: "movie" | "series"
+  in_progress: boolean
+  favorite: boolean
+  /** Films : pourcentage de lecture. Séries : épisodes vus. */
+  progress: number
+}
+
+/** Un compte et ce qu'il perdrait (médias commencés ou en favori). */
+export interface PlanLoss {
+  user_id: string
+  name: string
+  image_tag: string | null
+  media: PlanLossMedia[]
+}
+
+export interface CleanupPlan {
+  goal: "free" | "until"
+  /** Espace à libérer (0 : le disque tient déjà jusqu'à la date). */
+  target_bytes: number
+  freed_bytes: number
+  shortfall_bytes: number
+  limited: boolean
+  max_items: number
+  items: CleanupCandidate[]
+  losses: PlanLoss[]
+  disk: string | null
+  free_bytes: number | null
+  days: number | null
+  growth_per_day: number | null
+}
