@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { beforeAll, describe, expect, it } from "vitest"
+
+import { applyLanguage } from "@/i18n/core"
 
 import {
   byteTicks,
@@ -103,6 +105,10 @@ describe("fillText", () => {
 })
 
 describe("growth", () => {
+  // Unités de taille selon la langue : fixée, sinon le résultat dépend de
+  // celle de la machine (français en local, anglais sur le runner CI).
+  beforeAll(() => applyLanguage("fr"))
+
   it("signs sizes", () => {
     expect(signedBytes(2 * GB)).toBe("+2.0 Go")
     expect(signedBytes(-GB / 2)).toBe("−512.0 Mo")
