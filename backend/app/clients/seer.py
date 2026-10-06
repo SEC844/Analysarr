@@ -18,6 +18,23 @@ class SeerClient:
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=self.base_url, headers={"X-Api-Key": self.api_key}, timeout=30.0)
 
+    async def requests_fingerprint(self) -> tuple[Any, ...]:
+        """Empreinte des demandes récemment modifiées (`sort=modified`) et de
+        leur nombre : une demande ajoutée, approuvée ou refusée la change.
+        Un seul appel léger, pour le temps réel."""
+        async with self._client() as client:
+            resp = await client.get(
+                "/api/v1/request", params={"take": 20, "skip": 0, "filter": "all", "sort": "modified"}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        recent = tuple(
+            (item.get("id"), item.get("updatedAt"), item.get("status"))
+            for item in data.get("results") or []
+            if isinstance(item, dict)
+        )
+        return (data.get("pageInfo") or {}).get("results"), recent
+
     async def get_requests(self) -> list[dict[str, Any]]:
         requests: list[dict[str, Any]] = []
         async with self._client() as client:

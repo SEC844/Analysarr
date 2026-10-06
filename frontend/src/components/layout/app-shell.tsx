@@ -9,6 +9,7 @@ import { PulseDot } from "@/components/ui/pulse-dot"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useAutomationGuardQuery } from "@/hooks/use-automations"
 import { useLogoutMutation } from "@/hooks/use-auth"
+import { useDetectAnalysarrAddress } from "@/hooks/use-realtime"
 import { useServicesStatusQuery } from "@/hooks/use-services"
 import { useI18n } from "@/i18n"
 import { formatVersion } from "@/lib/format"
@@ -21,6 +22,7 @@ const AUTOMATIONS_SETTINGS = "/settings?section=automations"
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useI18n()
   const logoutMutation = useLogoutMutation()
+  useDetectAnalysarrAddress()
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
 

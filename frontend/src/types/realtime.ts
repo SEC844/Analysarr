@@ -1,50 +1,32 @@
-/** Temps réel (backend : services/realtime/, routers/realtime.py). */
+/** Temps réel (backend : services/realtime/, routers/realtime.py) : la
+ * norme, sans réglage. */
 export type ArrService = "sonarr" | "radarr"
+
+/** `connected` : branché et à jour ; `pending` : essai en cours ou à venir ;
+ * `error` : dernier essai refusé ; `no_address` : adresse d'Analysarr inconnue. */
+export type WebhookState = "connected" | "pending" | "error" | "no_address"
 
 export interface WebhookRead {
   service: ArrService
   /** 0 = instance principale. */
   instance_id: number
   name: string
-  connected: boolean
+  state: WebhookState
+  error: string | null
   url: string | null
 }
 
-export interface RealtimeSettings {
-  debounce_seconds: number
-  torrents_enabled: boolean
-  torrents_interval: number
-  torrents_available: boolean
-  media_server_enabled: boolean
-  media_server_interval: number
-  media_server_available: boolean
+export interface WebhooksRead {
   analysarr_url: string
   webhooks: WebhookRead[]
-  debounce_bounds: [number, number]
-  torrent_interval_bounds: [number, number]
-  media_server_interval_bounds: [number, number]
-}
-
-export interface RealtimeSettingsWrite {
-  debounce_seconds: number
-  torrents_enabled: boolean
-  torrents_interval: number
-  media_server_enabled: boolean
-  media_server_interval: number
-}
-
-export interface WebhookPreview {
-  name: string
-  url: string
-  events: string[]
 }
 
 export type SourceState = "active" | "waiting" | "error"
 
 export interface SourceStatus {
-  /** `webhook:sonarr:0`, `torrents`, `media_server`. */
+  /** `webhook:sonarr:0`, `torrents`, `media_server`, `requests`. */
   key: string
-  kind: "webhook" | "torrents" | "media_server"
+  kind: "webhook" | "torrents" | "media_server" | "requests"
   state: SourceState
   last_event_at: string | null
   last_check_at: string | null
@@ -53,13 +35,9 @@ export interface SourceStatus {
 
 export interface RealtimeStatus {
   active: boolean
+  /** Adresse d'Analysarr connue (sinon le navigateur propose la sienne). */
+  address_set: boolean
   sources: SourceStatus[]
-  reconciliation: {
-    enabled: boolean
-    mode: "interval" | "nightly"
-    interval_minutes: number | null
-    nightly_hour: number
-  }
 }
 
 /** Événements du flux `/api/events/stream`. */

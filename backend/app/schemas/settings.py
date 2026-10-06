@@ -124,7 +124,7 @@ class SettingsWrite(BaseModel):
     seer_url: str | None = None
     seer_api_key: str | None = None
 
-    scan_schedule_enabled: bool = False
+    scan_schedule_enabled: bool = True
     scan_schedule_interval_minutes: int | None = None
     # Absents = inchangés (un client plus ancien ne remet jamais le mode à zéro).
     scan_schedule_mode: ScheduleMode | None = None

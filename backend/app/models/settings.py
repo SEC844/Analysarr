@@ -57,7 +57,9 @@ class Settings(SQLModel, table=True):
     seer_url: str | None = None
     seer_api_key: str | None = None
 
-    scan_schedule_enabled: bool = False
+    # Scan complet planifié : avec le temps réel, un filet de sécurité de
+    # nuit (activé d'office, voir `scan_schedule_mode`).
+    scan_schedule_enabled: bool = True
     scan_schedule_interval_minutes: int | None = None
 
     # Préférences de l'application (Réglages → Application). `language` None =
@@ -101,22 +103,21 @@ class Settings(SQLModel, table=True):
     # Assistant de nettoyage (schemas/cleanup.py::CleanupSettings, JSON validé
     # à la lecture : valeur illisible = préréglage « Équilibré »).
     cleanup_settings: str = "{}"
-    # Temps réel (services/realtime/) : chaque source s'active séparément, tout
-    # est désactivé par défaut. Les webhooks Sonarr/Radarr vivent dans la
-    # table ArrWebhook (un par instance).
-    realtime_debounce_seconds: int = 3
-    realtime_torrents_enabled: bool = False
-    realtime_torrents_interval: int = 3
-    realtime_media_server_enabled: bool = False
-    realtime_media_server_interval: int = 5
-    # Adresse d'Analysarr vue depuis Sonarr/Radarr (webhooks) : Analysarr ne
-    # peut pas deviner comment les autres conteneurs le joignent.
+    # Temps réel (services/realtime/) : la norme, sans réglage — chaque
+    # service configuré est suivi d'office. Les webhooks Sonarr/Radarr vivent
+    # dans la table ArrWebhook (un par instance), créés automatiquement.
+    # Adresse d'Analysarr vue depuis Sonarr/Radarr (webhooks) : détectée depuis
+    # le navigateur à la première visite, modifiable dans Réglages → Application.
     analysarr_url: str = ""
-    # Planification du scan complet : `interval` (historique, toutes les N
-    # minutes) ou `nightly` (une fois par nuit, filet de sécurité du temps
-    # réel) à `scan_nightly_hour` heures, heure du conteneur.
-    scan_schedule_mode: str = "interval"
+    # Planification du scan complet : `nightly` (une fois par nuit à
+    # `scan_nightly_hour` heures, heure du conteneur : vérification du temps
+    # réel) ou `interval` (toutes les N minutes).
+    scan_schedule_mode: str = "nightly"
     scan_nightly_hour: int = 4
+    # Passage au temps réel par défaut appliqué (une fois) à une installation
+    # existante : scan complet ramené à une vérification de nuit. Colonne
+    # `DEFAULT 0` pour l'existant, vrai pour une nouvelle installation.
+    realtime_default_applied: bool = True
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: str | None = None

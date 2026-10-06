@@ -194,14 +194,15 @@ _SETTINGS_NEW_COLUMNS = [
     ("seed_public_min_days", "INTEGER NOT NULL DEFAULT 3"),
     ("seed_tracker_rules", "VARCHAR NOT NULL DEFAULT '[]'"),
     ("cleanup_settings", "VARCHAR NOT NULL DEFAULT '{}'"),
-    ("realtime_debounce_seconds", "INTEGER NOT NULL DEFAULT 3"),
-    ("realtime_torrents_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
-    ("realtime_torrents_interval", "INTEGER NOT NULL DEFAULT 3"),
-    ("realtime_media_server_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
-    ("realtime_media_server_interval", "INTEGER NOT NULL DEFAULT 5"),
     ("analysarr_url", "VARCHAR NOT NULL DEFAULT ''"),
     ("scan_schedule_mode", "VARCHAR NOT NULL DEFAULT 'interval'"),
     ("scan_nightly_hour", "INTEGER NOT NULL DEFAULT 4"),
+    ("realtime_default_applied", "BOOLEAN NOT NULL DEFAULT 0"),
+]
+
+# Webhooks Sonarr/Radarr (configuration, jamais recréée).
+_ARR_WEBHOOK_NEW_COLUMNS = [
+    ("target_signature", "VARCHAR NOT NULL DEFAULT ''"),
 ]
 
 
@@ -269,6 +270,23 @@ def _migrate_legacy_notifications() -> None:
         session.commit()
 
 
+def _apply_realtime_default() -> None:
+    """Le temps réel devient la norme : une installation existante passe,
+    une seule fois, à un scan complet de nuit (vérification du temps réel)
+    au lieu de son ancienne planification."""
+    from app.models.settings import Settings
+
+    with Session(engine) as session:
+        row = session.get(Settings, 1)
+        if row is None or row.realtime_default_applied:
+            return
+        row.scan_schedule_enabled = True
+        row.scan_schedule_mode = "nightly"
+        row.realtime_default_applied = True
+        session.add(row)
+        session.commit()
+
+
 def init_db() -> None:
     from app.models.activity import ActionLog  # noqa: F401
     from app.models.arr_instance import ArrInstance  # noqa: F401
@@ -300,8 +318,10 @@ def init_db() -> None:
     _drop_legacy_trash()
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
     _ensure_columns("user", _USER_NEW_COLUMNS)
+    _ensure_columns("arrwebhook", _ARR_WEBHOOK_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
     _migrate_legacy_notifications()
+    _apply_realtime_default()
 
 
 def _drop_legacy_trash() -> None:

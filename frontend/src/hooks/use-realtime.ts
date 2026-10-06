@@ -1,27 +1,15 @@
+import { useEffect, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import {
-  getRealtimeSettings,
-  getRealtimeStatus,
-  previewWebhook,
-  registerWebhook,
-  saveRealtimeSettings,
-  testWebhook,
-  unregisterWebhook,
-  scheduleNightlyScan,
-} from "@/lib/api"
-import { SETTINGS_QUERY_KEY } from "@/hooks/use-settings"
-import type { RealtimeSettings, RealtimeSettingsWrite } from "@/types/realtime"
+import { getRealtimeStatus, getWebhooks, retryWebhook, saveAnalysarrAddress, testWebhook } from "@/lib/api"
+import { detectedAddress } from "@/lib/realtime"
+import type { WebhooksRead } from "@/types/realtime"
 
 export const REALTIME_QUERY_KEY = ["realtime"] as const
-const SETTINGS_KEY = [...REALTIME_QUERY_KEY, "settings"] as const
-
-export function useRealtimeSettingsQuery() {
-  return useQuery({ queryKey: SETTINGS_KEY, queryFn: getRealtimeSettings })
-}
+const WEBHOOKS_KEY = [...REALTIME_QUERY_KEY, "webhooks"] as const
 
 /** État des sources : relu toutes les 15 s, et aussitôt qu'un événement
- * `realtime.status` arrive par le flux (voir use-live-events). */
+ * `realtime.status` arrive par le flux (voir live-events). */
 export function useRealtimeStatusQuery() {
   return useQuery({
     queryKey: [...REALTIME_QUERY_KEY, "status"],
@@ -30,18 +18,29 @@ export function useRealtimeStatusQuery() {
   })
 }
 
-function useStoreSettings() {
+/** Webhooks Sonarr/Radarr : relus toutes les 5 s tant que l'un d'eux est en
+ * cours de branchement (le superviseur agit dans les secondes qui suivent). */
+export function useWebhooksQuery() {
+  return useQuery({
+    queryKey: WEBHOOKS_KEY,
+    queryFn: getWebhooks,
+    refetchInterval: (query) =>
+      query.state.data?.webhooks.some((w) => w.state === "pending") ? 5_000 : false,
+  })
+}
+
+function useStoreWebhooks() {
   const queryClient = useQueryClient()
-  return (data: RealtimeSettings) => {
-    queryClient.setQueryData(SETTINGS_KEY, data)
+  return (data: WebhooksRead) => {
+    queryClient.setQueryData(WEBHOOKS_KEY, data)
     queryClient.invalidateQueries({ queryKey: [...REALTIME_QUERY_KEY, "status"] })
   }
 }
 
-export function useSaveRealtimeSettingsMutation() {
-  const store = useStoreSettings()
+export function useSaveAddressMutation() {
+  const store = useStoreWebhooks()
   return useMutation({
-    mutationFn: (payload: RealtimeSettingsWrite) => saveRealtimeSettings(payload),
+    mutationFn: ({ url, detected = false }: { url: string; detected?: boolean }) => saveAnalysarrAddress(url, detected),
     onSuccess: store,
   })
 }
@@ -51,18 +50,10 @@ interface WebhookTarget {
   instanceId: number
 }
 
-export function usePreviewWebhookMutation() {
+export function useRetryWebhookMutation() {
+  const store = useStoreWebhooks()
   return useMutation({
-    mutationFn: ({ service, instanceId, url }: WebhookTarget & { url: string }) =>
-      previewWebhook(service, instanceId, url),
-  })
-}
-
-export function useRegisterWebhookMutation() {
-  const store = useStoreSettings()
-  return useMutation({
-    mutationFn: ({ service, instanceId, url }: WebhookTarget & { url: string }) =>
-      registerWebhook(service, instanceId, url),
+    mutationFn: ({ service, instanceId }: WebhookTarget) => retryWebhook(service, instanceId),
     onSuccess: store,
   })
 }
@@ -76,22 +67,17 @@ export function useTestWebhookMutation() {
   })
 }
 
-export function useUnregisterWebhookMutation() {
-  const store = useStoreSettings()
-  return useMutation({
-    mutationFn: ({ service, instanceId }: WebhookTarget) => unregisterWebhook(service, instanceId),
-    onSuccess: store,
-  })
-}
-
-export function useNightlyScanMutation() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (hour: number) => scheduleNightlyScan(hour),
-    onSuccess: (status) => {
-      queryClient.setQueryData([...REALTIME_QUERY_KEY, "status"], status)
-      // La planification affichée dans Réglages → Planification a changé.
-      queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY })
-    },
-  })
+/** Première visite : l'adresse d'Analysarr (pour les webhooks) n'est pas
+ * encore connue — celle de ce navigateur est proposée, une seule fois. Le
+ * serveur ne remplace jamais une adresse déjà enregistrée. */
+export function useDetectAnalysarrAddress() {
+  const { data } = useRealtimeStatusQuery()
+  const save = useSaveAddressMutation()
+  const sent = useRef(false)
+  const { mutate } = save
+  useEffect(() => {
+    if (!data || data.address_set || sent.current) return
+    sent.current = true
+    mutate({ url: detectedAddress(window.location), detected: true })
+  }, [data, mutate])
 }

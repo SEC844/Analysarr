@@ -16,7 +16,7 @@ import type { DiagnosticsResult } from "@/types/diagnostics"
 import type { Forecast } from "@/types/forecast"
 import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
 import type { SeedProtection, SeedProtectionWrite } from "@/types/seed"
-import type { RealtimeSettings, RealtimeSettingsWrite, RealtimeStatus, WebhookPreview } from "@/types/realtime"
+import type { RealtimeStatus, WebhooksRead } from "@/types/realtime"
 import type {
   CleanupCandidateDetail,
   CleanupCandidatesPage,
@@ -351,47 +351,37 @@ export function saveCleanupSettings(settings: CleanupSettings): Promise<CleanupS
   return request<CleanupSettingsRead>("/api/cleanup/settings", { method: "PUT", body: JSON.stringify(settings) })
 }
 
-export function getRealtimeSettings(): Promise<RealtimeSettings> {
-  return request<RealtimeSettings>("/api/realtime/settings")
-}
-
-export function saveRealtimeSettings(payload: RealtimeSettingsWrite): Promise<RealtimeSettings> {
-  return request<RealtimeSettings>("/api/realtime/settings", { method: "PUT", body: JSON.stringify(payload) })
-}
-
 export function getRealtimeStatus(): Promise<RealtimeStatus> {
   return request<RealtimeStatus>("/api/realtime/status")
 }
 
-/** Scan complet une fois par nuit : le filet de sécurité du temps réel. */
-export function scheduleNightlyScan(hour: number): Promise<RealtimeStatus> {
-  return request<RealtimeStatus>("/api/realtime/nightly-scan", { method: "POST", body: JSON.stringify({ hour }) })
+export function getWebhooks(): Promise<WebhooksRead> {
+  return request<WebhooksRead>("/api/realtime/webhooks")
+}
+
+// `detected` : adresse proposée par le navigateur, jamais enregistrée par-dessus
+// une adresse déjà connue.
+export function saveAnalysarrAddress(url: string, detected = false): Promise<WebhooksRead> {
+  return request<WebhooksRead>("/api/realtime/address", {
+    method: "PUT",
+    body: JSON.stringify({ analysarr_url: url, detected }),
+  })
 }
 
 function webhookPath(service: string, instanceId: number): string {
   return `/api/realtime/webhooks/${encodeURIComponent(service)}/${instanceId}`
 }
 
-export function previewWebhook(service: string, instanceId: number, analysarrUrl: string): Promise<WebhookPreview> {
-  return request<WebhookPreview>(`${webhookPath(service, instanceId)}/preview`, {
-    method: "POST",
-    body: JSON.stringify({ analysarr_url: analysarrUrl }),
-  })
-}
-
-export function registerWebhook(service: string, instanceId: number, analysarrUrl: string): Promise<RealtimeSettings> {
-  return request<RealtimeSettings>(webhookPath(service, instanceId), {
-    method: "POST",
-    body: JSON.stringify({ analysarr_url: analysarrUrl }),
-  })
+export function retryWebhook(service: string, instanceId: number): Promise<WebhooksRead> {
+  return request<WebhooksRead>(webhookPath(service, instanceId), { method: "POST" })
 }
 
 export function testWebhook(service: string, instanceId: number): Promise<void> {
   return request<void>(`${webhookPath(service, instanceId)}/test`, { method: "POST" })
 }
 
-export function unregisterWebhook(service: string, instanceId: number): Promise<RealtimeSettings> {
-  return request<RealtimeSettings>(webhookPath(service, instanceId), { method: "DELETE" })
+export function unregisterWebhook(service: string, instanceId: number): Promise<void> {
+  return request<void>(webhookPath(service, instanceId), { method: "DELETE" })
 }
 
 export function getSeedProtection(): Promise<SeedProtection> {

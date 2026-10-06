@@ -1,6 +1,7 @@
-"""Temps réel (roadmap Phase 3) : file d'événements, verrou partagé avec les
-scans, webhooks Sonarr/Radarr (branchement et réception), guetteurs du client
-torrent et du serveur multimédia, superviseur, planification de nuit."""
+"""Temps réel (la norme, sans réglage) : file d'événements, verrou partagé
+avec les scans, webhooks Sonarr/Radarr (branchement automatique et
+réception), guetteurs du client torrent, du serveur multimédia (dont les
+suppressions) et du gestionnaire de demandes, superviseur, scan de nuit."""
 
 import asyncio
 import base64
@@ -21,11 +22,14 @@ from app.models.media import Media, MediaType, Torrent
 from app.services import scan as scan_package
 from app.services.events import RESYNC_EVENT, EventBroadcaster, live_events
 from app.services.realtime import hub as hub_module
+from app.services.realtime import supervisor as supervisor_module
 from app.services.realtime import webhooks
 from app.services.realtime.hub import RealtimeHub
 from app.services.realtime.status import StatusBoard, board
+from app.services.realtime.supervisor import RealtimeSupervisor
 from app.services.realtime.watchers import (
     MediaServerWatcher,
+    RequestsWatcher,
     SeenItems,
     TorrentChanges,
     TorrentWatcher,
@@ -293,19 +297,37 @@ def sonarr_server(calls: list[tuple[str, str, object]], *, existing=(), refuse=F
     return handler
 
 
-def _register(admin_client, url="http://analysarr:1818"):
-    return admin_client.post("/api/realtime/webhooks/sonarr/0", json={"analysarr_url": url})
+def reconcile(sup: RealtimeSupervisor | None = None, *, retry: bool = True) -> RealtimeSupervisor:
+    """Une passe du superviseur sur les webhooks (sans démarrer les guetteurs)."""
+    sup = sup or RealtimeSupervisor(RealtimeHub(), board)
+    sup.running = True
+    asyncio.run(sup._reconcile_webhooks(supervisor_module._load(), retry=retry))
+    return sup
 
 
-def test_a_webhook_is_created_from_the_service_template(admin_client, settings, fake_http):
+def _connect(admin_client, url="http://analysarr:1818", sup: RealtimeSupervisor | None = None) -> dict:
+    assert admin_client.put("/api/realtime/address", json={"analysarr_url": url}).status_code == 200
+    reconcile(sup)
+    return {w["service"]: w for w in admin_client.get("/api/realtime/webhooks").json()["webhooks"]}
+
+
+@pytest.fixture(autouse=True)
+def fresh_board():
+    board.clear()
+    yield
+    board.clear()
+
+
+def test_every_instance_gets_its_webhook_automatically(admin_client, settings, fake_http):
     calls: list = []
     fake_http["http://sonarr"] = sonarr_server(calls)
 
-    response = _register(admin_client)
+    hooks = _connect(admin_client)
 
-    assert response.status_code == 200, response.text
-    [hook] = [w for w in response.json()["webhooks"] if w["service"] == "sonarr"]
-    assert hook["connected"] and hook["url"] == "http://analysarr:1818/api/webhooks/sonarr/0"
+    assert hooks["sonarr"]["state"] == "connected"
+    assert hooks["sonarr"]["url"] == "http://analysarr:1818/api/webhooks/sonarr/0"
+    # Radarr injoignable dans ce test : en erreur, avec la raison.
+    assert hooks["radarr"]["state"] == "error" and hooks["radarr"]["error"].startswith("Radarr injoignable")
     [(_, _, body)] = [c for c in calls if c[0] == "POST" and c[1] == "/api/v3/notification"]
     fields = {f["name"]: f["value"] for f in body["fields"]}
     assert fields["url"] == "http://analysarr:1818/api/webhooks/sonarr/0" and fields["username"] == "analysarr"
@@ -314,9 +336,9 @@ def test_a_webhook_is_created_from_the_service_template(admin_client, settings, 
     with Session(engine) as db:
         row = db.exec(select(ArrWebhook)).one()
         assert (row.notification_id, row.pending_secret_hash) == (42, None)
+        assert row.target_signature == webhooks.target_signature(webhooks.wanted_webhooks(db, settings)[0].target)
         assert fields["password"] not in (row.secret_hash, row.url)  # seule l'empreinte est gardée
         assert webhooks.secret_matches(row, fields["password"])
-        assert db.get(type(settings), 1).analysarr_url == "http://analysarr:1818"
 
 
 def test_an_existing_analysarr_webhook_is_reused_never_duplicated(admin_client, settings, fake_http):
@@ -330,47 +352,113 @@ def test_an_existing_analysarr_webhook_is_reused_never_duplicated(admin_client, 
     ]
     fake_http["http://sonarr"] = sonarr_server(calls, existing=existing)
 
-    assert _register(admin_client).status_code == 200
+    assert _connect(admin_client)["sonarr"]["state"] == "connected"
 
     assert [c[:2] for c in calls if c[0] in ("POST", "PUT")] == [("PUT", "/api/v3/notification/42")]
 
 
-def test_a_refused_creation_leaves_nothing_behind(admin_client, settings, fake_http):
+def test_a_refused_creation_leaves_nothing_behind_and_says_why(admin_client, settings, fake_http):
     fake_http["http://sonarr"] = sonarr_server([], refuse=True)
 
-    response = _register(admin_client)
+    hook = _connect(admin_client)["sonarr"]
 
-    assert response.status_code == 502
-    assert "Unable to send test message" in response.json()["detail"]
+    assert hook["state"] == "error" and hook["error"].startswith("Sonarr a refusé le webhook")
+    assert "Unable to send test message" in hook["error"]
     with Session(engine) as db:
         assert db.exec(select(ArrWebhook)).all() == []
 
 
-def test_a_failed_reconnection_keeps_the_working_secret(admin_client, settings, fake_http):
-    fake_http["http://sonarr"] = sonarr_server([])
-    _register(admin_client)
+def test_a_failed_attempt_waits_before_trying_again_unless_asked(admin_client, settings, fake_http):
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls, refuse=True)
+    sup = RealtimeSupervisor(RealtimeHub(), board)
+    _connect(admin_client, sup=sup)
+    attempts = len([c for c in calls if c[0] == "POST"])
+
+    reconcile(sup, retry=False)
+    assert len([c for c in calls if c[0] == "POST"]) == attempts  # pas avant le délai
+
+    reconcile(sup, retry=True)
+    assert len([c for c in calls if c[0] == "POST"]) == attempts + 1
+
+
+def test_a_new_address_updates_the_webhook_and_a_refusal_keeps_the_working_secret(admin_client, settings, fake_http):
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    _connect(admin_client)
     with Session(engine) as db:
         working = db.exec(select(ArrWebhook)).one().secret_hash
 
-    fake_http["http://sonarr"] = sonarr_server([], refuse=True)
-    assert _register(admin_client).status_code == 502
-
+    fake_http["http://sonarr"] = sonarr_server(calls, refuse=True)
+    assert _connect(admin_client, "http://analysarr.lan:1818")["sonarr"]["state"] == "error"
     with Session(engine) as db:
         row = db.exec(select(ArrWebhook)).one()
         assert (row.secret_hash, row.pending_secret_hash) == (working, None)
+
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    assert _connect(admin_client, "http://analysarr.lan:1818")["sonarr"]["state"] == "connected"
+    # Mise à jour du webhook existant chez Sonarr, jamais un second.
+    assert ("PUT", "/api/v3/notification/42") in [c[:2] for c in calls]
+
+
+def test_a_moved_instance_gets_a_new_webhook(admin_client, session, settings, fake_http):
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    _connect(admin_client)
+    moved: list = []
+    fake_http["http://sonarr2"] = sonarr_server(moved)
+    settings.sonarr_url = "http://sonarr2"
+    session.add(settings)
+    session.commit()
+
+    reconcile()
+
+    # L'ancienne notification (id 42) vivait sur l'autre adresse : création.
+    assert [c[:2] for c in moved if c[0] in ("POST", "PUT")] == [("POST", "/api/v3/notification")]
 
 
 @pytest.mark.parametrize(
     "url", ["ftp://analysarr", "analysarr:1818", "http://user:pass@analysarr", "http://analysarr/?token=1"]
 )
 def test_an_invalid_analysarr_address_is_refused(admin_client, settings, url):
-    assert _register(admin_client, url).status_code == 422
+    assert admin_client.put("/api/realtime/address", json={"analysarr_url": url}).status_code == 422
+
+
+def test_a_detected_address_never_overwrites_a_saved_one(admin_client, settings):
+    put = admin_client.put
+    assert put("/api/realtime/address", json={"analysarr_url": "http://a:1818", "detected": True}).status_code == 200
+    put("/api/realtime/address", json={"analysarr_url": "http://b:1818", "detected": True})
+    assert admin_client.get("/api/realtime/webhooks").json()["analysarr_url"] == "http://a:1818"
+    put("/api/realtime/address", json={"analysarr_url": "http://c:1818"})
+    assert admin_client.get("/api/realtime/webhooks").json()["analysarr_url"] == "http://c:1818"
+
+
+def test_without_an_address_nothing_is_attempted(admin_client, settings, fake_http):
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+
+    reconcile()
+
+    hooks = {w["service"]: w for w in admin_client.get("/api/realtime/webhooks").json()["webhooks"]}
+    assert hooks["sonarr"]["state"] == "no_address" and calls == []
+    assert admin_client.post("/api/realtime/webhooks/sonarr/0").status_code == 409
+    assert admin_client.get("/api/realtime/status").json()["address_set"] is False
+
+
+def test_a_removed_instance_loses_its_row(session, settings):
+    session.add(ArrWebhook(service="sonarr", instance_id=7, notification_id=3, secret_hash="x", url="u"))
+    session.commit()
+
+    reconcile()
+
+    with Session(engine) as db:
+        assert db.exec(select(ArrWebhook)).all() == []
 
 
 def test_the_test_button_asks_sonarr_to_call_back(admin_client, settings, fake_http):
     calls: list = []
     fake_http["http://sonarr"] = sonarr_server(calls)
-    _register(admin_client)
+    _connect(admin_client)
 
     response = admin_client.post("/api/realtime/webhooks/sonarr/0/test")
 
@@ -380,22 +468,23 @@ def test_the_test_button_asks_sonarr_to_call_back(admin_client, settings, fake_h
     assert body["fields"][0]["value"] == "********"
 
 
-def test_disconnecting_removes_the_webhook_on_both_sides(admin_client, settings, fake_http):
+def test_removing_an_instance_removes_its_webhook_on_both_sides(admin_client, settings, fake_http):
     calls: list = []
     fake_http["http://sonarr"] = sonarr_server(calls)
-    _register(admin_client)
+    _connect(admin_client)
 
     response = admin_client.delete("/api/realtime/webhooks/sonarr/0")
 
-    assert response.status_code == 200
+    assert response.status_code == 204
     assert ("DELETE", "/api/v3/notification/42", None) in calls
     with Session(engine) as db:
         assert db.exec(select(ArrWebhook)).all() == []
+    assert admin_client.delete("/api/realtime/webhooks/sonarr/0").status_code == 204  # déjà parti : sans effet
 
 
 def test_an_unreachable_service_keeps_the_webhook_listed(admin_client, settings, fake_http):
     fake_http["http://sonarr"] = sonarr_server([])
-    _register(admin_client)
+    _connect(admin_client)
     del fake_http["http://sonarr"]
 
     assert admin_client.delete("/api/realtime/webhooks/sonarr/0").status_code == 502
@@ -757,47 +846,23 @@ def test_a_mass_change_becomes_one_library_analysis(session, settings, fake_http
 # --- Superviseur, réglages, planification ------------------------------------------------
 
 
-def test_realtime_settings_are_validated_and_saved(admin_client, settings):
-    body = admin_client.get("/api/realtime/settings").json()
-    assert (body["torrents_enabled"], body["media_server_enabled"], body["debounce_seconds"]) == (False, False, 3)
-    assert body["torrents_available"] and body["media_server_available"]
-
-    payload = {
-        "debounce_seconds": 5,
-        "torrents_enabled": True,
-        "torrents_interval": 3,
-        "media_server_enabled": True,
-        "media_server_interval": 10,
-    }
-    saved = admin_client.put("/api/realtime/settings", json=payload).json()
-    assert (saved["torrents_enabled"], saved["media_server_interval"]) == (True, 10)
-    for invalid in ({"debounce_seconds": 0}, {"torrents_interval": 1}, {"media_server_interval": 9999}):
-        assert admin_client.put("/api/realtime/settings", json=payload | invalid).status_code == 422
-
-
-def test_the_status_reports_sources_and_the_reconciliation_scan(admin_client, settings, hooked):
+def test_the_status_reports_the_sources(admin_client, settings, hooked):
     status = admin_client.get("/api/realtime/status").json()
 
-    assert status["active"] is True
+    assert status["active"] is True and status["address_set"] is False
     assert [s["key"] for s in status["sources"]] == ["webhook:sonarr:0"]
-    assert status["reconciliation"] == {
-        "enabled": False,
-        "mode": "interval",
-        "interval_minutes": None,
-        "nightly_hour": 4,
-    }
 
 
-def test_the_supervisor_starts_restarts_and_stops_watchers(session, settings, monkeypatch):
+def test_the_supervisor_follows_every_configured_service(session, settings, monkeypatch):
+    """Aucun réglage : chaque service configuré est suivi ; un guetteur ne
+    redémarre que si SA configuration change."""
     started = []
 
     async def fake_run(self):
-        started.append((self.key, self.interval))
+        started.append(self.key)
         await asyncio.sleep(3600)
 
     monkeypatch.setattr("app.services.realtime.watchers.Watcher.run", fake_run)
-    from app.services.realtime.supervisor import RealtimeSupervisor
-
     supervisor = RealtimeSupervisor(RecordingHub(), StatusBoard())
 
     def configure(**fields):
@@ -811,23 +876,58 @@ def test_the_supervisor_starts_restarts_and_stops_watchers(session, settings, mo
     async def run():
         await supervisor.apply()  # pas démarré : rien
         assert supervisor.active_keys() == []
-        configure(realtime_torrents_enabled=True)
         await supervisor.start()
         await asyncio.sleep(0)
-        assert supervisor.active_keys() == ["torrents"]
+        assert supervisor.active_keys() == ["media_server", "torrents"]
         await supervisor.apply()  # rien de changé : pas de redémarrage
-        configure(realtime_torrents_interval=7, realtime_media_server_enabled=True)
+        configure(seer_enabled=True, seer_url="http://seer", seer_api_key="k")
         await supervisor.apply()
         await asyncio.sleep(0)
-        assert supervisor.active_keys() == ["media_server", "torrents"]
-        configure(realtime_torrents_enabled=False)
+        assert supervisor.active_keys() == ["media_server", "requests", "torrents"]
+        configure(qbittorrent_url="http://qbit2")
         await supervisor.apply()
-        assert supervisor.active_keys() == ["media_server"]
+        await asyncio.sleep(0)
+        configure(qbittorrent_url=None)
+        await supervisor.apply()
+        assert supervisor.active_keys() == ["media_server", "requests"]
         await supervisor.stop()
         assert supervisor.active_keys() == []
 
     asyncio.run(run())
-    assert started == [("torrents", 3.0), ("torrents", 7.0), ("media_server", 5.0)]
+    assert sorted(started) == ["media_server", "requests", "torrents", "torrents"]
+
+
+def test_a_new_install_scans_once_a_night(session):
+    from app.models.settings import Settings
+
+    fresh = Settings(id=1)
+    assert (fresh.scan_schedule_enabled, fresh.scan_schedule_mode, fresh.scan_nightly_hour) == (True, "nightly", 4)
+
+
+def test_an_existing_install_switches_once_to_the_nightly_check(session, settings):
+    from app.database import _apply_realtime_default
+
+    settings.realtime_default_applied = False
+    settings.scan_schedule_enabled = False
+    settings.scan_schedule_mode = "interval"
+    session.add(settings)
+    session.commit()
+
+    _apply_realtime_default()
+    session.refresh(settings)
+    assert (settings.scan_schedule_enabled, settings.scan_schedule_mode, settings.realtime_default_applied) == (
+        True,
+        "nightly",
+        True,
+    )
+
+    # Une fois seulement : un choix fait ensuite par l'utilisateur est gardé.
+    settings.scan_schedule_mode = "interval"
+    session.add(settings)
+    session.commit()
+    _apply_realtime_default()
+    session.refresh(settings)
+    assert settings.scan_schedule_mode == "interval"
 
 
 def test_the_nightly_schedule_is_a_cron_job(settings):
@@ -897,37 +997,16 @@ def test_the_status_is_neutral_before_configuration(admin_client):
     assert (status["active"], status["sources"]) == (False, [])
 
 
-def test_the_nightly_scan_is_offered_never_imposed(admin_client, settings):
-    try:
-        status = admin_client.post("/api/realtime/nightly-scan", json={"hour": 5}).json()
-        assert status["reconciliation"] == {
-            "enabled": True,
-            "mode": "nightly",
-            "interval_minutes": None,
-            "nightly_hour": 5,
-        }
-        assert "hour='5'" in str(scheduler.get_job("periodic_scan").trigger)
-        assert admin_client.post("/api/realtime/nightly-scan", json={"hour": 24}).status_code == 422
-    finally:
-        if scheduler.get_job("periodic_scan") is not None:
-            scheduler.remove_job("periodic_scan")
-
-
 def test_end_to_end_a_finished_torrent_reaches_the_browser_within_seconds(session, settings, fake_http, monkeypatch):
     """Chaîne complète, sans rien simuler entre les maillons : superviseur,
     guetteur qBittorrent (vrai `sync/maindata`), correspondance, file,
     analyse du média, événement envoyé au navigateur."""
-    from app.services.realtime.supervisor import RealtimeSupervisor
-
     media = Media(media_type=MediaType.movie, title="Film")
     session.add(media)
     session.commit()
     session.add(Torrent(media_id=media.id, hash="ABC", name="Film"))
-    settings.realtime_torrents_enabled = True
-    settings.realtime_torrents_interval = 2
-    settings.realtime_debounce_seconds = 1
-    session.add(settings)
     session.commit()
+    monkeypatch.setattr(supervisor_module, "TORRENT_INTERVAL", 2.0)
 
     finished = {"done": False}
 
@@ -951,6 +1030,7 @@ def test_end_to_end_a_finished_torrent_reaches_the_browser_within_seconds(sessio
     async def run():
         queue = live_events.subscribe()
         hub = RealtimeHub()
+        hub.debounce = 1.0
         supervisor = RealtimeSupervisor(hub, StatusBoard())
         await supervisor.start()
         try:
@@ -972,3 +1052,90 @@ def test_end_to_end_a_finished_torrent_reaches_the_browser_within_seconds(sessio
     assert rescanned == [media.id]
     # Intervalle de lecture (2 s) + regroupement (1 s), avec de la marge.
     assert elapsed < 5, f"{elapsed:.1f} s"
+
+
+# --- Suppressions sur le serveur multimédia, demandes -----------------------------------
+
+
+def counting_server(counts: list[tuple[int, int, int]], *, status: int = 200):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/Items/Counts":
+            if status != 200:
+                return httpx.Response(status)
+            movies, series, episodes = counts.pop(0) if len(counts) > 1 else counts[0]
+            return httpx.Response(200, json={"MovieCount": movies, "SeriesCount": series, "EpisodeCount": episodes})
+        return httpx.Response(200, json={"Items": []})
+
+    return handler
+
+
+@pytest.mark.parametrize("kind", ["emby", "jellyfin"])
+def test_a_removal_from_the_media_server_is_seen_through_its_counts(settings, fake_http, monkeypatch, kind):
+    fake_http[f"http://{kind}"] = counting_server([(10, 5, 100), (10, 5, 100), (11, 5, 100), (11, 5, 99)])
+    received = []
+    hub = RealtimeHub()
+    monkeypatch.setattr(hub, "service_changed", received.append)
+    watcher = MediaServerWatcher(settings, 1, hub, StatusBoard())
+    emby = EmbyClient(f"http://{kind}", "k", kind)
+
+    async def run():
+        for _ in range(4):
+            await watcher.poll_counts(emby)
+
+    asyncio.run(run())
+
+    # Référence, inchangé, ajout (vu ailleurs), un épisode en moins : une analyse.
+    assert received == ["media_server"]
+
+
+def test_a_server_without_counts_is_simply_not_watched_for_removals(settings, fake_http, monkeypatch):
+    fake_http["http://emby"] = counting_server([(1, 1, 1)], status=404)
+    received = []
+    hub = RealtimeHub()
+    monkeypatch.setattr(hub, "service_changed", received.append)
+    watcher = MediaServerWatcher(settings, 1, hub, StatusBoard())
+
+    asyncio.run(watcher.poll_counts(EmbyClient("http://emby", "k")))
+
+    assert watcher.counts_supported is False and received == []
+
+
+def test_a_request_change_asks_for_a_requests_analysis(session, settings, fake_http, monkeypatch):
+    settings.seer_enabled, settings.seer_url, settings.seer_api_key = True, "http://seer", "k"
+    session.add(settings)
+    session.commit()
+    pages = [
+        {"pageInfo": {"results": 2}, "results": [{"id": 1, "updatedAt": "a", "status": 2}]},
+        {"pageInfo": {"results": 2}, "results": [{"id": 1, "updatedAt": "a", "status": 2}]},
+        {"pageInfo": {"results": 2}, "results": [{"id": 1, "updatedAt": "b", "status": 3}]},
+    ]
+    seen: list[httpx.Request] = []
+
+    def seer(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=pages.pop(0) if len(pages) > 1 else pages[0])
+
+    fake_http["http://seer"] = seer
+    received = []
+    hub = RealtimeHub()
+    monkeypatch.setattr(hub, "service_changed", received.append)
+    watcher = RequestsWatcher(settings, 0, hub, StatusBoard())
+
+    async def run():
+        task = asyncio.create_task(watcher.session())
+        while len(seen) < 3:
+            await asyncio.sleep(0.01)
+        task.cancel()
+
+    asyncio.run(run())
+
+    assert received == ["seer"]
+    assert seen[0].url.params["sort"] == "modified" and seen[0].url.params["take"] == "20"
+
+
+def test_ombi_is_watched_through_its_totals(fake_http):
+    from app.clients.ombi import OmbiClient
+
+    fake_http["http://ombi"] = lambda request: httpx.Response(200, json=3 if "movie" in request.url.path else 5)
+
+    assert asyncio.run(OmbiClient("http://ombi", "k").requests_fingerprint()) == (3, 5)

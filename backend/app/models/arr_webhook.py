@@ -36,4 +36,7 @@ class ArrWebhook(SQLModel, table=True):
     pending_secret_hash: str | None = None
     # Adresse donnée à Sonarr/Radarr (sans le secret).
     url: str
+    # Empreinte de l'adresse de l'instance au moment du branchement : une
+    # instance déplacée (autre adresse) n'a plus ce webhook, il est recréé.
+    target_signature: str = ""
     created_at: datetime = Field(default_factory=_utcnow)

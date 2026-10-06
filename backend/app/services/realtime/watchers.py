@@ -1,5 +1,6 @@
-"""Guetteurs du temps réel : client torrent et serveur multimédia, interrogés
-toutes les quelques secondes par leur voie la moins coûteuse.
+"""Guetteurs du temps réel : client torrent, serveur multimédia et
+gestionnaire de demandes, interrogés toutes les quelques secondes par leur
+voie la moins coûteuse.
 
 Base commune (`Watcher`) : boucle d'interrogation, état publié dans le
 tableau des sources (`status.board`), backoff exponentiel en cas d'erreur
@@ -33,12 +34,18 @@ from app.models.settings import Settings
 from app.services.realtime.hub import RealtimeHub
 from app.services.realtime.status import StatusBoard
 from app.services.realtime.targets import media_for_hashes, media_for_items
+from app.services.seer import seer_client
 from app.services.watch_stats import excluded_user_ids
 
 logger = logging.getLogger(__name__)
 
 MASS_THRESHOLD = 50
 MAX_BACKOFF = 300.0
+# Intervalles d'interrogation, sans réglage : assez courts pour voir un
+# changement en quelques secondes, assez longs pour ne rien coûter.
+TORRENT_INTERVAL = 3.0
+MEDIA_SERVER_INTERVAL = 5.0
+REQUESTS_INTERVAL = 15.0
 # Erreurs d'une source, jamais fatales : la boucle réessaie plus tard.
 SOURCE_ERRORS = (httpx.HTTPError, TorrentAuthError, RuntimeError, ValueError, KeyError, TypeError)
 
@@ -199,6 +206,8 @@ class MediaServerWatcher(Watcher):
     def __init__(self, settings: Settings, interval: float, hub: RealtimeHub, board: StatusBoard) -> None:
         super().__init__(settings, interval, hub, board)
         self.seen = SeenItems(OVERLAP.total_seconds())
+        self.counts: tuple[int, int, int] | None = None
+        self.counts_supported = True
 
     async def session(self) -> None:
         emby = media_server_client(self.settings)
@@ -206,8 +215,10 @@ class MediaServerWatcher(Watcher):
             raise RuntimeError("Serveur multimédia non configuré.")
         since = datetime.now(UTC) - OVERLAP
         tick = 0
+        self.counts = None
         while True:
             started = datetime.now(UTC)
+            await self.poll_counts(emby)
             await self.poll_library(emby, since)
             if tick % WATCH_EVERY == 0:
                 await self.poll_watch(emby, since)
@@ -216,6 +227,27 @@ class MediaServerWatcher(Watcher):
             since = started - OVERLAP
             tick += 1
             await asyncio.sleep(self.interval)
+
+    async def poll_counts(self, emby: EmbyClient) -> None:
+        """Suppression : un élément RETIRÉ n'apparaît dans aucune lecture
+        « changé depuis ». Les compteurs de la bibliothèque le trahissent ;
+        une baisse demande une analyse du serveur multimédia (qui retire le
+        fichier, ou le média s'il n'est plus nulle part). Serveur sans
+        compteurs : on s'en passe, le scan de nuit rattrape."""
+        if not self.counts_supported:
+            return
+        try:
+            counts = await emby.get_item_counts()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in (400, 404):
+                raise
+            logger.info("Compteurs de bibliothèque indisponibles : suppressions vues au scan de nuit")
+            self.counts_supported = False
+            return
+        if self.counts is not None and any(now < before for now, before in zip(counts, self.counts, strict=True)):
+            self.board.event(self.key)
+            self.hub.service_changed("media_server")
+        self.counts = counts
 
     async def poll_library(self, emby: EmbyClient, since: datetime) -> None:
         items = await emby.get_changed_items(since, PAGE_LIMIT)
@@ -254,3 +286,30 @@ class MediaServerWatcher(Watcher):
             # Nouvel élément dans la bibliothèque : l'analyse du serveur
             # multimédia le rattache (ou en fait un média non suivi).
             self.hub.service_changed("media_server")
+
+
+# --- Gestionnaire de demandes ------------------------------------------------------
+
+
+class RequestsWatcher(Watcher):
+    """Seer (Overseerr, Jellyseerr) ou Ombi : une empreinte légère des
+    demandes (voir `requests_fingerprint` de chaque client) ; au moindre
+    changement, une analyse des demandes. Lecture seule, comme toujours : rien
+    n'est configuré chez eux (leur unique webhook appartient à l'utilisateur)."""
+
+    key = "requests"
+    kind = "requests"
+
+    async def session(self) -> None:
+        client = seer_client(self.settings)
+        if client is None:
+            raise RuntimeError("Gestionnaire de demandes non configuré.")
+        previous: tuple[Any, ...] | None = None
+        while True:
+            current = await client.requests_fingerprint()
+            self.board.checked(self.key)
+            if previous is not None and current != previous:
+                self.board.event(self.key)
+                self.hub.service_changed("seer")
+            previous = current
+            await asyncio.sleep(self.interval)

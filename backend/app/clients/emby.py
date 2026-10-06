@@ -121,6 +121,19 @@ class EmbyClient:
             resp.raise_for_status()
             return _without_collections(resp.json().get("Items", []))
 
+    async def get_item_counts(self) -> tuple[int, int, int]:
+        """(films, séries, épisodes) de toute la bibliothèque (`/Items/Counts`,
+        présent sur Emby comme sur Jellyfin) : la seule façon peu coûteuse de
+        voir une SUPPRESSION, qu'aucune lecture « changé depuis » ne montre."""
+        async with self._client() as client:
+            resp = await client.get("/Items/Counts")
+            resp.raise_for_status()
+            data = resp.json()
+        counts = tuple(data.get(key) for key in ("MovieCount", "SeriesCount", "EpisodeCount"))
+        if not all(isinstance(value, int) and value >= 0 for value in counts):
+            raise ValueError("Compteurs de la bibliothèque illisibles")
+        return counts[0], counts[1], counts[2]
+
     async def get_user_changed_items(self, user_id: str, since: datetime, limit: int) -> list[dict[str, Any]]:
         """Films et épisodes dont l'état de lecture de CET utilisateur a changé
         depuis `since` (`MinDateLastSavedForUser`) : lecture, vu, favori."""

@@ -1,12 +1,14 @@
 import { useState } from "react"
 import { Loader2, RefreshCw, XCircle } from "lucide-react"
 import { useSearchParams } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { AccountSection } from "@/components/settings/account-card"
 import { ActionHistory } from "@/components/settings/action-history"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
+import { ArrWebhooksCard } from "@/components/realtime/arr-webhooks-card"
 import { ArrInstancesCard } from "@/components/settings/arr-instances-card"
 import { AutomationsSection } from "@/components/settings/automations-section"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
@@ -19,7 +21,6 @@ import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { IgnoredSection } from "@/components/settings/ignored-section"
 import { SeedProtectionSection } from "@/components/settings/seed-protection-section"
-import { RealtimeSection } from "@/components/realtime/realtime-section"
 import { TrashSection } from "@/components/settings/trash-section"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
@@ -30,11 +31,14 @@ import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useAutomationGuardQuery } from "@/hooks/use-automations"
+import { REALTIME_QUERY_KEY } from "@/hooks/use-realtime"
 import { useRefreshServicesStatusMutation, useServicesStatusQuery } from "@/hooks/use-services"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n, type MediaServer, type MessageKey } from "@/i18n"
+import { unregisterWebhook } from "@/lib/api"
 import { formatRelativeTime } from "@/lib/format"
 import { summarizeServices, type SectionServiceStatus } from "@/lib/services"
+import { removedInstances } from "@/lib/settings-instances"
 import { cn } from "@/lib/utils"
 import { TORRENT_CLIENT_NAMES, settingsReadToForm, type SettingsRead } from "@/types/settings"
 
@@ -56,7 +60,6 @@ const SECTION_GROUPS = [
     sections: [
       { id: "paths", label: "settings.sections.paths" },
       { id: "schedule", label: "settings.sections.schedule" },
-      { id: "realtime", label: "settings.sections.realtime" },
       { id: "notifications", label: "settings.sections.notifications" },
       { id: "automations", label: "settings.sections.automations" },
       { id: "seed-protection", label: "settings.sections.seedProtection" },
@@ -80,7 +83,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "seed-protection", "realtime", "widget", "history", "account", "trash", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "seed-protection", "widget", "history", "account", "trash", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -133,6 +136,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
   const setSection = (id: SectionId) => setSearchParams({ section: id }, { replace: true })
 
   const [form, setForm] = useState(() => settingsReadToForm(existing))
+  const queryClient = useQueryClient()
   const saveSettings = useSaveSettingsMutation()
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
@@ -149,9 +153,20 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
   }
 
   async function handleSave() {
+    // Instance retirée : son webhook disparaît aussi chez elle, avant que ses
+    // paramètres ne soient oubliés (sinon il y resterait, en échec).
+    for (const { service, instanceId, name } of removedInstances(existing, form)) {
+      try {
+        await unregisterWebhook(service, instanceId)
+      } catch (err) {
+        toast.warning(t("realtime.webhooks.unregisterFailed", { name, error: err instanceof Error ? err.message : "" }))
+      }
+    }
     try {
       await saveSettings.mutateAsync(form)
       toast.success(t("settings.saved"))
+      // Le superviseur branche les nouvelles instances dans les secondes qui suivent.
+      queryClient.invalidateQueries({ queryKey: REALTIME_QUERY_KEY })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.saveFailed"))
     }
@@ -257,6 +272,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
               onChange={(v) => set("arr_instances", v)}
             />
           )}
+          {(section === "sonarr" || section === "radarr") && <ArrWebhooksCard service={section} />}
 
           {section === "emby" && existing.emby.api_key_set && (
             <EmbyUsersCard
@@ -342,7 +358,6 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
 
           {section === "ignored" && <IgnoredSection />}
           {section === "seed-protection" && <SeedProtectionSection />}
-          {section === "realtime" && <RealtimeSection />}
 
           {section === "widget" && <WidgetSection />}
 

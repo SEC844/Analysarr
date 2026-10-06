@@ -1,58 +1,55 @@
 import { describe, expect, it } from "vitest"
 
-import { defaultAnalysarrUrl, realtimeSummary, sourceLabel, suggestsNightlyScan } from "@/lib/realtime"
+import { detectedAddress, failingSource, realtimeSummary, sourceSection } from "@/lib/realtime"
 import type { RealtimeStatus, SourceStatus } from "@/types/realtime"
 
-const t = (key: string, vars?: Record<string, string | number>) => `${key} ${JSON.stringify(vars ?? {})}`
-
-function status(overrides: Partial<RealtimeStatus> = {}): RealtimeStatus {
+function source(overrides: Partial<SourceStatus>): SourceStatus {
   return {
-    active: true,
-    sources: [],
-    reconciliation: { enabled: true, mode: "interval", interval_minutes: 60, nightly_hour: 4 },
+    key: "torrents",
+    kind: "torrents",
+    state: "active",
+    last_event_at: null,
+    last_check_at: null,
+    error: null,
     ...overrides,
   }
 }
 
-function source(overrides: Partial<SourceStatus>): SourceStatus {
-  return { key: "torrents", kind: "torrents", state: "active", last_event_at: null, last_check_at: null, error: null, ...overrides }
+function status(sources: SourceStatus[]): RealtimeStatus {
+  return { active: sources.length > 0, address_set: true, sources }
 }
 
 describe("realtimeSummary", () => {
-  it("shows nothing while real time is off, red as soon as a source fails", () => {
+  it("stays off until a service is followed, then flags a failing source", () => {
     expect(realtimeSummary(undefined)).toBe("off")
-    expect(realtimeSummary(status({ active: false }))).toBe("off")
-    expect(realtimeSummary(status({ sources: [source({})] }))).toBe("ok")
-    expect(realtimeSummary(status({ sources: [source({}), source({ key: "media_server", state: "error" })] }))).toBe(
+    expect(realtimeSummary(status([]))).toBe("off")
+    expect(realtimeSummary(status([source({})]))).toBe("ok")
+    expect(realtimeSummary(status([source({}), source({ key: "media_server", kind: "media_server", state: "error" })]))).toBe(
       "error",
     )
   })
 })
 
-describe("suggestsNightlyScan", () => {
-  it("offers the nightly scan only once real time is on and the schedule is something else", () => {
-    expect(suggestsNightlyScan(status({ active: false }))).toBe(false)
-    expect(suggestsNightlyScan(status())).toBe(true)
-    expect(
-      suggestsNightlyScan(status({ reconciliation: { enabled: true, mode: "nightly", interval_minutes: null, nightly_hour: 4 } })),
-    ).toBe(false)
-    expect(
-      suggestsNightlyScan(status({ reconciliation: { enabled: false, mode: "nightly", interval_minutes: null, nightly_hour: 4 } })),
-    ).toBe(true)
+describe("sourceSection", () => {
+  it("leads to the settings of the service concerned", () => {
+    expect(sourceSection(source({ kind: "torrents" }))).toBe("qbittorrent")
+    expect(sourceSection(source({ kind: "media_server" }))).toBe("emby")
+    expect(sourceSection(source({ kind: "requests" }))).toBe("seer")
+    expect(sourceSection(source({ kind: "webhook", key: "webhook:radarr:2" }))).toBe("radarr")
+    expect(sourceSection(source({ kind: "webhook", key: "webhook:sonarr:0" }))).toBe("sonarr")
   })
 })
 
-describe("sourceLabel", () => {
-  it("names each webhook after its instance", () => {
-    const hooks = [{ service: "radarr" as const, instance_id: 2, name: "Radarr 4K", connected: true, url: null }]
-    expect(sourceLabel(t, source({ key: "webhook:radarr:2", kind: "webhook" }), hooks)).toContain('"name":"Radarr 4K"')
-    expect(sourceLabel(t, source({}), hooks)).toMatch(/^realtime\.sources\.torrents /)
+describe("failingSource", () => {
+  it("returns the first source in error", () => {
+    const failing = source({ key: "requests", kind: "requests", state: "error", error: "HTTP 401" })
+    expect(failingSource(status([source({}), failing]))).toBe(failing)
+    expect(failingSource(status([source({})]))).toBeUndefined()
   })
 })
 
-describe("defaultAnalysarrUrl", () => {
-  it("keeps the saved address, otherwise this browser's", () => {
-    expect(defaultAnalysarrUrl("http://analysarr:1818", "http://192.168.1.2:1818")).toBe("http://analysarr:1818")
-    expect(defaultAnalysarrUrl("", "http://192.168.1.2:1818")).toBe("http://192.168.1.2:1818")
+describe("detectedAddress", () => {
+  it("proposes the browser's own address", () => {
+    expect(detectedAddress({ origin: "http://10.0.20.110:1818" })).toBe("http://10.0.20.110:1818")
   })
 })

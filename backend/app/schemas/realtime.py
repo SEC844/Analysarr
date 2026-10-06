@@ -5,9 +5,10 @@ from pydantic import BaseModel, Field
 
 ArrService = Literal["sonarr", "radarr"]
 
-DEBOUNCE_BOUNDS = (1, 60)
-TORRENT_INTERVAL_BOUNDS = (2, 300)
-MEDIA_SERVER_INTERVAL_BOUNDS = (3, 300)
+# `connected` : branché et à jour ; `pending` : pas encore branché (essai en
+# cours ou à venir) ; `error` : dernier essai refusé (message dans `error`) ;
+# `no_address` : adresse d'Analysarr inconnue.
+WebhookState = Literal["connected", "pending", "error", "no_address"]
 
 
 class WebhookRead(BaseModel):
@@ -15,43 +16,26 @@ class WebhookRead(BaseModel):
     # 0 = instance principale.
     instance_id: int
     name: str
-    connected: bool
+    state: WebhookState
+    error: str | None = None
     url: str | None = None
 
 
-class RealtimeSettingsRead(BaseModel):
-    debounce_seconds: int
-    torrents_enabled: bool
-    torrents_interval: int
-    torrents_available: bool
-    media_server_enabled: bool
-    media_server_interval: int
-    media_server_available: bool
+class WebhooksRead(BaseModel):
+    """Webhooks Sonarr/Radarr, branchés automatiquement, et l'adresse
+    d'Analysarr qu'ils utilisent."""
+
     analysarr_url: str
     webhooks: list[WebhookRead]
-    debounce_bounds: tuple[int, int] = DEBOUNCE_BOUNDS
-    torrent_interval_bounds: tuple[int, int] = TORRENT_INTERVAL_BOUNDS
-    media_server_interval_bounds: tuple[int, int] = MEDIA_SERVER_INTERVAL_BOUNDS
 
 
-class RealtimeSettingsWrite(BaseModel):
-    debounce_seconds: int = Field(ge=DEBOUNCE_BOUNDS[0], le=DEBOUNCE_BOUNDS[1])
-    torrents_enabled: bool
-    torrents_interval: int = Field(ge=TORRENT_INTERVAL_BOUNDS[0], le=TORRENT_INTERVAL_BOUNDS[1])
-    media_server_enabled: bool
-    media_server_interval: int = Field(ge=MEDIA_SERVER_INTERVAL_BOUNDS[0], le=MEDIA_SERVER_INTERVAL_BOUNDS[1])
-
-
-class WebhookRequest(BaseModel):
-    """Adresse d'Analysarr vue depuis Sonarr/Radarr (revérifiée côté serveur)."""
+class AddressWrite(BaseModel):
+    """Adresse d'Analysarr vue depuis Sonarr/Radarr (revérifiée côté serveur).
+    `detected` : proposée par le navigateur, enregistrée seulement si aucune
+    adresse ne l'est encore (jamais d'écrasement d'une saisie)."""
 
     analysarr_url: str = Field(min_length=1, max_length=500)
-
-
-class WebhookPreviewRead(BaseModel):
-    name: str
-    url: str
-    events: list[str]
+    detected: bool = False
 
 
 class SourceStatusRead(BaseModel):
@@ -63,21 +47,9 @@ class SourceStatusRead(BaseModel):
     error: str | None
 
 
-class NightlyScanRequest(BaseModel):
-    hour: int = Field(default=4, ge=0, le=23)
-
-
-class ReconciliationRead(BaseModel):
-    """Scan complet planifié : le filet de sécurité du temps réel."""
-
-    enabled: bool
-    mode: Literal["interval", "nightly"]
-    interval_minutes: int | None
-    nightly_hour: int
-
-
 class RealtimeStatusRead(BaseModel):
-    # Au moins une source branchée.
+    # Au moins un service suivi en temps réel.
     active: bool
+    # Adresse d'Analysarr connue (sinon le navigateur propose la sienne).
+    address_set: bool
     sources: list[SourceStatusRead]
-    reconciliation: ReconciliationRead

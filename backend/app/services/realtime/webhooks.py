@@ -1,10 +1,13 @@
 """Webhooks Sonarr/Radarr : Analysarr est prévenu à chaque import, mise à
 niveau, suppression ou ajout, au lieu d'attendre le scan suivant.
 
-Branchement en un clic : la notification est créée dans Sonarr/Radarr par
-leur API, à partir de LEUR modèle (`/api/v3/notification/schema`) — seuls
-les événements que la version connaît sont cochés. Un webhook « Analysarr »
-déjà présent (même adresse) est réutilisé plutôt que dupliqué.
+Branchement AUTOMATIQUE (`wanted_webhooks`, appliqué par le superviseur) :
+dès qu'une instance est configurée et que l'adresse d'Analysarr est connue,
+la notification est créée dans Sonarr/Radarr par leur API, à partir de LEUR
+modèle (`/api/v3/notification/schema`) — seuls les événements que la version
+connaît sont cochés. Un webhook « Analysarr » déjà présent (même adresse) est
+réutilisé plutôt que dupliqué ; une instance déplacée (autre adresse) ou une
+adresse d'Analysarr modifiée le fait rebrancher.
 
 Sécurité de la route publique `/api/webhooks/{service}/{instance}` :
 - secret propre à chaque instance, généré ici, présenté par Sonarr/Radarr en
@@ -33,8 +36,9 @@ from sqlmodel import Session, col, select
 
 from app.clients.arr import ArrClient, http_error_text
 from app.models.arr_webhook import ArrWebhook
+from app.models.settings import Settings
 from app.schemas.realtime import ArrService
-from app.services.arr_instances import ArrTarget
+from app.services.arr_instances import ArrTarget, arr_targets
 
 logger = logging.getLogger(__name__)
 
@@ -167,13 +171,6 @@ def parse_event(service: str, body: Any) -> WebhookEvent | None:
 # --- Branchement ----------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class WebhookPreview:
-    name: str
-    url: str
-    events: list[str]
-
-
 def _client(target: ArrTarget) -> ArrClient:
     return target.sonarr() if target.kind == "sonarr" else target.radarr()
 
@@ -217,12 +214,49 @@ def _body(template: dict[str, Any], service: str, url: str, secret: str, existin
     return body
 
 
-async def preview(target: ArrTarget, base_url: str, instance_id: int) -> WebhookPreview:
+def target_signature(target: ArrTarget) -> str:
+    """Empreinte de l'adresse de l'instance (jamais de sa clé) : une instance
+    déplacée n'a plus le webhook créé ailleurs."""
+    return hashlib.sha256(target.url.rstrip("/").encode()).hexdigest()
+
+
+def is_connected(row: ArrWebhook | None, target: ArrTarget, base_url: str, instance_id: int) -> bool:
+    """Webhook en place ET à jour : même adresse d'Analysarr, même instance."""
+    if row is None or row.notification_id is None or row.target_signature != target_signature(target):
+        return False
     try:
-        template = _template(await _client(target).get_notification_schema())
-    except httpx.HTTPError as exc:
-        raise WebhookError(f"{target.name} injoignable : {http_error_text(exc)}") from exc
-    return WebhookPreview(WEBHOOK_NAME, webhook_url(base_url, target.kind, instance_id), _events(target.kind, template))
+        return row.url == webhook_url(base_url, target.kind, instance_id)
+    except WebhookError:
+        return False
+
+
+@dataclass(frozen=True)
+class WantedWebhook:
+    target: ArrTarget
+    instance_id: int  # 0 = instance principale
+
+    @property
+    def key(self) -> str:
+        return source_key(self.target.kind, self.instance_id)
+
+
+def wanted_webhooks(session: Session, settings: Settings | None) -> list[WantedWebhook]:
+    """Un webhook par instance Sonarr/Radarr configurée."""
+    return [
+        WantedWebhook(target, target.instance_id or 0)
+        for service in ARR_SERVICES
+        for target in arr_targets(session, settings, service)
+    ]
+
+
+def forget_orphans(session: Session, wanted: list[WantedWebhook]) -> None:
+    """Lignes d'instances qui n'existent plus (retirées dans les réglages, où
+    le webhook a déjà été débranché chez elles)."""
+    keep = {(w.target.kind, w.instance_id) for w in wanted}
+    for row in session.exec(select(ArrWebhook)).all():
+        if (row.service, row.instance_id) not in keep:
+            session.delete(row)
+    session.commit()
 
 
 def find_row(session: Session, service: str, instance_id: int) -> ArrWebhook | None:
@@ -241,23 +275,34 @@ async def register(session: Session, target: ArrTarget, base_url: str, instance_
     created = row is None
     if row is None:
         row = ArrWebhook(service=target.kind, instance_id=instance_id, secret_hash=_digest(secret), url=url)
+    # Instance déplacée : la notification connue vit sur l'ancienne adresse.
+    known_id = row.notification_id if row.target_signature == target_signature(target) else None
     row.pending_secret_hash = _digest(secret)
     session.add(row)
     session.commit()
     try:
         template = _template(await client.get_notification_schema())
-        existing_id = row.notification_id or _existing_id(await client.get_notifications(), url)
+        existing_id = known_id or _existing_id(await client.get_notifications(), url)
         saved = await client.save_notification(_body(template, target.kind, url, secret, existing_id))
     except (httpx.HTTPError, WebhookError) as exc:
         _abandon(session, row, created)
-        detail = http_error_text(exc) if isinstance(exc, httpx.HTTPError) else str(exc)
-        raise WebhookError(f"{target.name} a refusé le webhook : {detail}") from exc
+        raise WebhookError(_failure(target, exc)) from exc
     row.notification_id = saved.get("id") if isinstance(saved.get("id"), int) else existing_id
     row.secret_hash, row.pending_secret_hash, row.url = _digest(secret), None, url
+    row.target_signature = target_signature(target)
     session.add(row)
     session.commit()
     session.refresh(row)
     return row
+
+
+def _failure(target: ArrTarget, exc: Exception) -> str:
+    """Injoignable (réseau) ou refusé (réponse d'erreur, test du webhook
+    raté) : deux causes, deux remèdes différents."""
+    if isinstance(exc, httpx.HTTPError) and not isinstance(exc, httpx.HTTPStatusError):
+        return f"{target.name} injoignable : {http_error_text(exc)}"
+    detail = http_error_text(exc) if isinstance(exc, httpx.HTTPError) else str(exc)
+    return f"{target.name} a refusé le webhook : {detail}"
 
 
 def _existing_id(notifications: list[dict[str, Any]], url: str) -> int | None:
