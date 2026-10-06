@@ -53,11 +53,12 @@ async def _collect(
     radarr_targets: list[ArrTarget],
     sonarr_targets: list[ArrTarget],
     ignores: "IgnoreSet",
-) -> tuple[list[MediaBuildResult], FetchedTorrents, list[EmbyUser]]:
+) -> tuple[list[MediaBuildResult], FetchedTorrents, list[EmbyUser], list[str]]:
     """Instances Radarr/Sonarr : la principale d'abord, puis les
     supplémentaires (voir services/arr_instances.py). Chaque film/série suivi
     par une instance donne un média distinct. Les éléments ignorés sont
-    appliqués aux statuts ; l'appelant enregistre `ignores`."""
+    appliqués aux statuts ; l'appelant enregistre `ignores`. Dernier élément :
+    les sources facultatives illisibles (voir ScanRun.failed_sources)."""
     # Garanti par l'appelant (réglages complets) ; vérifié ici plutôt que par
     # assert, que `python -O` supprimerait.
     emby = media_server_client(settings)
@@ -101,9 +102,10 @@ async def _collect(
     await run_in_threadpool(_apply_statuses, results, ignores, seed_policy(settings), fetched.files_by_hash())
 
     await progress("visionnage")
-    emby_users = await _apply_watch_stats(settings, emby, results)
-    await _apply_seer_requests(settings, results, progress)
-    return results, fetched, emby_users
+    emby_users, watch_ok = await _apply_watch_stats(settings, emby, results)
+    requests_ok = await _apply_seer_requests(settings, results, progress)
+    failed = [name for name, ok in (("watch", watch_ok), ("requests", requests_ok)) if not ok]
+    return results, fetched, emby_users, failed
 
 
 async def queue_issues(targets: list[ArrTarget], id_field: str) -> QueueIssues:
@@ -287,33 +289,40 @@ def _apply_statuses(
         )
 
 
-async def _apply_watch_stats(settings: Settings, emby: EmbyClient, results: list[MediaBuildResult]) -> list[EmbyUser]:
-    """Visionnage : purement informatif. Un échec (serveur trop ancien, droits
-    insuffisants) laisse les statistiques vides sans faire échouer le scan."""
+async def _apply_watch_stats(
+    settings: Settings, emby: EmbyClient, results: list[MediaBuildResult]
+) -> tuple[list[EmbyUser], bool]:
+    """Visionnage : un échec (serveur trop ancien, droits insuffisants) laisse
+    les statistiques vides sans faire échouer le scan. Renvoie aussi si la
+    lecture a réussi."""
+    ok = True
     try:
         emby_users = users_from_api(await emby.get_users())
         watch_data = await collect_watch_data(emby, emby_users)
     except (httpx.HTTPError, ValueError):
         logger.warning("Statistiques de visionnage illisibles", exc_info=True)
-        emby_users, watch_data = [], {}
+        emby_users, watch_data, ok = [], {}, False
     excluded = excluded_user_ids(settings)
     for result in results:
         result.watches = build_watch_rows(result.media, emby_users, watch_data)
         apply_aggregates(result.media, result.watches, excluded)
-    return emby_users
+    return emby_users, ok
 
 
-async def _apply_seer_requests(settings: Settings, results: list[MediaBuildResult], progress: Progress) -> None:
+async def _apply_seer_requests(settings: Settings, results: list[MediaBuildResult], progress: Progress) -> bool:
     """Demandes Seer (optionnel) : un Seer injoignable laisse les demandes
-    vides sans faire échouer le scan."""
+    vides sans faire échouer le scan. Faux seulement si la lecture a échoué
+    (Seer désactivé : rien à lire, donc rien de faussé)."""
     seer = seer_client(settings)
     if seer is None:
-        return
+        return True
     await progress("seer")
+    ok = True
     try:
         request_index = await fetch_request_index(seer)
     except (httpx.HTTPError, ValueError):
         logger.warning("Demandes du gestionnaire de demandes illisibles", exc_info=True)
-        request_index = {}
+        request_index, ok = {}, False
     for result in results:
         result.requests = build_request_rows(result.media, request_index)
+    return ok

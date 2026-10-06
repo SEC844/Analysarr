@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ArrowLeft, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, CalendarClock, ChevronRight, Loader2, Plus, Send, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { ChannelLogoTile } from "@/components/settings/channel-logos"
@@ -15,6 +15,7 @@ import {
   useCreateChannelMutation,
   useDeleteChannelMutation,
   useNotificationChannelsQuery,
+  useSendWeeklySummaryMutation,
   useTestChannelMutation,
   useUpdateChannelMutation,
 } from "@/hooks/use-notifications"
@@ -258,6 +259,42 @@ function ChannelCard({ kind, channel, onDone }: ChannelCardProps) {
   )
 }
 
+/** Résumé hebdomadaire : envoyé le lundi aux canaux abonnés ; « Envoyer
+ * maintenant » permet de le voir sans attendre. */
+function WeeklySummaryRow() {
+  const { t } = useI18n()
+  const send = useSendWeeklySummaryMutation()
+
+  function handleSend() {
+    send.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.skipped === "no_subscriber") return toast.info(t("notifications.weekly.noSubscriber"))
+        if (result.skipped === "library_unknown") return toast.info(t("notifications.weekly.libraryUnknown"))
+        const failed = result.channels.filter((channel) => channel.error)
+        if (failed.length) {
+          return toast.error(t("notifications.weekly.failed", { names: failed.map((c) => c.name).join(", ") }))
+        }
+        toast.success(t("notifications.weekly.sent", { count: result.channels.length }))
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : t("common.saveFailed")),
+    })
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t pt-4 sm:col-span-3">
+      <CalendarClock className="text-muted-foreground size-4 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{t("notifications.weekly.title")}</p>
+        <p className="text-muted-foreground text-xs">{t("notifications.weekly.description")}</p>
+      </div>
+      <Button type="button" variant="outline" size="sm" disabled={send.isPending} onClick={handleSend}>
+        {send.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+        {t("notifications.weekly.sendNow")}
+      </Button>
+    </div>
+  )
+}
+
 export function NotificationsSection() {
   const { t } = useI18n()
   const { data: channels, isLoading } = useNotificationChannelsQuery()
@@ -295,6 +332,7 @@ export function NotificationsSection() {
               </button>
             )
           })}
+          <WeeklySummaryRow />
         </CardContent>
       </Card>
     )

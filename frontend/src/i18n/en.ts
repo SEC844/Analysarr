@@ -401,6 +401,15 @@ export const en: Dictionary = {
     disabled: "Disabled",
     events: "Events sent to this channel",
     eventCount: { one: "{count} event", other: "{count} events" },
+    weekly: {
+      title: "Weekly summary",
+      description: "Sent every Monday at 9 am to the channels subscribed to Weekly summary. Without a subscriber, nothing is computed.",
+      sendNow: "Send now",
+      sent: { one: "Summary sent to {count} channel.", other: "Summary sent to {count} channels." },
+      failed: "Sending failed on {names}.",
+      noSubscriber: "No channel is subscribed to the weekly summary.",
+      libraryUnknown: "Run a full scan first: nothing to summarize yet.",
+    },
     eventNames: {
       scan_completed: "Scan completed",
       scan_failed: "Scan failed",
@@ -419,6 +428,7 @@ export const en: Dictionary = {
       automation: "Automation ran",
       update_available: "Update available",
       automations_paused: "Automations paused",
+      weekly_summary: "Weekly summary",
     },
     eventHelp: {
       scan_completed: "Summary figures after each successful scan.",
@@ -438,6 +448,8 @@ export const en: Dictionary = {
       automation: "An automation rule acted.",
       update_available: "A new version of Analysarr has been released (checked every 3 hours, notified once per version).",
       automations_paused: "A scan flipped an unusual share of the library: the rules are suspended.",
+      weekly_summary:
+        "Every Monday at 9 am (container time): library growth, estimated disk filling, top cleanup candidates and seeding obligations coming to an end.",
     },
     urlLabel: {
       discord: "Webhook URL",
@@ -500,6 +512,7 @@ export const en: Dictionary = {
       import_failed_detected: "Blocked import detected",
       stalled_download_detected: "Stalled download",
       untracked_detected: "Untracked media detected",
+      cleanup_candidate: "Cleanup candidate (assistant)",
     },
     action: "Action",
     actions: {
@@ -508,6 +521,7 @@ export const en: Dictionary = {
       cross_seed_search: "Search for a cross-seed",
       retry_import: "Retry import",
       link_to_arr: "Link to Sonarr/Radarr",
+      delete_media: "Delete the whole media",
       notify_only: "Notify only",
     },
     actionHelp: {
@@ -518,8 +532,14 @@ export const en: Dictionary = {
       link_to_arr:
         "Adds the media to Sonarr/Radarr with the folder that already holds its files. Only on a certain match, otherwise the rule skips it. Deletes nothing.",
       notify_only: "Does not act: lists the matching media in the notification and the history.",
+      delete_media:
+        "Same deletion as the cleanup assistant: every file and torrent of the media, and its Sonarr/Radarr entry. Never a protected media (favourite, request, recent addition, seeding, exclusion) nor one being watched, checked again right before; nothing is deleted if watch data or requests could not be read at the last full scan. At most {max} media per run.",
     },
     conditions: "Conditions (all optional)",
+    conditionsRequired: "Conditions (score and space required)",
+    minScore: "Minimum score (out of 100)",
+    minFreed: "Minimum space freed (GB)",
+    cleanupInvalid: "A minimum score of at least {score} and at least {size} GB freed are required.",
     minSeedDays: "Seeded for (days)",
     minRatio: "Minimum ratio",
     minSize: "Minimum reclaimable space (GB)",
@@ -1027,6 +1047,14 @@ export const en: Dictionary = {
     },
   },
   cleanup: {
+    unreliable: {
+      title: "Incomplete data at the last full scan",
+      watch:
+        "Watch data could not be read: every media looks never watched and favourites protect nothing. Scores are skewed, and cleanup automations delete nothing.",
+      requests:
+        "Requests could not be read: pending requests protect nothing. Cleanup automations delete nothing.",
+      advice: "Check the service, then run a full scan again.",
+    },
     goal: {
       title: "Goal",
       description:

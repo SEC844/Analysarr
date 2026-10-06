@@ -82,6 +82,8 @@ export interface CleanupCandidatesPage {
   candidate_count: number
   protected_count: number
   total_reclaimable_bytes: number
+  /** Sources illisibles au dernier scan complet : scores et protections faussés. */
+  unreliable_sources: ("watch" | "requests")[]
 }
 
 export type CleanupSort = "rank" | "score" | "space" | "title"

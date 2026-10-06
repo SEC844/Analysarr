@@ -403,6 +403,16 @@ export const fr = {
     disabled: "Désactivé",
     events: "Événements envoyés sur ce canal",
     eventCount: { one: "{count} événement", other: "{count} événements" },
+    weekly: {
+      title: "Résumé hebdomadaire",
+      description:
+        "Envoyé chaque lundi à 9 h aux canaux abonnés à « Résumé hebdomadaire ». Sans abonné, rien n'est calculé.",
+      sendNow: "Envoyer maintenant",
+      sent: { one: "Résumé envoyé sur {count} canal.", other: "Résumé envoyé sur {count} canaux." },
+      failed: "Échec de l'envoi sur {names}.",
+      noSubscriber: "Aucun canal n'est abonné au résumé hebdomadaire.",
+      libraryUnknown: "Lancez d'abord un scan complet : rien à résumer pour l'instant.",
+    },
     eventNames: {
       scan_completed: "Scan terminé",
       scan_failed: "Échec d'un scan",
@@ -421,6 +431,7 @@ export const fr = {
       automation: "Automatisation exécutée",
       update_available: "Mise à jour disponible",
       automations_paused: "Automatisations mises en pause",
+      weekly_summary: "Résumé hebdomadaire",
     },
     eventHelp: {
       scan_completed: "Résumé chiffré après chaque scan réussi.",
@@ -440,6 +451,8 @@ export const fr = {
       automation: "Une règle d'automatisation a agi.",
       update_available: "Une nouvelle version d'Analysarr est publiée (vérifié toutes les 3 h, une seule notification par version).",
       automations_paused: "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues.",
+      weekly_summary:
+        "Chaque lundi à 9 h (heure du conteneur) : croissance de la bibliothèque, remplissage estimé des disques, meilleurs candidats au nettoyage et fins d'obligation de seed.",
     },
     urlLabel: {
       discord: "URL du webhook",
@@ -502,6 +515,7 @@ export const fr = {
       import_failed_detected: "Import bloqué détecté",
       stalled_download_detected: "Téléchargement en souffrance",
       untracked_detected: "Média non suivi détecté",
+      cleanup_candidate: "Candidat au nettoyage (assistant)",
     },
     action: "Action",
     actions: {
@@ -510,6 +524,7 @@ export const fr = {
       cross_seed_search: "Chercher un cross-seed",
       retry_import: "Relancer l'import",
       link_to_arr: "Lier à Sonarr/Radarr",
+      delete_media: "Supprimer le média entier",
       notify_only: "Notifier seulement",
     },
     actionHelp: {
@@ -520,8 +535,14 @@ export const fr = {
       link_to_arr:
         "Ajoute le média dans Sonarr/Radarr avec le dossier qui contient déjà ses fichiers. Seulement en cas de correspondance certaine, sinon la règle passe son tour. Ne supprime rien.",
       notify_only: "N'agit pas : liste les médias concernés dans la notification et l'historique.",
+      delete_media:
+        "Même suppression que l'assistant de nettoyage : tous les fichiers et torrents du média, et son suivi Sonarr/Radarr. Jamais un média protégé (favori, demande, ajout récent, seed, exclusion) ni en cours de visionnage, revérifié juste avant ; rien n'est supprimé si le visionnage ou les demandes n'ont pas pu être lus au dernier scan complet. {max} médias au plus par exécution.",
     },
     conditions: "Conditions (toutes optionnelles)",
+    conditionsRequired: "Conditions (score et espace obligatoires)",
+    minScore: "Score minimum (sur 100)",
+    minFreed: "Espace libéré minimum (Go)",
+    cleanupInvalid: "Score minimum d'au moins {score} et espace libéré d'au moins {size} Go exigés.",
     minSeedDays: "Seedé depuis (jours)",
     minRatio: "Ratio minimum",
     minSize: "Espace récupérable minimum (Go)",
@@ -1035,6 +1056,14 @@ export const fr = {
     },
   },
   cleanup: {
+    unreliable: {
+      title: "Données incomplètes au dernier scan complet",
+      watch:
+        "Le visionnage n'a pas pu être lu : tous les médias passent pour jamais regardés et les favoris ne protègent plus rien. Scores faussés, les automatisations de nettoyage ne suppriment rien.",
+      requests:
+        "Les demandes n'ont pas pu être lues : les demandes en cours ne protègent plus rien. Les automatisations de nettoyage ne suppriment rien.",
+      advice: "Vérifiez le service puis relancez un scan complet.",
+    },
     goal: {
       title: "Objectif",
       description:

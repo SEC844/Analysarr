@@ -37,6 +37,7 @@ from app.services.scheduler import (
     configure_library_snapshots,
     configure_scan_schedule_from,
     configure_trash_purge,
+    configure_weekly_summary,
     refresh_update_watch,
     scheduler,
 )
@@ -99,6 +100,7 @@ async def lifespan(app: FastAPI):
         configure_scan_schedule_from(settings)
         refresh_update_watch(session)
     configure_trash_purge()
+    configure_weekly_summary()
     configure_library_snapshots()
     scheduler.start()
     await realtime_supervisor.start()

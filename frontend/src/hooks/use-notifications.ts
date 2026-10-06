@@ -4,6 +4,7 @@ import {
   createNotificationChannel,
   deleteNotificationChannel,
   listNotificationChannels,
+  sendWeeklySummary,
   testNotificationChannel,
   updateNotificationChannel,
 } from "@/lib/api"
@@ -41,4 +42,8 @@ export function useDeleteChannelMutation() {
 
 export function useTestChannelMutation() {
   return useMutation({ mutationFn: (id: number) => testNotificationChannel(id) })
+}
+
+export function useSendWeeklySummaryMutation() {
+  return useMutation({ mutationFn: sendWeeklySummary })
 }

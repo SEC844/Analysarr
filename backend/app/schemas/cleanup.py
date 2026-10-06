@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field, model_validator
 from app.schemas.seed import SeedObligationRead
 
 PresetName = Literal["prudent", "balanced", "space_first"]
+# Sources facultatives d'un scan dont l'échec vide les données (ScanRun.failed_sources).
+UnreliableSource = Literal["watch", "requests"]
+UNRELIABLE_SOURCES: tuple[UnreliableSource, ...] = ("watch", "requests")
 
 
 class CleanupWeights(BaseModel):
@@ -121,6 +124,9 @@ class CleanupCandidatesPage(BaseModel):
     candidate_count: int
     protected_count: int
     total_reclaimable_bytes: int
+    # Sources illisibles au dernier scan complet (`watch`, `requests`) :
+    # scores et protections faussés, l'interface le signale.
+    unreliable_sources: list[UnreliableSource] = []
 
 
 # --- Mode objectif (services/cleanup_plan.py) ---------------------------------

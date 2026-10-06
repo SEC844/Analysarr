@@ -359,6 +359,14 @@ class ScanRun(SQLModel, table=True):
     # deux dans l'historique des scans.
     trigger: str = "manual"
 
+    # Sources lues sans succès pendant ce scan, séparées par des virgules :
+    # "watch" (visionnage) et "requests" (Seer/Ombi). Leur échec n'interrompt
+    # pas le scan mais VIDE ces données (aucun visionnage, aucune demande) :
+    # scores et protections de l'assistant de nettoyage sont alors faussés, et
+    # une automatisation fondée sur le score refuse d'agir
+    # (services/automations.py::source_blocker).
+    failed_sources: str = ""
+
     # Périmètre analysé : "full" (tout), ou un service — "radarr", "sonarr",
     # "media_server", "torrents", "queue", "watch", "seer". Voir
     # services/scan_scopes.py.

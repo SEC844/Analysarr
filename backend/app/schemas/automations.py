@@ -10,9 +10,18 @@ AutomationTrigger = Literal[
     "import_failed_detected",
     "stalled_download_detected",
     "untracked_detected",
+    # Média proposé par l'assistant de nettoyage (score et espace).
+    "cleanup_candidate",
 ]
 AutomationAction = Literal[
-    "cleanup", "repair_hardlinks", "cross_seed_search", "retry_import", "link_to_arr", "notify_only"
+    "cleanup",
+    "repair_hardlinks",
+    "cross_seed_search",
+    "retry_import",
+    "link_to_arr",
+    # Supprime le média entier, comme le dialogue de l'assistant.
+    "delete_media",
+    "notify_only",
 ]
 
 
@@ -26,8 +35,11 @@ class AutomationConditions(BaseModel):
     min_seed_days: int | None = Field(default=None, ge=0, le=3650)
     # Ratio minimal de CHAQUE torrent concerné.
     min_ratio: float | None = Field(default=None, ge=0, le=1000)
-    # Espace récupérable minimal du média.
+    # Espace récupérable minimal du média (déclencheur `cleanup_candidate` :
+    # espace libéré en supprimant TOUT le média).
     min_reclaimable_bytes: int | None = Field(default=None, ge=0)
+    # Score minimal de l'assistant de nettoyage (déclencheur `cleanup_candidate`).
+    min_score: int | None = Field(default=None, ge=0, le=100)
 
 
 class AutomationRead(BaseModel):

@@ -26,13 +26,15 @@ from sqlalchemy import select as core_select
 from sqlmodel import Session, col, select
 
 from app.models.ignore import IgnoreRule
-from app.models.media import EmbyUser, Media, MediaRequest, MediaType, MediaWatch, Torrent
+from app.models.media import EmbyUser, Media, MediaRequest, MediaType, MediaWatch, ScanRun, ScanStatus, Torrent
 from app.models.settings import Settings
 from app.schemas.cleanup import (
+    UNRELIABLE_SOURCES,
     CleanupCandidateDetail,
     CleanupCandidateRead,
     CleanupCandidatesPage,
     CleanupSettings,
+    UnreliableSource,
 )
 from app.services.arr_instances import instance_names
 from app.services.cleanup_score import PRESETS, CandidateFacts, Evaluation, evaluate, ranked
@@ -268,6 +270,22 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
 # --- Lecture ------------------------------------------------------------------
 
 
+def unreliable_sources(session: Session) -> list[UnreliableSource] | None:
+    """Sources illisibles au dernier scan complet (`watch`, `requests`) : leurs
+    données sont alors VIDES, et les scores comme les protections faussés.
+    None : aucun scan complet terminé."""
+    run = session.exec(
+        select(ScanRun)
+        .where(col(ScanRun.scope) == "full", col(ScanRun.status) == ScanStatus.completed)
+        .order_by(col(ScanRun.id).desc())
+        .limit(1)
+    ).first()
+    if run is None:
+        return None
+    failed = run.failed_sources.split(",")
+    return [source for source in UNRELIABLE_SOURCES if source in failed]
+
+
 def candidate_read(evaluation: Evaluation, rank: float) -> CleanupCandidateRead:
     facts = evaluation.facts
     return CleanupCandidateRead(
@@ -346,6 +364,7 @@ def candidates_page(session: Session, query: CandidateQuery, now: datetime | Non
         candidate_count=len(candidates),
         protected_count=len(matching) - len(candidates),
         total_reclaimable_bytes=sum(e.facts.reclaimable_bytes for e in candidates),
+        unreliable_sources=unreliable_sources(session) or [],
     )
 
 

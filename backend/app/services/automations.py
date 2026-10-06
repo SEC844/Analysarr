@@ -1,5 +1,6 @@
 """Automatisations : exécuter une action sur les médias qu'un scan vient de
-classer (orphelins, doublons, non hardlinkés), sous conditions.
+classer (orphelins, doublons, non hardlinkés), ou que l'assistant de
+nettoyage propose (score et espace), sous conditions.
 
 Garde-fous, parce qu'une automatisation supprime des fichiers sans que
 personne ne regarde :
@@ -9,7 +10,22 @@ personne ne regarde :
 - les actions réutilisent exactement le code des boutons de l'interface
   (nettoyage cascade, réparation de hardlinks, recherche cross-seed) : un
   torrent protégé ou réparable n'est donc jamais supprimé ;
-- chaque exécution est tracée dans l'historique et notifiable."""
+- chaque exécution est tracée dans l'historique et notifiable.
+
+Déclencheur `cleanup_candidate` (suppression de médias ENTIERS, la plus
+lourde des actions), garde-fous supplémentaires :
+- score ET espace minimum obligatoires, avec des planchers
+  (`MIN_CLEANUP_SCORE`, `MIN_CLEANUP_BYTES`) revérifiés à l'exécution ;
+- au plus `MAX_MEDIA_DELETIONS` médias par exécution ;
+- protections de l'assistant (favori, demande, ajout récent, seed, exclusion)
+  et lecture en cours par un compte actif : jamais proposé, et revérifié
+  juste avant chaque suppression ;
+- aucune suppression si le visionnage ou les demandes n'ont pas pu être lus
+  au dernier scan complet (`source_blocker`) : ces données vides feraient
+  passer toute la bibliothèque pour « jamais regardée » et lèveraient les
+  protections ;
+- suppression par le code du dialogue « Supprimer » (suppression sélective
+  « Tout supprimer », tout ou rien, corbeille comprise)."""
 
 import json
 import logging
@@ -24,11 +40,14 @@ from app.models.ids import row_id
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.automations import AutomationConditions, AutomationRunResult, AutomationStep
+from app.schemas.media import MediaDeleteSelection
 from app.services.action_log import MediaRef, record_action
 from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic
 from app.services.cascade_delete import build_delete_preview, execute_delete
+from app.services.cleanup import candidate_detail, ranked_candidates, unreliable_sources
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import execute_repair
+from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
 from app.services.notifications import ChannelTarget, automation_notification, notification_language, notify
 from app.services.queue_issues import execute_import_retry
 from app.services.scan.statuses import is_orphan
@@ -47,6 +66,14 @@ TRIGGER_STATUSES = {
 }
 MAX_ACTIONS_LIMIT = 50
 
+# Assistant de nettoyage comme déclencheur (voir la docstring du module).
+CLEANUP_TRIGGER = "cleanup_candidate"
+MIN_CLEANUP_SCORE = 50
+MIN_CLEANUP_BYTES = 1024**3
+MAX_MEDIA_DELETIONS = 10
+# Déclencheurs connus : statuts du scan, plus l'assistant de nettoyage.
+TRIGGERS = (*TRIGGER_STATUSES, CLEANUP_TRIGGER)
+
 # Conditions qui ont un sens pour chaque déclencheur. Une condition de seed ou
 # de ratio ne veut rien dire pour un import bloqué, et un espace récupérable ne
 # veut rien dire là où il n'y a rien à supprimer : elles sont effacées à
@@ -59,6 +86,7 @@ TRIGGER_CONDITIONS: dict[str, tuple[str, ...]] = {
     "import_failed_detected": (),
     "stalled_download_detected": (),
     "untracked_detected": (),
+    CLEANUP_TRIGGER: ("min_score", "min_reclaimable_bytes"),
 }
 
 
@@ -88,6 +116,10 @@ def rule_conditions(automation: Automation) -> AutomationConditions:
         return AutomationConditions()
 
 
+def max_actions_for(action: str) -> int:
+    return MAX_MEDIA_DELETIONS if action == "delete_media" else MAX_ACTIONS_LIMIT
+
+
 def as_rule(automation: Automation) -> AutomationRule:
     return AutomationRule(
         id=automation.id,
@@ -95,9 +127,83 @@ def as_rule(automation: Automation) -> AutomationRule:
         trigger=automation.trigger,
         action=automation.action,
         conditions=rule_conditions(automation),
-        max_actions=min(automation.max_actions, MAX_ACTIONS_LIMIT),
+        max_actions=min(automation.max_actions, max_actions_for(automation.action)),
         dry_run=automation.dry_run,
     )
+
+
+def planned_bytes(rule: AutomationRule, media: Media) -> int:
+    """Espace que l'action libérerait sur ce média : tout le média pour une
+    suppression de l'assistant, l'espace récupérable (doublons, orphelins)
+    sinon."""
+    return media.full_reclaimable_bytes if rule.trigger == CLEANUP_TRIGGER else media.reclaimable_bytes
+
+
+# --- Assistant de nettoyage ---------------------------------------------------
+
+
+def source_blocker(session: Session) -> str | None:
+    """Raison de ne RIEN supprimer sur la foi du score : bibliothèque jamais
+    analysée, ou visionnage / demandes illisibles au dernier scan complet
+    (données vides = toute la bibliothèque « jamais regardée », favoris et
+    demandes perdus). Prudent : il faut un nouveau scan complet réussi."""
+    failed = unreliable_sources(session)
+    if failed is None:
+        return "Aucun scan complet terminé : la bibliothèque n'est pas encore connue."
+    if "watch" in failed:
+        return "Visionnage illisible au dernier scan complet : scores et favoris faussés, aucune suppression."
+    if "requests" in failed:
+        return "Demandes illisibles au dernier scan complet : protections faussées, aucune suppression."
+    return None
+
+
+def cleanup_targets(session: Session, rule: AutomationRule) -> list[tuple[Media, list[Torrent]]]:
+    """Candidats de l'assistant (jamais un média protégé), dans son ordre de
+    classement, qui remplissent score ET espace minimum — planchers
+    réappliqués ici, même si les conditions enregistrées étaient plus
+    basses. Un média qu'un compte actif est en train de regarder est écarté.
+    Les torrents ne sont pas chargés (la suppression relit tout le média)."""
+    conditions = rule.conditions
+    if conditions.min_score is None or conditions.min_reclaimable_bytes is None:
+        return []
+    min_score = max(conditions.min_score, MIN_CLEANUP_SCORE)
+    min_bytes = max(conditions.min_reclaimable_bytes, MIN_CLEANUP_BYTES)
+    wanted = [
+        evaluation.facts.media_id
+        for evaluation, _rank in ranked_candidates(session)
+        if evaluation.score >= min_score
+        and evaluation.facts.reclaimable_bytes >= min_bytes
+        and (not conditions.media_types or evaluation.facts.media_type in conditions.media_types)
+        and not evaluation.facts.in_progress_names
+    ]
+    if not wanted:
+        return []
+    medias = {media.id: media for media in session.exec(select(Media).where(col(Media.id).in_(wanted))).all()}
+    return [(medias[media_id], []) for media_id in wanted if media_id in medias]
+
+
+async def _delete_whole_media(
+    session: Session, settings: Settings, media: Media
+) -> tuple[list[AutomationStep], int]:
+    """Même suppression que le dialogue de l'assistant : tous les torrents et
+    fichiers du média, et son suivi Sonarr/Radarr s'il en a un."""
+    detail = candidate_detail(session, row_id(media))
+    if detail is None or detail.protections or detail.malus_in_progress:
+        return [AutomationStep(label=media.title, success=False, error="Devenu protégé : laissé de côté.")], 0
+    selection = MediaDeleteSelection(
+        torrent_ids=[row_id(t) for t in session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()],
+        media_file_ids=[
+            row_id(f) for f in session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
+        ],
+        remove_from_arr="manquant_arr" not in media.statuses.split(","),
+    )
+    footprint = await build_delete_footprint(session, media, settings)
+    freed = reclaimed_bytes(footprint, selection.torrent_ids, selection.media_file_ids)
+    result = await execute_media_delete(session, media, settings, selection)
+    steps = [
+        AutomationStep(label=f"{detail.title} — {s.label}", success=s.success, error=s.error) for s in result.steps
+    ]
+    return steps, freed if steps and all(s.success for s in steps) else 0
 
 
 def _concerned_torrents(trigger: str, torrents: list[Torrent]) -> list[Torrent]:
@@ -142,6 +248,8 @@ def matches(rule: AutomationRule, media: Media, torrents: list[Torrent], now: da
 
 
 def eligible_medias(session: Session, rule: AutomationRule) -> list[tuple[Media, list[Torrent]]]:
+    if rule.trigger == CLEANUP_TRIGGER:
+        return cleanup_targets(session, rule)
     status = TRIGGER_STATUSES[rule.trigger]
     now = datetime.now(UTC)
     policy = seed_policy(session.get(Settings, 1))
@@ -173,6 +281,8 @@ async def _execute(
         return [AutomationStep(label=media.title, success=True)], 0
 
     try:
+        if rule.action == "delete_media":
+            return await _delete_whole_media(session, settings, media)
         if rule.action == "cleanup":
             freed = build_delete_preview(session, media).total_reclaimable_bytes
             result = await execute_delete(session, media, settings)
@@ -230,10 +340,13 @@ async def run_rule(
     session: Session, settings: Settings, channels: list[ChannelTarget], automation: Automation
 ) -> AutomationRunResult:
     rule = as_rule(automation)
-    eligible = eligible_medias(session, rule)
+    blocker = source_blocker(session) if rule.trigger == CLEANUP_TRIGGER else None
+    eligible = [] if blocker else eligible_medias(session, rule)
     selected = eligible[: rule.max_actions]
 
-    steps: list[AutomationStep] = []
+    steps: list[AutomationStep] = (
+        [AutomationStep(label=rule.name, success=False, error=blocker)] if blocker else []
+    )
     freed_total = 0
     for media, _torrents in selected:
         if rule.dry_run:
@@ -248,7 +361,7 @@ async def run_rule(
     session.add(automation)
     session.commit()
 
-    if selected:
+    if selected or blocker:
         record_action(
             session,
             "automation",

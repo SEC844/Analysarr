@@ -73,7 +73,7 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
     with Session(engine) as session:
         ignores = _load_ignores(session)
     try:
-        results, fetched_torrents, emby_users = await _collect(
+        results, fetched_torrents, emby_users, failed_sources = await _collect(
             settings, run_id, radarr_targets, sonarr_targets, ignores
         )
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
@@ -82,7 +82,7 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
 
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
     previously_flagged, counts, summary = _store_results(
-        run_id, settings, results, fetched_torrents, emby_users, ignores
+        run_id, settings, results, fetched_torrents, emby_users, ignores, failed_sources
     )
 
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
@@ -136,6 +136,7 @@ def _store_results(
     fetched_torrents: FetchedTorrents,
     emby_users: list[EmbyUser],
     ignores: "IgnoreSet",
+    failed_sources: list[str],
 ) -> tuple[dict[str, set[tuple[str, str, int | None]]], dict[str, int], Notification]:
     """Remplace le cache par le résultat du scan et clôt l'analyse. Une seule
     session : les médias restent lisibles pour les notifications qui suivent."""
@@ -148,7 +149,7 @@ def _store_results(
         # Situations des éléments ignorés : adoptées, ou règles retirées si
         # elles ont changé (voir services/ignores.py).
         ignores.persist(session)
-        run = _complete_run(session, run_id, results, fetched_torrents)
+        run = _complete_run(session, run_id, results, fetched_torrents, failed_sources)
         counts = {
             "media_count": run.media_count,
             "duplicate_count": run.duplicate_count,
@@ -199,7 +200,11 @@ def _replace_cache(session: Session, results: list[MediaBuildResult], emby_users
 
 
 def _complete_run(
-    session: Session, run_id: int, results: list[MediaBuildResult], fetched_torrents: FetchedTorrents
+    session: Session,
+    run_id: int,
+    results: list[MediaBuildResult],
+    fetched_torrents: FetchedTorrents,
+    failed_sources: list[str],
 ) -> ScanRun:
     run = session.get(ScanRun, run_id)
     if run is None:
@@ -217,6 +222,7 @@ def _complete_run(
     run.tracker_unique_count = count("tracker_unique")
     run.qbittorrent_torrent_count = len(fetched_torrents)
     run.qbittorrent_matched_count = sum(len(r.torrents) for r in results)
+    run.failed_sources = ",".join(failed_sources)
     session.add(run)
     session.commit()
     return run

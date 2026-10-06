@@ -29,7 +29,12 @@ import type {
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { IgnoreCreate, IgnoreRuleRead } from "@/types/ignores"
-import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
+import type {
+  ChannelTestResult,
+  NotificationChannel,
+  NotificationChannelWrite,
+  WeeklySummaryResult,
+} from "@/types/notifications"
 import type { ServicesStatus } from "@/types/services"
 import type {
   ArrLinkPreview,
@@ -242,6 +247,11 @@ export function deleteNotificationChannel(id: number): Promise<void> {
 // Envoie sur le canal ENREGISTRÉ (jamais sur une adresse saisie non enregistrée).
 export function testNotificationChannel(id: number): Promise<ChannelTestResult> {
   return request<ChannelTestResult>(`/api/notifications/channels/${id}/test`, { method: "POST" })
+}
+
+// Résumé hebdomadaire tout de suite, aux seuls canaux abonnés.
+export function sendWeeklySummary(): Promise<WeeklySummaryResult> {
+  return request<WeeklySummaryResult>("/api/notifications/weekly-summary", { method: "POST" })
 }
 
 // --- Automatisations --------------------------------------------------------

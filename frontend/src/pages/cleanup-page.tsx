@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { Clapperboard, Loader2, Play, ShieldCheck, Trash2, Tv } from "lucide-react"
+import { Clapperboard, Loader2, Play, ShieldCheck, Trash2, TriangleAlert, Tv } from "lucide-react"
 
 import { CleanupDeleteDialog } from "@/components/cleanup/cleanup-delete-dialog"
 import { CleanupGoalCard } from "@/components/cleanup/cleanup-goal-card"
@@ -8,6 +8,7 @@ import { CleanupSettingsPanel } from "@/components/cleanup/cleanup-settings-pane
 import { ScoreBreakdown } from "@/components/cleanup/score-breakdown"
 import { ForecastSection } from "@/components/forecast/forecast-section"
 import { CleanupOptions } from "@/components/media/ignore-actions"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -139,6 +140,20 @@ export function CleanupPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t("cleanup.title")}</h1>
         <p className="text-muted-foreground text-sm">{t("cleanup.description")}</p>
       </div>
+
+      {/* En tête : tant que ces données manquent, scores et protections sont faux. */}
+      {data && data.unreliable_sources.length > 0 && (
+        <Alert variant="destructive">
+          <TriangleAlert className="size-4" />
+          <AlertTitle>{t("cleanup.unreliable.title")}</AlertTitle>
+          <AlertDescription className="space-y-1">
+            {data.unreliable_sources.map((source) => (
+              <p key={source}>{t(`cleanup.unreliable.${source}`)}</p>
+            ))}
+            <p>{t("cleanup.unreliable.advice")}</p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <ForecastSection />
 

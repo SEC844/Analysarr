@@ -5,6 +5,7 @@ export const AUTOMATION_TRIGGERS = [
   "import_failed_detected",
   "stalled_download_detected",
   "untracked_detected",
+  "cleanup_candidate",
 ] as const
 export const AUTOMATION_ACTIONS = [
   "cleanup",
@@ -12,6 +13,7 @@ export const AUTOMATION_ACTIONS = [
   "cross_seed_search",
   "retry_import",
   "link_to_arr",
+  "delete_media",
   "notify_only",
 ] as const
 
@@ -26,6 +28,8 @@ export const CONDITIONS_BY_TRIGGER = {
   import_failed_detected: [],
   stalled_download_detected: [],
   untracked_detected: [],
+  // Obligatoires pour ce déclencheur (planchers : lib/automations.ts).
+  cleanup_candidate: ["min_score", "min_reclaimable_bytes"],
 } as const satisfies Record<(typeof AUTOMATION_TRIGGERS)[number], readonly string[]>
 
 export type AutomationTrigger = (typeof AUTOMATION_TRIGGERS)[number]
@@ -37,6 +41,8 @@ export interface AutomationConditions {
   min_seed_days?: number | null
   min_ratio?: number | null
   min_reclaimable_bytes?: number | null
+  /** Score minimum de l'assistant de nettoyage (déclencheur cleanup_candidate). */
+  min_score?: number | null
 }
 
 export interface Automation {

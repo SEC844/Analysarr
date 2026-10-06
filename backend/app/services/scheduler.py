@@ -11,12 +11,17 @@ from app.services.notifications import event_has_subscriber
 from app.services.scan import is_scan_running, run_scan
 from app.services.trash import purge_expired
 from app.services.updates import notify_update_available
+from app.services.weekly_summary import send_weekly_summary
 
 _JOB_ID = "periodic_scan"
 _UPDATE_JOB_ID = "update_watch"
 _UPDATE_INTERVAL_HOURS = 3
 _TRASH_JOB_ID = "trash_purge"
 _TRASH_INTERVAL_HOURS = 6
+_WEEKLY_JOB_ID = "weekly_summary"
+# Résumé hebdomadaire : le lundi matin, heure du conteneur.
+WEEKLY_SUMMARY_DAY = "mon"
+WEEKLY_SUMMARY_HOUR = 9
 _SNAPSHOT_JOB_ID = "library_snapshot"
 _SNAPSHOT_STARTUP_JOB_ID = "library_snapshot_startup"
 # Planificateur en retard (machine en veille, boucle chargée) : la mesure du
@@ -54,6 +59,22 @@ def refresh_update_watch(session: Session) -> None:
     checking = settings.update_check_enabled if settings else True  # même défaut que GET /api/app/info
     enabled = checking and event_has_subscriber(session, "update_available")
     configure_update_watch(enabled)
+
+
+async def _run_weekly_summary() -> None:
+    await send_weekly_summary()
+
+
+def configure_weekly_summary() -> None:
+    """Résumé hebdomadaire : le job tourne chaque lundi, mais ne calcule ni
+    n'envoie rien tant qu'aucun canal n'est abonné à l'événement (opt-in)."""
+    if scheduler.get_job(_WEEKLY_JOB_ID) is None:
+        scheduler.add_job(
+            _run_weekly_summary,
+            CronTrigger(day_of_week=WEEKLY_SUMMARY_DAY, hour=WEEKLY_SUMMARY_HOUR),
+            id=_WEEKLY_JOB_ID,
+            misfire_grace_time=3600,
+        )
 
 
 async def _run_trash_purge() -> None:

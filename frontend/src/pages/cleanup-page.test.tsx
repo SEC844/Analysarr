@@ -127,6 +127,7 @@ describe("CleanupPage", () => {
       candidate_count: 2,
       protected_count: 1,
       total_reclaimable_bytes: 6 * 1024 ** 3,
+      unreliable_sources: [],
     }))
     vi.mocked(getCleanupCandidate).mockImplementation(async (id) =>
       detail(id === 1 ? FORGOTTEN : OLD_SERIES, {
@@ -200,6 +201,22 @@ describe("CleanupPage", () => {
 
     await user.click(screen.getByRole("checkbox", { name: "Select Old series" }))
     expect(screen.getByText("2 media selected · 6.0 GB")).toBeInTheDocument()
+  })
+
+  it("warns when the last full scan could not read watch data", async () => {
+    vi.mocked(getCleanupCandidates).mockResolvedValue({
+      items: [FORGOTTEN],
+      total: 1,
+      candidate_count: 1,
+      protected_count: 0,
+      total_reclaimable_bytes: 4 * 1024 ** 3,
+      unreliable_sources: ["watch"],
+    })
+    renderPage()
+
+    expect(await screen.findByText(en.cleanup.unreliable.title)).toBeInTheDocument()
+    expect(screen.getByText(en.cleanup.unreliable.watch)).toBeInTheDocument()
+    expect(screen.queryByText(en.cleanup.unreliable.requests)).not.toBeInTheDocument()
   })
 
   it("fills the selection from a goal, deletion still waiting for the dialog", async () => {

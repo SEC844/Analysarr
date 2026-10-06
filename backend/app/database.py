@@ -105,6 +105,7 @@ _CURRENT_SCHEMA_MARKERS = [
     ("mediawatch", "favorite"),
     ("embyuser", "last_activity_at"),
     ("media", "full_reclaimable_bytes"),
+    ("scanrun", "failed_sources"),
 ]
 
 
