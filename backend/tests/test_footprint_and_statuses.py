@@ -9,6 +9,7 @@ from app.services.cascade_delete import execute_delete
 from app.services.media_delete import build_delete_footprint
 from app.services.media_status import refresh_media_statuses
 from app.services.scan import alert_statuses, compute_statuses, is_healthy
+from app.services.scan.statuses import tracker_count
 from tests.test_trash import FakeTorrentClient, add_movie, add_torrent, patch_client
 
 
@@ -199,3 +200,26 @@ def test_refreshing_a_media_reads_its_queue_and_missing_episodes(session):
     assert {"manquant_emby", "import_rate"} <= set(statuses)
     assert "orphelin_qbit" not in statuses  # son import est bloqué : ce n'est pas un orphelin
     assert media.total_size == 5
+
+
+def test_one_torrent_announcing_on_several_addresses_is_one_tracker():
+    """Cas réel : un torrent C411 annoncé sur `c411.org` et `tk.c411.tw`
+    n'est pas du cross-seed."""
+    files = [MediaFile(path="/a", size=10, inode=1, device=1, is_current=True)]
+    trackers = [{"domain": "c411.org", "status": "ok"}, {"domain": "tk.c411.tw", "status": "ok"}]
+    single = Torrent(hash="h", name="t", is_hardlinked=True, trackers_json=json.dumps(trackers))
+
+    statuses, _ = compute_statuses(files, [single], True)
+
+    assert statuses == {"tracker_unique"}
+
+
+def test_tracker_count_groups_torrents_sharing_an_address():
+    assert tracker_count([]) == 0
+    assert tracker_count([set(), {"a.org"}]) == 1
+    assert tracker_count([{"c411.org", "tk.c411.tw"}]) == 1
+    assert tracker_count([{"a.org"}, {"b.org"}]) == 2
+    # Deux torrents du même tracker (même adresse) : un seul.
+    assert tracker_count([{"a.org", "a2.org"}, {"a2.org"}, {"b.org"}]) == 2
+    # Un torrent qui fait le lien entre deux groupes les réunit.
+    assert tracker_count([{"a.org"}, {"b.org"}, {"a.org", "b.org"}]) == 1

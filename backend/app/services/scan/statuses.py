@@ -261,15 +261,35 @@ def is_orphan(torrent: Torrent) -> bool:
     return torrent.is_hardlinked is False and not torrent.repairable and not torrent.not_imported
 
 
+def tracker_count(domain_sets: list[set[str]]) -> int:
+    """Trackers distincts : un torrent appartient à UN tracker, même annoncé
+    sur plusieurs adresses (`c411.org` et `tk.c411.tw`), et deux torrents qui
+    partagent une adresse sont sur le même tracker. Bug réel : compter les
+    domaines faisait passer un seul torrent C411 pour du cross-seed."""
+    groups: list[set[str]] = []
+    for domains in domain_sets:
+        if not domains:
+            continue
+        merged = set(domains)
+        kept = []
+        for group in groups:
+            if group & merged:
+                merged |= group
+            else:
+                kept.append(group)
+        groups = [*kept, merged]
+    return len(groups)
+
+
 def _tracker_coverage(torrents: list[Torrent]) -> str | None:
     """Couverture tracker : information, pas problème de santé. Calculée sur
     les torrents qui protègent vraiment le média (hardlinkés) — les trackers
     d'un orphelin ne couvrent plus rien."""
     protecting = [t for t in torrents if t.is_hardlinked is True] or torrents
-    domains = {d["domain"] for t in protecting for d in json.loads(t.trackers_json)}
-    if len(domains) == 1:
+    count = tracker_count([{d["domain"] for d in json.loads(t.trackers_json)} for t in protecting])
+    if count == 1:
         return "tracker_unique"
-    if len(domains) > 1:
+    if count > 1:
         return "cross_seed"
     return None
 
