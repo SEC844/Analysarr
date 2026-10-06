@@ -3,12 +3,12 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import {
   getCleanupCandidate,
   getCleanupCandidates,
+  getCleanupOtherLinks,
   getCleanupSettings,
   getForecast,
   saveCleanupSettings,
-  simulateCleanupPlan,
 } from "@/lib/api"
-import type { CleanupPlanRequest, CleanupQuery, CleanupSettings } from "@/types/cleanup"
+import type { CleanupQuery, CleanupSettings } from "@/types/cleanup"
 
 const CLEANUP_QUERY_KEY = ["cleanup"] as const
 
@@ -29,6 +29,16 @@ export function useCleanupCandidateQuery(id: number, enabled: boolean) {
   })
 }
 
+/** Autres liens d'un média : lancé seulement quand on le demande. */
+export function useCleanupOtherLinksQuery(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...CLEANUP_QUERY_KEY, "links", id],
+    queryFn: () => getCleanupOtherLinks(id),
+    enabled,
+    staleTime: 0,
+  })
+}
+
 export function useCleanupSettingsQuery() {
   return useQuery({ queryKey: [...CLEANUP_QUERY_KEY, "settings"], queryFn: getCleanupSettings })
 }
@@ -46,9 +56,4 @@ export function useSaveCleanupSettingsMutation() {
  * d'une minute à l'autre. */
 export function useForecastQuery() {
   return useQuery({ queryKey: ["library", "forecast"], queryFn: getForecast, staleTime: 10 * 60_000 })
-}
-
-/** Simulation du mode objectif : sans effet, donc rien à invalider. */
-export function useCleanupPlanMutation() {
-  return useMutation({ mutationFn: (payload: CleanupPlanRequest) => simulateCleanupPlan(payload) })
 }

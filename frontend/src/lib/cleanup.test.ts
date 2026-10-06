@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { amountToBytes, componentDetail, mainReasonText, protectionText, scoreTone, selectionSize } from "@/lib/cleanup"
+import { componentDetail, mainReasonText, protectionText, scoreTone, selectionSize } from "@/lib/cleanup"
 import type { CleanupCandidate, ScoreComponent } from "@/types/cleanup"
 
 // Traduction factice : la clé et ses variables, pour vérifier le choix du texte.
@@ -106,6 +106,9 @@ describe("componentDetail", () => {
     expect(componentDetail(t, component({}))).toMatch(/^cleanup\.breakdown\.disinterestPlayed .*"count":180/)
     expect(componentDetail(t, component({ since: "added" }))).toMatch(/^cleanup\.breakdown\.disinterestAdded /)
     expect(componentDetail(t, component({ days: null, since: null }))).toMatch(/^cleanup\.breakdown\.unknownDate /)
+    expect(componentDetail(t, component({ days: null, since: "undated" }))).toMatch(
+      /^cleanup\.breakdown\.disinterestUndated /,
+    )
     expect(componentDetail(t, component({ key: "potential", users: 4, unfinished: 1 }))).toMatch(
       /^cleanup\.breakdown\.potential .*"unfinished":1,"users":4/,
     )
@@ -117,16 +120,5 @@ describe("componentDetail", () => {
 describe("selectionSize", () => {
   it("adds up the space of the selection", () => {
     expect(selectionSize([{ reclaimable_bytes: 1024 }, { reclaimable_bytes: 1024 }])).toMatch(/^2\.0 /)
-  })
-})
-
-describe("amountToBytes", () => {
-  it("reads binary gigabytes, with a decimal comma", () => {
-    expect(amountToBytes("100")).toBe(100 * 1024 ** 3)
-    expect(amountToBytes(" 1,5 ")).toBe(1.5 * 1024 ** 3)
-  })
-
-  it("refuses what the server would refuse", () => {
-    for (const value of ["", "0", "-3", "abc", "1e9"]) expect(amountToBytes(value)).toBeNull()
   })
 })

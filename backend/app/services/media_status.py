@@ -79,7 +79,7 @@ def refresh_statuses(session: Session, medias: Sequence[Media]) -> None:
         files = session.exec(select(MediaFile).where(col(MediaFile.media_id) == media.id)).all()
         torrents = session.exec(select(Torrent).where(col(Torrent.media_id) == media.id)).all()
         issues = session.exec(select(ImportIssue).where(col(ImportIssue.media_id) == media.id)).all()
-        torrent_files = _torrent_files(session, torrents)
+        torrent_files = torrent_files_of(session, torrents)
         apply_statuses(media, files, torrents, issues, ignores, policy=policy, torrent_files=torrent_files, now=now)
         session.add(media)
         session.add_all([*files, *torrents])
@@ -90,7 +90,7 @@ def refresh_media_statuses(session: Session, media: Media) -> None:
     refresh_statuses(session, [media])
 
 
-def _torrent_files(session: Session, torrents: Sequence[Torrent]) -> dict[str, FilePaths]:
+def torrent_files_of(session: Session, torrents: Sequence[Torrent]) -> dict[str, FilePaths]:
     """Fichiers mémorisés de ces torrents (cache `TorrentFile`)."""
     hashes = [t.hash.lower() for t in torrents if t.hash]
     files: dict[str, FilePaths] = {}

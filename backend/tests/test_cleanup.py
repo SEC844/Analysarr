@@ -521,3 +521,79 @@ def test_ten_thousand_media_are_ranked_under_half_a_second(session, settings):
     assert min(timings) < 0.5, [f"{t:.2f}" for t in timings]
     first = page.items[0]
     assert candidate_detail(session, first.media_id) is not None
+
+
+def test_watched_without_a_play_date_is_never_disinterest():
+    """Cas réel : marqué comme vu (ou lecture importée) sans date de lecture.
+    « Jamais regardé » serait faux ; le plus prudent : aucun désintérêt."""
+    result = evaluate(facts(last_played_at=None, watched_undated=True), BALANCED, NOW)
+    disinterest = component(result, "disinterest")
+    assert (disinterest.value, disinterest.since, disinterest.days) == (0, "undated", None)
+    assert result.main_reason != "disinterest"
+
+
+def test_the_collection_flags_media_watched_without_a_date(session, settings):
+    _media(session, "Vu sans date", watch_played_count=1, last_played_at=None)
+    _media(session, "Jamais vu")
+    by_title = {f.title: f for f in collect_facts(session)[0]}
+    assert by_title["Vu sans date"].watched_undated is True
+    assert by_title["Jamais vu"].watched_undated is False
+
+
+def test_the_detail_explains_space_held_by_links_outside_the_media(admin_client, session, settings, tmp_path):
+    """Cas réel : « 6 Go » sur la fiche, « 0 o » dans l'assistant. Un lien de
+    plus (laissé par cross-seed, torrent non rattaché…) retient l'espace :
+    le détail le dit, et la recherche retrouve où il vit."""
+    data = tmp_path / "data"
+    library = data / "media" / "Film.mkv"
+    seeded = data / "torrents" / "Film.mkv"
+    stray = data / "torrents" / "cross-seed-links" / "Film.mkv"
+    for path in (library, seeded, stray):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    library.write_bytes(b"x" * 1000)
+    os.link(library, seeded)
+    os.link(library, stray)
+    settings.emby_library_path = str(data / "media")
+    settings.qbittorrent_download_path = str(data / "torrents")
+    session.add(settings)
+    media = _media(session, total_size=1000)
+    session.add_all(
+        [
+            MediaFile(media_id=media.id, path=str(library), size=1000),
+            Torrent(media_id=media.id, hash="h", name="Film", save_path=str(seeded.parent), size=1000),
+            TorrentFile(torrent_hash="h", path=str(seeded), size=1000),
+        ]
+    )
+    session.commit()
+    refresh_media_statuses(session, media)
+    session.commit()
+
+    detail = admin_client.get(f"/api/cleanup/candidates/{media.id}").json()
+    assert detail["space"] == {"on_disk_bytes": 1000, "freed_bytes": 0, "held_bytes": 1000, "external_links": 1}
+
+    links = admin_client.get(f"/api/cleanup/candidates/{media.id}/links").json()
+    assert links["complete"] is True
+    assert links["roots"] == [str(data)]  # dossier commun : les liens voisins sont trouvés aussi
+    assert links["paths"] == [str(stray)]
+
+
+def test_the_link_search_is_bounded(tmp_path):
+    from app.services.link_finder import find_other_links
+
+    target = tmp_path / "a.mkv"
+    target.write_bytes(b"x")
+    for i in range(5):
+        os.link(target, tmp_path / f"copy{i}.mkv")
+    (tmp_path / "same-size.mkv").write_bytes(b"y")  # même taille, autre fichier
+    st = os.stat(target)
+    targets = {(st.st_ino, st.st_dev): 1}
+
+    every = find_other_links([str(tmp_path)], targets, {str(target)})
+    assert sorted(os.path.basename(p) for p in every.paths) == [f"copy{i}.mkv" for i in range(5)]
+    assert len(find_other_links([str(tmp_path)], targets, {str(target)}, limit=2).paths) == 2
+    assert find_other_links([str(tmp_path)], targets, set(), budget=0).complete is False
+    assert find_other_links([str(tmp_path)], {}, set()).paths == []
+
+
+def test_unknown_media_has_no_links(admin_client):
+    assert admin_client.get("/api/cleanup/candidates/999/links").status_code == 404

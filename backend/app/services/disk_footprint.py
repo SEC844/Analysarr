@@ -18,6 +18,7 @@ import logging
 import os
 import stat as stat_module
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
 from app.schemas.media import DeleteFootprintItem, DiskUnit, MediaDeleteFootprint
 
@@ -32,6 +33,8 @@ class FootprintBuilder:
 
     def __init__(self) -> None:
         self.units: list[DiskUnit] = []
+        # (inode, périphérique) de chaque unité ; None pour une unité estimée.
+        self.keys: list[tuple[int, int] | None] = []
         self._by_inode: dict[tuple[int, int], int] = {}
 
     def unit_for(self, path: str | None, fallback_size: int | None) -> list[int]:
@@ -48,11 +51,13 @@ class FootprintBuilder:
             st = None
         if st is None or not stat_module.S_ISREG(st.st_mode):
             self.units.append(DiskUnit(size=fallback_size or 0, links=1))
+            self.keys.append(None)
             return [len(self.units) - 1]
         key = (st.st_ino, st.st_dev)
         if key not in self._by_inode:
             self._by_inode[key] = len(self.units)
             self.units.append(DiskUnit(size=st.st_size, links=st.st_nlink))
+            self.keys.append(key)
         return [self._by_inode[key]]
 
     def item(self, item_id: int, paths: FilePaths, fallback_size: int | None) -> DeleteFootprintItem:
@@ -72,13 +77,18 @@ def torrent_paths(save_path: str | None, content_path: str | None, size: int | N
     return [(content_path, size)] if content_path else []
 
 
+def _selected_links(selected: Iterable[DeleteFootprintItem]) -> dict[int, int]:
+    links: dict[int, int] = {}
+    for item in selected:
+        for unit in item.units:
+            links[unit] = links.get(unit, 0) + 1
+    return links
+
+
 def freed_bytes(footprint: MediaDeleteFootprint, selected: Iterable[DeleteFootprintItem]) -> int:
     """Espace libéré en supprimant ces éléments : une unité ne compte que si
     autant de ses liens sont supprimés qu'elle en a (`links`)."""
-    selected_links: dict[int, int] = {}
-    for item in selected:
-        for unit in item.units:
-            selected_links[unit] = selected_links.get(unit, 0) + 1
+    selected_links = _selected_links(selected)
     return sum(footprint.units[i].size for i, count in selected_links.items() if count >= footprint.units[i].links)
 
 
@@ -87,17 +97,53 @@ def whole_media_bytes(footprint: MediaDeleteFootprint) -> int:
     return freed_bytes(footprint, [*footprint.files, *footprint.torrents])
 
 
-def cached_footprint(
-    files: Sequence[tuple[str, int | None]],
-    torrents: Sequence[tuple[str | None, str | None, int | None, FilePaths]],
-) -> MediaDeleteFootprint:
-    """Empreinte depuis ce que la base connaît : fichiers de bibliothèque
-    `(chemin, taille)` et torrents `(save_path, content_path, taille,
-    fichiers mémorisés)`. Identifiants positionnels : seul le total compte."""
+CachedFiles = Sequence[tuple[str, int | None]]
+CachedTorrents = Sequence[tuple[str | None, str | None, int | None, FilePaths]]
+
+
+def _cached(files: CachedFiles, torrents: CachedTorrents) -> tuple[FootprintBuilder, MediaDeleteFootprint]:
     builder = FootprintBuilder()
     file_items = [builder.item(index, [(path, size)], size) for index, (path, size) in enumerate(files)]
     torrent_items = [
         builder.item(index, torrent_paths(save_path, content_path, size, paths), size)
         for index, (save_path, content_path, size, paths) in enumerate(torrents)
     ]
-    return MediaDeleteFootprint(units=builder.units, files=file_items, torrents=torrent_items)
+    return builder, MediaDeleteFootprint(units=builder.units, files=file_items, torrents=torrent_items)
+
+
+def cached_footprint(files: CachedFiles, torrents: CachedTorrents) -> MediaDeleteFootprint:
+    """Empreinte depuis ce que la base connaît : fichiers de bibliothèque
+    `(chemin, taille)` et torrents `(save_path, content_path, taille,
+    fichiers mémorisés)`. Identifiants positionnels : seul le total compte."""
+    return _cached(files, torrents)[1]
+
+
+@dataclass(frozen=True)
+class MediaSpace:
+    """Espace d'un média sur le disque (chaque fichier physique compté une
+    fois) et ce que sa suppression complète libérerait réellement. La
+    différence est retenue par `external_links` liens qui vivent HORS du
+    média (autre torrent, copie hardlinkée, lien laissé par cross-seed…) :
+    les supprimer ne libère rien tant que ces liens existent."""
+
+    on_disk: int
+    freed: int
+    external_links: int
+    # Fichiers retenus par un lien extérieur : (inode, périphérique) → taille.
+    held_files: dict[tuple[int, int], int]
+
+    @property
+    def held(self) -> int:
+        return self.on_disk - self.freed
+
+
+def media_space(files: CachedFiles, torrents: CachedTorrents) -> MediaSpace:
+    builder, footprint = _cached(files, torrents)
+    selected = _selected_links([*footprint.files, *footprint.torrents])
+    held = [i for i, count in selected.items() if count < footprint.units[i].links]
+    return MediaSpace(
+        on_disk=sum(footprint.units[i].size for i in selected),
+        freed=whole_media_bytes(footprint),
+        external_links=sum(footprint.units[i].links - selected[i] for i in held),
+        held_files={key: footprint.units[i].size for i in held if (key := builder.keys[i]) is not None},
+    )

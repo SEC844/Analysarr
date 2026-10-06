@@ -30,7 +30,6 @@ MODULES = [
     "app.routers.seed_protection",
     "app.services.cleanup",
     "app.services.cleanup_score",
-    "app.services.cleanup_plan",
     "app.services.weekly_summary",
     "app.services.automations",
     "app.services.disk_footprint",

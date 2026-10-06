@@ -161,7 +161,9 @@ export function WatchSummary({ mediaId }: { mediaId: number }) {
       ? absolute_dates
         ? t("watch.lastPlayedOn", { date: formatDate(stats.last_played_at) ?? "", name: stats.last_played_by })
         : t("watch.lastPlayed", { time: formatRelativeTime(stats.last_played_at) ?? "", name: stats.last_played_by })
-      : t("watch.neverPlayed")
+      : stats.users.some((user) => user.played || user.in_progress)
+        ? t("watch.playedUndated")
+        : t("watch.neverPlayed")
   const details = [added, lastPlayed].filter(Boolean)
 
   return (

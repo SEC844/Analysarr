@@ -112,13 +112,6 @@ def fill_estimate(free: int, trend: Trend) -> FillEstimate | None:
     return FillEstimate(earliest, latest if latest is not None and latest <= MAX_FILL_DAYS else None)
 
 
-def bytes_to_free(free: int, trend: Trend, days: int, margin: float) -> int:
-    """Espace à libérer pour que le disque tienne `days` jours avec la pente
-    HAUTE (prudente), majoré de `margin` (0,05 = 5 %). 0 : il tient déjà."""
-    missing = trend.high * days - free
-    return math.ceil(missing * (1 + margin)) if missing > 0 else 0
-
-
 # --- Photographies ----------------------------------------------------------
 
 

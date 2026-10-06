@@ -4,7 +4,6 @@ import { applyLanguage } from "@/i18n/core"
 
 import {
   byteTicks,
-  dayFromToday,
   dayFromIndex,
   dayIndex,
   dayTicks,
@@ -54,11 +53,6 @@ describe("calendar days", () => {
     // Passage à l'heure d'hiver : toujours un jour d'écart.
     expect(dayIndex("2026-10-26") - dayIndex("2026-10-25")).toBe(1)
     expect(dayFromIndex(dayIndex("2026-03-29"))).toBe("2026-03-29")
-  })
-
-  it("builds a day relative to today for the date field", () => {
-    expect(dayFromToday(30, new Date(2026, 0, 15))).toBe("2026-02-14")
-    expect(dayFromToday(0, new Date(2026, 11, 31))).toBe("2026-12-31")
   })
 })
 

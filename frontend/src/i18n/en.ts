@@ -745,6 +745,7 @@ export const en: Dictionary = {
     added: "Added {time}",
     lastPlayed: "last played {time} by {name}",
     neverPlayed: "never played",
+    playedUndated: "already watched, play date unknown",
     favorite: "Favourite",
     favoriteCount: { one: "{count} favourite", other: "{count} favourites" },
     lastActivity: "active {time}",
@@ -1047,6 +1048,20 @@ export const en: Dictionary = {
     },
   },
   cleanup: {
+    space: {
+      freed: "Space actually freed",
+      ofTotal: "{freed} of {total}",
+      held: {
+        one: "{size} would stay used: another link to these files exists outside this media (unmatched torrent, hardlinked copy, link left by cross-seed…).",
+        other: "{size} would stay used: {count} other links to these files exist outside this media (unmatched torrent, hardlinked copy, link left by cross-seed…).",
+      },
+      find: "Find the other links",
+      searching: "Searching the disk…",
+      found: "Found under {roots}:",
+      none: "No other link found under {roots}: it lives outside Analysarr's folders.",
+      incomplete: "Search stopped before the end (time or result limit).",
+      failed: "Search failed.",
+    },
     unreliable: {
       title: "Incomplete data at the last full scan",
       watch:
@@ -1054,36 +1069,6 @@ export const en: Dictionary = {
       requests:
         "Requests could not be read: pending requests protect nothing. Cleanup automations delete nothing.",
       advice: "Check the service, then run a full scan again.",
-    },
-    goal: {
-      title: "Goal",
-      description:
-        "Set a goal: the assistant suggests media to delete in its ranking order, never picking a protected one. Nothing is deleted at this step.",
-      free: "Free up space",
-      until: "Last until a date",
-      amount: "Space to free",
-      unit: "GB",
-      date: "Date",
-      disk: "Disk",
-      simulate: "Simulate",
-      untilUnavailable: "Available after {min} days of measurements of the disk.",
-      invalidAmount: "Enter an amount greater than zero.",
-      invalidDate: "Pick a date within the coming year.",
-      failed: "Simulation failed: {error}",
-      result: { one: "{count} media, {size} freed", other: "{count} media, {size} freed" },
-      enough: "The disk lasts until {date} without deleting anything, even at the fastest growth of the range.",
-      untilContext:
-        "{free} free today, prudent growth of {growth} per day: {target} to free by {date}, 5% margin included.",
-      shortfall: "{size} short: not enough media can be suggested (protected media are never picked).",
-      limited: "Selection capped at {max} media.",
-      losses: "Who loses what",
-      lossesHint: "Accounts that started or favorited a media of the selection.",
-      lossesNone: "Nobody started or favorited these media.",
-      inProgressMovie: "started ({progress}%)",
-      inProgressSeries: { one: "{count} episode watched", other: "{count} episodes watched" },
-      favorite: "favorite",
-      select: "Select these media",
-      selected: "Media selected: review them, then delete from the bar at the bottom of the page.",
     },
     title: "Cleanup assistant",
     description:
@@ -1128,6 +1113,7 @@ export const en: Dictionary = {
       disinterestPlayed: { one: "{count} day without playback", other: "{count} days without playback" },
       disinterestAdded: { one: "Never watched, added {count} day ago", other: "Never watched, added {count} days ago" },
       unknownDate: "Unknown date: does not count",
+      disinterestUndated: "Already watched, play date unknown: not counted",
       potentialNobody: "No active account has access to it",
       potential: "{unfinished} active account(s) out of {users} did not finish it",
       age: { one: "In the library for {count} day", other: "In the library for {count} days" },

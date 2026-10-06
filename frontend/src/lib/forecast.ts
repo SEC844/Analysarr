@@ -35,13 +35,6 @@ export function formatDay(day: string, withYear = false): string {
   })
 }
 
-/** Jour « AAAA-MM-JJ » à `days` jours d'aujourd'hui (pour un champ date). */
-export function dayFromToday(days: number, from = new Date()): string {
-  const date = new Date(from.getFullYear(), from.getMonth(), from.getDate() + days)
-  const pad = (value: number) => String(value).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
 // --- Durées ---------------------------------------------------------------------
 
 type DurationUnit = "days" | "weeks" | "months" | "years"

@@ -3,7 +3,6 @@ import { Link } from "react-router-dom"
 import { Clapperboard, Loader2, Play, ShieldCheck, Trash2, TriangleAlert, Tv } from "lucide-react"
 
 import { CleanupDeleteDialog } from "@/components/cleanup/cleanup-delete-dialog"
-import { CleanupGoalCard } from "@/components/cleanup/cleanup-goal-card"
 import { CleanupSettingsPanel } from "@/components/cleanup/cleanup-settings-panel"
 import { ScoreBreakdown } from "@/components/cleanup/score-breakdown"
 import { ForecastSection } from "@/components/forecast/forecast-section"
@@ -156,8 +155,6 @@ export function CleanupPage() {
       )}
 
       <ForecastSection />
-
-      <CleanupGoalCard onSelect={(items) => setSelected(new Map(items.map((item) => [item.media_id, item])))} />
 
       <CleanupSettingsPanel />
 

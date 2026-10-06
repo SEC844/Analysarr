@@ -748,6 +748,7 @@ export const fr = {
     added: "Ajouté {time}",
     lastPlayed: "dernière lecture {time} par {name}",
     neverPlayed: "jamais lu",
+    playedUndated: "déjà vu, date de lecture inconnue",
     favorite: "Favori",
     favoriteCount: { one: "{count} favori", other: "{count} favoris" },
     lastActivity: "actif {time}",
@@ -1056,6 +1057,20 @@ export const fr = {
     },
   },
   cleanup: {
+    space: {
+      freed: "Espace réellement libéré",
+      ofTotal: "{freed} sur {total}",
+      held: {
+        one: "{size} resteraient occupés : un autre lien vers ces fichiers existe hors de ce média (torrent non rattaché, copie hardlinkée, lien laissé par cross-seed…).",
+        other: "{size} resteraient occupés : {count} autres liens vers ces fichiers existent hors de ce média (torrent non rattaché, copie hardlinkée, lien laissé par cross-seed…).",
+      },
+      find: "Trouver les autres liens",
+      searching: "Recherche sur le disque…",
+      found: "Trouvés sous {roots} :",
+      none: "Aucun autre lien trouvé sous {roots} : il vit hors des dossiers d'Analysarr.",
+      incomplete: "Recherche arrêtée avant la fin (limite de temps ou de résultats).",
+      failed: "Recherche impossible.",
+    },
     unreliable: {
       title: "Données incomplètes au dernier scan complet",
       watch:
@@ -1063,36 +1078,6 @@ export const fr = {
       requests:
         "Les demandes n'ont pas pu être lues : les demandes en cours ne protègent plus rien. Les automatisations de nettoyage ne suppriment rien.",
       advice: "Vérifiez le service puis relancez un scan complet.",
-    },
-    goal: {
-      title: "Objectif",
-      description:
-        "Fixez un objectif : l'assistant propose les médias à supprimer dans son ordre de classement, sans jamais retenir un média protégé. Rien n'est supprimé à cette étape.",
-      free: "Libérer de l'espace",
-      until: "Tenir jusqu'à une date",
-      amount: "Espace à libérer",
-      unit: "Go",
-      date: "Date",
-      disk: "Disque",
-      simulate: "Simuler",
-      untilUnavailable: "Disponible après {min} jours de mesures du disque.",
-      invalidAmount: "Indiquez un espace supérieur à zéro.",
-      invalidDate: "Choisissez une date dans l'année qui vient.",
-      failed: "Simulation impossible : {error}",
-      result: { one: "{count} média, {size} libérés", other: "{count} médias, {size} libérés" },
-      enough: "Le disque tient jusqu'au {date} sans rien supprimer, même avec la croissance la plus forte de la fourchette.",
-      untilContext:
-        "{free} libres aujourd'hui, croissance prudente de {growth} par jour : {target} à libérer d'ici le {date}, marge de 5 % comprise.",
-      shortfall: "Il manque {size} : pas assez de médias proposables (les médias protégés ne sont jamais retenus).",
-      limited: "Sélection limitée à {max} médias.",
-      losses: "Qui perd quoi",
-      lossesHint: "Comptes ayant commencé ou mis en favori un média de la sélection.",
-      lossesNone: "Personne n'a commencé ni mis en favori ces médias.",
-      inProgressMovie: "commencé ({progress} %)",
-      inProgressSeries: { one: "{count} épisode vu", other: "{count} épisodes vus" },
-      favorite: "en favori",
-      select: "Sélectionner ces médias",
-      selected: "Médias sélectionnés : vérifiez-les, puis supprimez depuis la barre en bas de page.",
     },
     title: "Assistant de nettoyage",
     description:
@@ -1137,6 +1122,7 @@ export const fr = {
       disinterestPlayed: { one: "{count} jour sans lecture", other: "{count} jours sans lecture" },
       disinterestAdded: { one: "Jamais regardé, ajouté il y a {count} jour", other: "Jamais regardé, ajouté il y a {count} jours" },
       unknownDate: "Date inconnue : ne compte pas",
+      disinterestUndated: "Déjà vu, date de lecture inconnue : ne compte pas",
       potentialNobody: "Aucun compte actif n'y a accès",
       potential: "{unfinished} compte(s) actif(s) sur {users} ne l'ont pas terminé",
       age: { one: "Dans la bibliothèque depuis {count} jour", other: "Dans la bibliothèque depuis {count} jours" },

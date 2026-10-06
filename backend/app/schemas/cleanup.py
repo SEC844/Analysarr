@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -65,7 +65,8 @@ class ScoreComponentRead(BaseModel):
     weight: int
     contribution: float
     days: int | None = None
-    since: Literal["last_played", "added"] | None = None
+    # `undated` : vu par au moins un compte, sans date de lecture connue.
+    since: Literal["last_played", "added", "undated"] | None = None
     users: int | None = None
     unfinished: int | None = None
     series_status: str | None = None
@@ -108,8 +109,29 @@ class CleanupCandidateRead(BaseModel):
     active_users: int = 0
 
 
+class CleanupSpaceRead(BaseModel):
+    """Espace sur le disque (chaque fichier physique compté une fois) contre
+    espace réellement libéré : la différence est retenue par
+    `external_links` liens qui vivent hors du média."""
+
+    on_disk_bytes: int
+    freed_bytes: int
+    held_bytes: int
+    external_links: int
+
+
+class OtherLinksRead(BaseModel):
+    """Autres liens trouvés sous `roots`. `complete` : faux si la recherche
+    s'est arrêtée (limite de temps ou de résultats) avant la fin."""
+
+    paths: list[str]
+    complete: bool
+    roots: list[str]
+
+
 class CleanupCandidateDetail(CleanupCandidateRead):
     components: list[ScoreComponentRead]
+    space: CleanupSpaceRead
     # Score avant le malus « en cours de visionnage ».
     raw_score: int
     in_progress_users: list[str]
@@ -127,68 +149,3 @@ class CleanupCandidatesPage(BaseModel):
     # Sources illisibles au dernier scan complet (`watch`, `requests`) :
     # scores et protections faussés, l'interface le signale.
     unreliable_sources: list[UnreliableSource] = []
-
-
-# --- Mode objectif (services/cleanup_plan.py) ---------------------------------
-
-# Clé d'un disque de la prévision : ses racines jointes par « + ».
-_DISK_KEY = r"^(library|downloads)(\+(library|downloads))?$"
-
-
-class CleanupPlanRequest(BaseModel):
-    """`free` : libérer `target_bytes` octets. `until` : que le disque `disk`
-    tienne jusqu'au `until` (espace à libérer tiré de la prévision)."""
-
-    goal: Literal["free", "until"]
-    # 1 Mo à 1 Po.
-    target_bytes: int | None = Field(default=None, ge=1_000_000, le=10**15)
-    until: date | None = None
-    disk: str | None = Field(default=None, max_length=40, pattern=_DISK_KEY)
-
-    @model_validator(mode="after")
-    def _goal_fields(self) -> "CleanupPlanRequest":
-        if self.goal == "free" and self.target_bytes is None:
-            raise ValueError("Indiquez l'espace à libérer.")
-        if self.goal == "until" and (self.until is None or self.disk is None):
-            raise ValueError("Indiquez la date et le disque.")
-        return self
-
-
-class PlanLossMedia(BaseModel):
-    media_id: int
-    title: str
-    media_type: str
-    in_progress: bool
-    favorite: bool
-    # Films : pourcentage de lecture (0-100). Séries : nombre d'épisodes vus.
-    progress: float
-
-
-class PlanLossRead(BaseModel):
-    """Un compte et ce qu'il perdrait : médias commencés ou mis en favori."""
-
-    user_id: str
-    name: str
-    image_tag: str | None
-    media: list[PlanLossMedia]
-
-
-class CleanupPlanRead(BaseModel):
-    """Simulation, sans aucun effet. `target_bytes` : espace à libérer
-    (0 en mode `until` quand le disque tient déjà). `shortfall_bytes` : ce
-    qui manque, faute de candidats (ou plafond `max_items` atteint)."""
-
-    goal: Literal["free", "until"]
-    target_bytes: int
-    freed_bytes: int
-    shortfall_bytes: int
-    limited: bool
-    max_items: int
-    items: list[CleanupCandidateRead]
-    losses: list[PlanLossRead]
-    # Mode `until` : disque visé, espace libre aujourd'hui, jours jusqu'à la
-    # date et croissance prudente retenue (octets par jour).
-    disk: str | None = None
-    free_bytes: int | None = None
-    days: int | None = None
-    growth_per_day: float | None = None

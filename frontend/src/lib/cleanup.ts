@@ -65,6 +65,7 @@ export function protectionText(t: Translate, protection: Protection): string {
 export function componentDetail(t: Translate, component: ScoreComponent): string {
   switch (component.key) {
     case "disinterest":
+      if (component.since === "undated") return t("cleanup.breakdown.disinterestUndated")
       if (component.days === null) return t("cleanup.breakdown.unknownDate")
       return component.since === "last_played"
         ? t("cleanup.breakdown.disinterestPlayed", { count: component.days })
@@ -92,18 +93,4 @@ export function selectionSize(selected: Iterable<{ reclaimable_bytes: number }>)
   let total = 0
   for (const item of selected) total += item.reclaimable_bytes
   return formatBytes(total)
-}
-
-const GIB = 1024 ** 3
-// Borne du serveur (schemas/cleanup.py : au plus 1 Po).
-const MAX_GIB = 900_000
-
-/** Mode objectif : octets à libérer, ou null si la saisie n'est pas un
- * nombre de Go valide (virgule décimale acceptée). Go binaires, comme
- * l'affichage des tailles (formatBytes). */
-export function amountToBytes(value: string): number | null {
-  const trimmed = value.trim().replace(",", ".")
-  const gib = trimmed === "" ? Number.NaN : Number(trimmed)
-  if (!Number.isFinite(gib) || gib <= 0 || gib > MAX_GIB) return null
-  return Math.round(gib * GIB)
 }

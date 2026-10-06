@@ -20,11 +20,10 @@ import type { RealtimeSettings, RealtimeSettingsWrite, RealtimeStatus, WebhookPr
 import type {
   CleanupCandidateDetail,
   CleanupCandidatesPage,
-  CleanupPlan,
-  CleanupPlanRequest,
   CleanupQuery,
   CleanupSettings,
   CleanupSettingsRead,
+  OtherLinks,
 } from "@/types/cleanup"
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
@@ -331,13 +330,13 @@ export function getCleanupCandidates(query: CleanupQuery): Promise<CleanupCandid
   return request<CleanupCandidatesPage>(`/api/cleanup/candidates?${params}`)
 }
 
-export function getCleanupCandidate(id: number): Promise<CleanupCandidateDetail> {
-  return request<CleanupCandidateDetail>(`/api/cleanup/candidates/${id}`)
+// Parcours du disque côté serveur, borné en temps : à la demande seulement.
+export function getCleanupOtherLinks(id: number): Promise<OtherLinks> {
+  return request<OtherLinks>(`/api/cleanup/candidates/${id}/links`)
 }
 
-/** Mode objectif : simulation, rien n'est supprimé. */
-export function simulateCleanupPlan(payload: CleanupPlanRequest): Promise<CleanupPlan> {
-  return request<CleanupPlan>("/api/cleanup/plan", { method: "POST", body: JSON.stringify(payload) })
+export function getCleanupCandidate(id: number): Promise<CleanupCandidateDetail> {
+  return request<CleanupCandidateDetail>(`/api/cleanup/candidates/${id}`)
 }
 
 export function getForecast(): Promise<Forecast> {

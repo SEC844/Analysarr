@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Loader2 } from "lucide-react"
 
+import { SpaceDetails } from "@/components/cleanup/space-details"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useCleanupCandidateQuery } from "@/hooks/use-cleanup"
 import { useI18n } from "@/i18n"
@@ -76,6 +77,7 @@ export function ScoreBreakdown({ candidate }: { candidate: CleanupCandidate }) {
             <p className="border-t px-1 pt-2 text-sm font-medium">
               {t("cleanup.breakdown.total", { score: detail.score })}
             </p>
+            <SpaceDetails mediaId={candidate.media_id} space={detail.space} />
           </div>
         )}
       </PopoverContent>

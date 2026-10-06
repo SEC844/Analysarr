@@ -83,6 +83,10 @@ class CandidateFacts:
     reclaimable_bytes: int
     date_added: datetime | None = None
     last_played_at: datetime | None = None
+    # Vu (entièrement ou en partie) par au moins un compte, sans aucune date
+    # de lecture connue — « marqué comme vu », lecture importée. On ne sait
+    # pas depuis quand plus personne ne le regarde : aucun désintérêt retenu.
+    watched_undated: bool = False
     series_status: str | None = None
     # Comptes actifs ayant accès au média, et ceux qui ne l'ont pas terminé.
     active_users: int = 0
@@ -145,7 +149,7 @@ class Component:
     weight: int = 0
     contribution: float = 0.0
     days: int | None = None
-    since: Literal["last_played", "added"] | None = None
+    since: Literal["last_played", "added", "undated"] | None = None
     users: int | None = None
     unfinished: int | None = None
     series_status: str | None = None
@@ -168,7 +172,10 @@ class _Measures(NamedTuple):
 def _measure(facts: CandidateFacts, settings: CleanupSettings, now: datetime) -> _Measures:
     since_played = _days_since(facts.last_played_at, now)
     since_added = _days_since(facts.date_added, now)
-    disinterest_days = since_played if since_played is not None else since_added
+    # Déjà vu sans date : « jamais regardé depuis l'ajout » serait faux, et le
+    # plus prudent est de ne retenir aucun désintérêt.
+    undated = since_played is None and facts.watched_undated
+    disinterest_days = None if undated else (since_played if since_played is not None else since_added)
     # Plus personne d'actif pour le regarder : rien à préserver.
     potential = round(100 * (1 - facts.active_unfinished / facts.active_users)) if facts.active_users else 100
     values: list[tuple[ComponentKey, int]] = [
@@ -226,12 +233,7 @@ class Evaluation:
         """Détail explicable, construit seulement pour ce qu'on affiche."""
         m, facts = self.measures, self.facts
         extras: dict[ComponentKey, dict[str, Any]] = {
-            "disinterest": {
-                "days": m.disinterest_days,
-                "since": "last_played"
-                if m.since_played is not None
-                else ("added" if m.since_added is not None else None),
-            },
+            "disinterest": {"days": m.disinterest_days, "since": _disinterest_since(m, facts)},
             "potential": {"users": facts.active_users, "unfinished": facts.active_unfinished},
             "age": {"days": m.since_added},
             "series": {"series_status": facts.series_status},
@@ -240,6 +242,14 @@ class Evaluation:
             Component(key=key, value=value, weight=weight, contribution=contribution, **extras[key])
             for key, value, weight, contribution in self.weighted
         ]
+
+
+def _disinterest_since(m: _Measures, facts: CandidateFacts) -> Literal["last_played", "added", "undated"] | None:
+    if m.since_played is not None:
+        return "last_played"
+    if facts.watched_undated:
+        return "undated"
+    return "added" if m.since_added is not None else None
 
 
 def evaluate(facts: CandidateFacts, settings: CleanupSettings, now: datetime) -> Evaluation:

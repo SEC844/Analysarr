@@ -7,12 +7,12 @@ import { en } from "@/i18n/en"
 import {
   deleteSelectionExecute,
   getCleanupCandidate,
+  getCleanupOtherLinks,
   getCleanupCandidates,
   getCleanupSettings,
   getForecast,
   getMedia,
   saveCleanupSettings,
-  simulateCleanupPlan,
 } from "@/lib/api"
 import { CleanupPage } from "@/pages/cleanup-page"
 import { renderWithProviders } from "@/test/render"
@@ -24,12 +24,12 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getCleanupCandidates: vi.fn(),
   getCleanupCandidate: vi.fn(),
+  getCleanupOtherLinks: vi.fn(),
   getCleanupSettings: vi.fn(),
   saveCleanupSettings: vi.fn(),
   getMedia: vi.fn(),
   deleteSelectionExecute: vi.fn(),
   getForecast: vi.fn(),
-  simulateCleanupPlan: vi.fn(),
 }))
 
 function candidate(overrides: Partial<CleanupCandidate>): CleanupCandidate {
@@ -87,7 +87,8 @@ const PRUDENT: CleanupSettings = {
 }
 
 function detail(of: CleanupCandidate, overrides: Partial<CleanupCandidateDetail> = {}): CleanupCandidateDetail {
-  return { ...of, components: [], raw_score: of.score, in_progress_users: [], ...overrides }
+  const space = { on_disk_bytes: of.reclaimable_bytes, freed_bytes: of.reclaimable_bytes, held_bytes: 0, external_links: 0 }
+  return { ...of, components: [], raw_score: of.score, in_progress_users: [], space, ...overrides }
 }
 
 function media(id: number): MediaDetail {
@@ -192,6 +193,32 @@ describe("CleanupPage", () => {
     expect(getCleanupCandidate).toHaveBeenCalledWith(1)
   })
 
+  it("explains space held by links outside the media, and finds them on demand", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getCleanupCandidate).mockResolvedValue(
+      detail(FORGOTTEN, {
+        space: { on_disk_bytes: 6 * 1024 ** 3, freed_bytes: 0, held_bytes: 6 * 1024 ** 3, external_links: 1 },
+      }),
+    )
+    vi.mocked(getCleanupOtherLinks).mockResolvedValue({
+      paths: ["/data/torrents/cross-seed-links/Forgotten.mkv"],
+      complete: true,
+      roots: ["/data"],
+    })
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: /82/ }))
+
+    expect(await screen.findByText("0 B of 6.0 GB")).toBeInTheDocument()
+    expect(screen.getByText(/6.0 GB would stay used: another link/)).toBeInTheDocument()
+    expect(getCleanupOtherLinks).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: en.cleanup.space.find }))
+
+    expect(await screen.findByText("/data/torrents/cross-seed-links/Forgotten.mkv")).toBeInTheDocument()
+    expect(getCleanupOtherLinks).toHaveBeenCalledWith(1)
+  })
+
   it("adds up the selection", async () => {
     const user = userEvent.setup()
     renderPage()
@@ -217,32 +244,6 @@ describe("CleanupPage", () => {
     expect(await screen.findByText(en.cleanup.unreliable.title)).toBeInTheDocument()
     expect(screen.getByText(en.cleanup.unreliable.watch)).toBeInTheDocument()
     expect(screen.queryByText(en.cleanup.unreliable.requests)).not.toBeInTheDocument()
-  })
-
-  it("fills the selection from a goal, deletion still waiting for the dialog", async () => {
-    const user = userEvent.setup()
-    vi.mocked(simulateCleanupPlan).mockResolvedValue({
-      goal: "free",
-      target_bytes: 5 * 1024 ** 3,
-      freed_bytes: 6 * 1024 ** 3,
-      shortfall_bytes: 0,
-      limited: false,
-      max_items: 200,
-      items: [FORGOTTEN, OLD_SERIES],
-      losses: [],
-      disk: null,
-      free_bytes: null,
-      days: null,
-      growth_per_day: null,
-    })
-    renderPage()
-
-    await user.click(await screen.findByRole("button", { name: en.cleanup.goal.simulate }))
-    await user.click(await screen.findByRole("button", { name: en.cleanup.goal.select }))
-
-    expect(screen.getByText("2 media selected · 6.0 GB")).toBeInTheDocument()
-    expect(screen.getByRole("checkbox", { name: "Select Forgotten" })).toBeChecked()
-    expect(deleteSelectionExecute).not.toHaveBeenCalled()
   })
 
   it("never deletes anything when the dialog is closed", async () => {

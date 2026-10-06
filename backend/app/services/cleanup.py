@@ -26,7 +26,17 @@ from sqlalchemy import select as core_select
 from sqlmodel import Session, col, select
 
 from app.models.ignore import IgnoreRule
-from app.models.media import EmbyUser, Media, MediaRequest, MediaType, MediaWatch, ScanRun, ScanStatus, Torrent
+from app.models.media import (
+    EmbyUser,
+    Media,
+    MediaFile,
+    MediaRequest,
+    MediaType,
+    MediaWatch,
+    ScanRun,
+    ScanStatus,
+    Torrent,
+)
 from app.models.settings import Settings
 from app.schemas.cleanup import (
     UNRELIABLE_SOURCES,
@@ -34,11 +44,16 @@ from app.schemas.cleanup import (
     CleanupCandidateRead,
     CleanupCandidatesPage,
     CleanupSettings,
+    CleanupSpaceRead,
+    OtherLinksRead,
     UnreliableSource,
 )
 from app.services.arr_instances import instance_names
 from app.services.cleanup_score import PRESETS, CandidateFacts, Evaluation, evaluate, ranked
+from app.services.disk_footprint import MediaSpace, media_space
 from app.services.ignores import media_key_of
+from app.services.link_finder import find_other_links, search_roots
+from app.services.media_status import torrent_files_of
 from app.services.seed_protection import SeedObligation, seed_obligation, seed_policy, strongest
 from app.services.seer import seer_configured
 from app.services.watch_stats import as_utc, excluded_user_ids
@@ -212,6 +227,8 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
         col(Media.full_reclaimable_bytes),
         col(Media.emby_date_added),
         col(Media.last_played_at),
+        col(Media.watch_played_count),
+        col(Media.watch_in_progress_count),
         col(Media.series_status),
         col(Media.has_poster),
         col(Media.poster_image_tag),
@@ -230,6 +247,8 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
         reclaimable,
         date_added,
         last_played_at,
+        played_count,
+        in_progress_count,
         series_status,
         has_poster,
         poster_image_tag,
@@ -250,6 +269,7 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
                 reclaimable_bytes=reclaimable,
                 date_added=date_added,
                 last_played_at=last_played_at,
+                watched_undated=last_played_at is None and bool(played_count or in_progress_count),
                 series_status=series_status,
                 active_users=seen.users if seen else 0,
                 active_unfinished=seen.unfinished if seen else 0,
@@ -286,7 +306,7 @@ def unreliable_sources(session: Session) -> list[UnreliableSource] | None:
     return [source for source in UNRELIABLE_SOURCES if source in failed]
 
 
-def candidate_read(evaluation: Evaluation, rank: float) -> CleanupCandidateRead:
+def _read(evaluation: Evaluation, rank: float) -> CleanupCandidateRead:
     facts = evaluation.facts
     return CleanupCandidateRead(
         media_id=facts.media_id,
@@ -359,7 +379,7 @@ def candidates_page(session: Session, query: CandidateQuery, now: datetime | Non
     shown.sort(key=lambda e: (e.protected, _SORTS.get(query.sort, _SORTS["rank"])(e, ranks)))
     start = (query.page - 1) * query.page_size
     return CleanupCandidatesPage(
-        items=[candidate_read(e, ranks.get(e.facts.media_id, 0.0)) for e in shown[start : start + query.page_size]],
+        items=[_read(e, ranks.get(e.facts.media_id, 0.0)) for e in shown[start : start + query.page_size]],
         total=len(shown),
         candidate_count=len(candidates),
         protected_count=len(matching) - len(candidates),
@@ -374,9 +394,38 @@ def candidate_detail(session: Session, media_id: int, now: datetime | None = Non
     found = next((e for e in evaluations if e.facts.media_id == media_id), None)
     if found is None:
         return None
+    space = _space(session, media_id)[0]
     return CleanupCandidateDetail(
-        **candidate_read(found, ranks.get(media_id, 0.0)).model_dump(),
+        **_read(found, ranks.get(media_id, 0.0)).model_dump(),
         components=[c.read() for c in found.components],
         raw_score=found.raw_score,
         in_progress_users=sorted(found.facts.in_progress_names),
+        space=CleanupSpaceRead(
+            on_disk_bytes=space.on_disk,
+            freed_bytes=space.freed,
+            held_bytes=space.held,
+            external_links=space.external_links,
+        ),
     )
+
+
+def _space(session: Session, media_id: int) -> tuple[MediaSpace, set[str]]:
+    """Espace du média lu en direct sur le disque (mêmes chemins que
+    `Media.full_reclaimable_bytes`), et les chemins qu'il connaît."""
+    files = session.exec(select(MediaFile).where(col(MediaFile.media_id) == media_id)).all()
+    torrents = session.exec(select(Torrent).where(col(Torrent.media_id) == media_id)).all()
+    by_hash = torrent_files_of(session, torrents)
+    cached = [(t.save_path, t.content_path, t.size, list(by_hash.get(t.hash.lower(), []))) for t in torrents]
+    known = {f.path for f in files} | {path for paths in by_hash.values() for path, _ in paths}
+    known |= {t.content_path for t in torrents if t.content_path}
+    return media_space([(f.path, f.size) for f in files], cached), known
+
+
+def other_links(session: Session, media_id: int) -> OtherLinksRead | None:
+    """Où vivent les liens qui retiennent l'espace de ce média (lecture
+    seule, bornée : voir services/link_finder.py). None : média inconnu."""
+    if session.get(Media, media_id) is None:
+        return None
+    space, known = _space(session, media_id)
+    search = find_other_links(search_roots(session.get(Settings, 1)), space.held_files, known)
+    return OtherLinksRead(paths=search.paths, complete=search.complete, roots=search.roots)

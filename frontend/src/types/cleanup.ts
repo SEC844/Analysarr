@@ -43,7 +43,8 @@ export interface ScoreComponent {
   weight: number
   contribution: number
   days: number | null
-  since: "last_played" | "added" | null
+  /** `undated` : vu par au moins un compte, sans date de lecture connue. */
+  since: "last_played" | "added" | "undated" | null
   users: number | null
   unfinished: number | null
   series_status: string | null
@@ -70,8 +71,26 @@ export interface CleanupCandidate {
   active_users: number
 }
 
+/** Espace sur le disque (chaque fichier physique une fois) contre espace
+ * réellement libéré : la différence est retenue par des liens hors du média. */
+export interface CleanupSpace {
+  on_disk_bytes: number
+  freed_bytes: number
+  held_bytes: number
+  external_links: number
+}
+
+/** Autres liens trouvés sous `roots` ; `complete` faux si la recherche s'est
+ * arrêtée avant la fin (temps ou nombre de résultats). */
+export interface OtherLinks {
+  paths: string[]
+  complete: boolean
+  roots: string[]
+}
+
 export interface CleanupCandidateDetail extends CleanupCandidate {
   components: ScoreComponent[]
+  space: CleanupSpace
   raw_score: number
   in_progress_users: string[]
 }
@@ -95,43 +114,4 @@ export interface CleanupQuery {
   media_type?: "movie" | "series"
   search?: string
   include_protected: boolean
-}
-
-/** Mode objectif (backend : services/cleanup_plan.py) : simulation sans effet. */
-export type CleanupPlanRequest =
-  | { goal: "free"; target_bytes: number }
-  | { goal: "until"; until: string; disk: string }
-
-export interface PlanLossMedia {
-  media_id: number
-  title: string
-  media_type: "movie" | "series"
-  in_progress: boolean
-  favorite: boolean
-  /** Films : pourcentage de lecture. Séries : épisodes vus. */
-  progress: number
-}
-
-/** Un compte et ce qu'il perdrait (médias commencés ou en favori). */
-export interface PlanLoss {
-  user_id: string
-  name: string
-  image_tag: string | null
-  media: PlanLossMedia[]
-}
-
-export interface CleanupPlan {
-  goal: "free" | "until"
-  /** Espace à libérer (0 : le disque tient déjà jusqu'à la date). */
-  target_bytes: number
-  freed_bytes: number
-  shortfall_bytes: number
-  limited: boolean
-  max_items: number
-  items: CleanupCandidate[]
-  losses: PlanLoss[]
-  disk: string | null
-  free_bytes: number | null
-  days: number | null
-  growth_per_day: number | null
 }
