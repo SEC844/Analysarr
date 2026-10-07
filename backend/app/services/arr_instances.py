@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from sqlmodel import Session, col, select
 
-from app.clients.arr import RadarrClient, SonarrClient
+from app.clients.arr import NexcrateSonarrClient, RadarrClient, SonarrClient
 from app.models.arr_instance import ArrInstance
 from app.models.ids import row_id
 from app.models.media import Media, MediaType
@@ -17,6 +17,19 @@ from app.models.settings import Settings
 ARR_KINDS = ("sonarr", "radarr")
 PRIMARY_NAMES = {"sonarr": "Sonarr", "radarr": "Radarr"}
 MAX_EXTRA_INSTANCES = 10
+# Adresses fixes de la façade Radarr/Sonarr de nexcrate (prévue pour Bazarr).
+NEXCRATE_SUFFIXES = ("/bazarr/radarr", "/bazarr/sonarr")
+
+
+def is_nexcrate_url(url: str | None) -> bool:
+    """nexcrate n'offre qu'une lecture de sa bibliothèque : aucune écriture
+    Sonarr/Radarr n'y est possible (voir `ArrTarget.read_only`)."""
+    return (url or "").strip().rstrip("/").lower().endswith(NEXCRATE_SUFFIXES)
+
+
+class ReadOnlyArrError(RuntimeError):
+    """Action refusée AVANT toute modification : elle demande une écriture
+    dans une instance en lecture seule."""
 
 
 @dataclass(frozen=True)
@@ -34,7 +47,13 @@ class ArrTarget:
         return RadarrClient(self.url, self.api_key)
 
     def sonarr(self) -> SonarrClient:
-        return SonarrClient(self.url, self.api_key)
+        return (NexcrateSonarrClient if self.read_only else SonarrClient)(self.url, self.api_key)
+
+    @property
+    def read_only(self) -> bool:
+        """Instance qu'Analysarr ne peut que lire : le média y reste suivi, et
+        supprimer son fichier le ferait retélécharger."""
+        return is_nexcrate_url(self.url)
 
 
 def _primary(settings: Settings | None, kind: str) -> ArrTarget | None:

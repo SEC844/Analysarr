@@ -72,6 +72,7 @@ const MEDIA: MediaDetail = {
   arr_instance_name: null,
   radarr_id: null,
   sonarr_id: null,
+  arr_read_only: false,
   emby_item_id: "e",
   tmdb_id: null,
   tvdb_id: null,

@@ -42,7 +42,7 @@ from app.schemas.media import (
     TrackerRead,
 )
 from app.services.action_log import MediaRef, record_action
-from app.services.arr_instances import instance_names
+from app.services.arr_instances import ReadOnlyArrError, arr_target_for, instance_names
 from app.services.arr_link import ArrLinkError, build_link_preview, link_media
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
@@ -221,6 +221,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
 
     issues = session.exec(select(ImportIssue).where(ImportIssue.media_id == media_id)).all()
     ignores = media_ignores(session, media, files, torrents)
+    target = arr_target_for(session, session.get(Settings, 1), media)
 
     return MediaDetail(
         **_to_list_item(media, seer_enabled, instance_names(session)).model_dump(),
@@ -242,6 +243,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         ],
         radarr_id=media.radarr_id,
         sonarr_id=media.sonarr_id,
+        arr_read_only=target is not None and target.read_only,
         emby_item_id=media.emby_item_id,
         tmdb_id=media.tmdb_id,
         tvdb_id=media.tvdb_id,
@@ -384,7 +386,10 @@ async def delete_selection(
     # lisibles ensuite.
     footprint = await build_delete_footprint(session, media, settings)
     freed = reclaimed_bytes(footprint, payload.torrent_ids, payload.media_file_ids)
-    result = await execute_media_delete(session, media, settings, payload)
+    try:
+        result = await execute_media_delete(session, media, settings, payload)
+    except ReadOnlyArrError as exc:
+        raise HTTPException(400, str(exc)) from exc
     _log_and_notify(session, settings, "delete_selection", ref, result.steps, freed)
     return result
 

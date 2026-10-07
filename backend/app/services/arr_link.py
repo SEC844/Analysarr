@@ -251,9 +251,10 @@ async def build_link_preview(session: Session, settings: Settings, media: Media)
 
     is_movie = media.media_type == MediaType.movie
     service = "radarr" if is_movie else "sonarr"
-    targets = arr_targets(session, settings, service)
+    # Une instance en lecture seule (nexcrate) n'accepte aucun ajout.
+    targets = [t for t in arr_targets(session, settings, service) if not t.read_only]
     if not targets:
-        raise ArrLinkError(f"Aucune instance {service.capitalize()} configurée.")
+        raise ArrLinkError(f"Aucune instance {service.capitalize()} acceptant un ajout n'est configurée.")
     target = targets[0]
 
     try:

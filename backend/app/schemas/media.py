@@ -152,6 +152,9 @@ class ImportIssueRead(BaseModel):
 class MediaDetail(MediaListItem):
     radarr_id: int | None
     sonarr_id: int | None
+    # Instance en lecture seule (nexcrate) : ni retrait du média, ni
+    # suppression de son fichier suivi depuis Analysarr.
+    arr_read_only: bool = False
     emby_item_id: str | None
     # Identifiants externes (statut `manquant_arr`) : ce sont eux qui
     # permettent d'ajouter le média dans Radarr ou Sonarr.

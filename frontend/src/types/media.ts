@@ -200,6 +200,8 @@ export interface ImportRetryResult {
 export interface MediaDetail extends MediaListItem {
   radarr_id: number | null
   sonarr_id: number | null
+  /** Instance en lecture seule (nexcrate) : fichier suivi non supprimable ici. */
+  arr_read_only: boolean
   emby_item_id: string | null
   /** Identifiants externes, utiles surtout pour un média non suivi. */
   tmdb_id: number | null

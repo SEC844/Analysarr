@@ -917,6 +917,8 @@ export const en: Dictionary = {
     failed: "Cleanup failed.",
   },
   deleteSelection: {
+    readOnlyArr:
+      "Tracked by nexcrate, which is read only: the tracked file is not offered here, delete it from nexcrate. Duplicates and torrents can still be deleted here.",
     emptyMedia:
       "This media has no file and no torrent left: only its Sonarr/Radarr entry remains.",
     trigger: "Delete...",

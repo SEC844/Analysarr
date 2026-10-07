@@ -4,6 +4,7 @@ from app.clients.emby import EmbyClient
 from app.clients.torrent import build_torrent_client
 from app.clients.torrent_base import TorrentAuthError
 from app.schemas.settings import ConnectionTestRequest, ConnectionTestResult
+from app.services.arr_instances import is_nexcrate_url
 
 TIMEOUT = 8.0
 
@@ -64,6 +65,12 @@ async def _test_arr(req: ConnectionTestRequest, app_name: str) -> ConnectionTest
         resp.raise_for_status()
         data = resp.json()
         version = data.get("version", "?")
+        if is_nexcrate_url(req.url):
+            # Façade Radarr/Sonarr de nexcrate : sa version imite celle de
+            # Radarr/Sonarr, la vraie est dans `nexcrateVersion`.
+            version = data.get("nexcrateVersion", version)
+            message = f"Connecté à nexcrate (version {version}, lecture seule)."
+            return ConnectionTestResult(success=True, message=message)
         return ConnectionTestResult(success=True, message=f"Connecté à {app_name} (version {version}).")
     except httpx.HTTPStatusError as exc:
         return ConnectionTestResult(

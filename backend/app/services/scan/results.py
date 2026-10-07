@@ -123,8 +123,13 @@ async def build_movie_result(ctx: LibraryContext, target: ArrTarget, movie: dict
     emby_item = _pick_emby_item(candidates, [movie_file] if movie_file else [])
     if emby_item:
         apply_media_server_item(result.media, emby_item)
+        # Autre instance, ou autre version du même film dans la même instance
+        # (nexcrate : une fiche par version, 1080p et 4K).
+        own_file_id = (movie_file or {}).get("id")
         other_files = [
-            f for other, f in ctx.movie_files_by_tmdb.get(tmdb_key or "", []) if other.instance_id != target.instance_id
+            f
+            for other, f in ctx.movie_files_by_tmdb.get(tmdb_key or "", [])
+            if other.instance_id != target.instance_id or f.get("id") != own_file_id
         ]
         result.files = movie_files(emby_item, movie_file, other_files)
     return result
@@ -208,7 +213,7 @@ async def _fill_series_files(
     other_files = [
         f
         for other, other_series_id in ctx.series_by_tvdb.get(tvdb_key or "", [])
-        if other.instance_id != target.instance_id
+        if (other.instance_id, other_series_id) != (target.instance_id, series["id"])
         for f in await ctx.episode_files_for(other, other_series_id)
     ]
 

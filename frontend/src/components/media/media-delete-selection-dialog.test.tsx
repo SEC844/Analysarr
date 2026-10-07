@@ -79,6 +79,7 @@ const MEDIA: MediaDetail = {
   arr_instance_name: null,
   radarr_id: 5,
   sonarr_id: null,
+  arr_read_only: false,
   emby_item_id: "e-inception",
   tmdb_id: 27205,
   tvdb_id: null,

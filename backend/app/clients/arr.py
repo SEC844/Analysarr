@@ -306,6 +306,26 @@ class SonarrClient(ArrClient):
         await self._put("/api/v3/episode/monitor", json={"episodeIds": episode_ids, "monitored": monitored})
 
 
+class NexcrateSonarrClient(SonarrClient):
+    """nexcrate vu à travers sa façade Sonarr (`/bazarr/sonarr`, prévue pour
+    Bazarr). Ses séries n'ont pas de `statistics` : le nombre de fichiers
+    d'épisodes, dont dépend tout le scan, est compté ici pour que le reste du
+    code lise une série nexcrate comme une série Sonarr."""
+
+    async def _with_file_count(self, series: dict[str, Any]) -> dict[str, Any]:
+        if "statistics" not in series and isinstance(series.get("id"), int):
+            files = await self.get_episode_files(series["id"])
+            series["statistics"] = {"episodeFileCount": len(files)}
+        return series
+
+    async def get_series(self) -> list[dict[str, Any]]:
+        return [await self._with_file_count(series) for series in await super().get_series()]
+
+    async def get_series_by_id(self, series_id: int) -> dict[str, Any] | None:
+        series = await super().get_series_by_id(series_id)
+        return await self._with_file_count(series) if series is not None else None
+
+
 def _first_with(items: Any, field: str, value: object) -> dict[str, Any] | None:
     """Élément suivi (`id` attribué) dont `field` vaut exactement `value` : un
     filtre ignoré par Sonarr/Radarr ne doit jamais faire passer n'importe quel

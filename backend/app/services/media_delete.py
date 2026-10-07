@@ -25,7 +25,7 @@ from app.schemas.media import (
     MediaDeleteSelection,
     MediaDeleteSelectionResult,
 )
-from app.services.arr_instances import ArrTarget, arr_target_for
+from app.services.arr_instances import ArrTarget, ReadOnlyArrError, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.hardlink import resolve_torrent_files
 from app.services.media_status import refresh_media_statuses
@@ -237,6 +237,22 @@ def _selected(
     return torrents, files
 
 
+def _ensure_arr_writable(
+    target: ArrTarget | None, files: Sequence[MediaFile], selection: MediaDeleteSelection
+) -> None:
+    """Instance en lecture seule (nexcrate) : Analysarr ne peut ni retirer le
+    média ni y déclarer un fichier supprimé. Le fichier suivi serait donc
+    retéléchargé aussitôt : refusé avant toute modification. Doublons et
+    torrents restent supprimables."""
+    if target is None or not target.read_only:
+        return
+    if selection.remove_from_arr or any(f.is_current for f in files):
+        raise ReadOnlyArrError(
+            f"{target.name} est en lecture seule (nexcrate) : supprimez ce média ou son fichier suivi "
+            "depuis nexcrate. Doublons et torrents restent supprimables ici."
+        )
+
+
 async def execute_media_delete(
     session: Session, media: Media, settings: Settings, selection: MediaDeleteSelection
 ) -> MediaDeleteSelectionResult:
@@ -248,6 +264,7 @@ async def execute_media_delete(
     # fichier) : sinon on supprimerait des fichiers non cochés.
     whole_library = selection.remove_from_arr and len(files) == all_file_count
     target = arr_target_for(session, settings, media)
+    _ensure_arr_writable(target, files, selection)
 
     # Tout est vérifié AVANT la première modification : un volume démonté
     # ferait disparaître des fichiers bien vivants (services/path_guard.py), et

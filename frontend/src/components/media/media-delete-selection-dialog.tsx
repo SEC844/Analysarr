@@ -183,7 +183,14 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const watchStats = watchQuery.data
   const watchingUsers = watchStats?.users.filter((u) => u.in_progress) ?? []
 
-  const tree = useMemo(() => buildTree(media, t), [media, t])
+  // Instance en lecture seule (nexcrate) : le fichier suivi serait
+  // retéléchargé aussitôt, il n'est donc pas proposé. Le backend refuse de
+  // toute façon (services/media_delete.py).
+  const readOnly = media.arr_read_only
+  const tree = useMemo(
+    () => buildTree(readOnly ? { ...media, files: media.files.filter((f) => !f.is_current) } : media, t),
+    [media, readOnly, t],
+  )
   const allKeys = useMemo(() => tree.flatMap((n) => n.leafKeys), [tree])
 
   const footprint = footprintQuery.data
@@ -206,7 +213,8 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const canRemoveMedia = wholeLibrary && arrId !== null
   // Média suivi par aucun Sonarr/Radarr : ni retrait ni démonitoring à
   // proposer, il n'y a rien à retirer de leur côté.
-  const showArrOption = arrId !== null && (canRemoveMedia || (isSeries && selectedFiles.length > 0))
+  const showArrOption =
+    !readOnly && arrId !== null && (canRemoveMedia || (isSeries && selectedFiles.length > 0))
 
   // Sans empreinte disque (chargement, erreur) : repli sur la somme des tailles.
   const nominalBytes =
@@ -346,6 +354,12 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
                   <TreeRow key={node.key} node={node} state={treeState} />
                 ))}
               </ul>
+            )}
+
+            {readOnly && (
+              <p className="text-muted-foreground text-xs">
+                {t("deleteSelection.readOnlyArr")}
+              </p>
             )}
 
             {selectedFiles.length > 0 && watchStats && watchingUsers.length > 0 && (

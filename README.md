@@ -98,6 +98,17 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 | Seer (Overseerr, Jellyseerr, Seerr) or Ombi | Current versions (Ombi v4) | Optional |
 | cross-seed | Daemon mode | Optional |
 
+### nexcrate (experimental, read only)
+
+[nexcrate](https://github.com/DerKezorm/nexcrate) can stand in for Sonarr and Radarr through the addresses it offers to Bazarr. In nexcrate, switch on **Settings → System → Bazarr** and create an API key with the `read` scope. In Analysarr, enter that key with these addresses:
+
+| Field | Address |
+|---|---|
+| Radarr | `http://nexcrate:8390/bazarr/radarr` |
+| Sonarr | `http://nexcrate:8390/bazarr/sonarr` |
+
+Analysarr then shows the health of movies and series, with each nexcrate version as its own media. It is read only: the file nexcrate tracks cannot be deleted from Analysarr (nexcrate would download it again), and a media cannot be added to or removed from nexcrate. Duplicates, orphan torrents and hardlink repair work as usual. Blocked imports and stalled downloads are not reported, and music is not analyzed.
+
 ## Quick start
 
 ### Docker Compose

@@ -923,6 +923,8 @@ export const fr = {
     failed: "Échec du nettoyage.",
   },
   deleteSelection: {
+    readOnlyArr:
+      "Média suivi par nexcrate, en lecture seule : le fichier suivi n'est pas proposé, supprimez-le depuis nexcrate. Doublons et torrents restent supprimables ici.",
     emptyMedia:
       "Ce média n'a plus aucun fichier ni torrent : il ne reste que son suivi dans Sonarr/Radarr.",
     trigger: "Supprimer...",
