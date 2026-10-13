@@ -5,4 +5,10 @@ import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
 import { afterEach } from "vitest"
 
-afterEach(() => cleanup())
+import { clearSessionState } from "@/hooks/use-session-state"
+
+// Mémoire de visite (sélection, taille des cartes...) : chaque test repart à zéro.
+afterEach(() => {
+  cleanup()
+  clearSessionState()
+})

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   crossSeedSearch,
@@ -24,6 +24,9 @@ export function useMediaListQuery(params: MediaListParams) {
   return useQuery({
     queryKey: ["media", params],
     queryFn: () => listMedia(params),
+    // Changement de filtre : la grille reste affichée jusqu'à la réponse, au
+    // lieu de repasser par le squelette.
+    placeholderData: keepPreviousData,
   })
 }
 

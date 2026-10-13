@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 
-import { RecentlyUpdatedContext } from "@/lib/live-context"
+import { RecentlyUpdatedContext, RecentlyUpdatedStore } from "@/lib/live-context"
 import { parseLiveEvent, planInvalidation, type InvalidationPlan } from "@/lib/live-events"
 import type { LiveEvent } from "@/types/realtime"
 
@@ -40,7 +40,7 @@ function apply(queryClient: QueryClient, plan: InvalidationPlan): void {
  * à la reconnexion, tout est relu (des événements ont pu être manqués). */
 export function LiveEventsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
-  const [recent, setRecent] = useState<ReadonlySet<number>>(new Set())
+  const [recent] = useState(() => new RecentlyUpdatedStore())
 
   useEffect(() => {
     if (typeof EventSource === "undefined") return
@@ -57,10 +57,10 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
       apply(queryClient, plan)
       const touched = [...plan.details, ...plan.watches]
       if (touched.length === 0) return
-      setRecent((current) => new Set([...current, ...touched]))
+      recent.add(touched)
       const timer = setTimeout(() => {
         highlightTimers.delete(timer)
-        setRecent((current) => new Set([...current].filter((id) => !touched.includes(id))))
+        recent.remove(touched)
       }, HIGHLIGHT_MS)
       highlightTimers.add(timer)
     }
@@ -87,7 +87,7 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
       if (flushTimer) clearTimeout(flushTimer)
       for (const timer of highlightTimers) clearTimeout(timer)
     }
-  }, [queryClient])
+  }, [queryClient, recent])
 
   return <RecentlyUpdatedContext.Provider value={recent}>{children}</RecentlyUpdatedContext.Provider>
 }

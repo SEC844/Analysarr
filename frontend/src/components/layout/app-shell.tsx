@@ -11,6 +11,7 @@ import { useAutomationGuardQuery } from "@/hooks/use-automations"
 import { useLogoutMutation } from "@/hooks/use-auth"
 import { useDetectAnalysarrAddress } from "@/hooks/use-realtime"
 import { useServicesStatusQuery } from "@/hooks/use-services"
+import { useRememberedPath } from "@/hooks/use-session-state"
 import { useI18n } from "@/i18n"
 import { formatVersion } from "@/lib/format"
 import { summarizeServices } from "@/lib/services"
@@ -32,6 +33,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: services } = useServicesStatusQuery()
   const { firstDownSection } = summarizeServices(services)
   const downCount = services?.services.filter((s) => !s.ok).length ?? 0
+  // Bibliothèque et Nettoyage rouverts tels que laissés (filtres, tri, page).
+  const remembered = useRememberedPath()
 
   // Service injoignable : le lien mène directement à sa section (prioritaire).
   // Mise à jour disponible : le lien mène à l'onglet Application.
@@ -45,8 +48,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Le lien Réglages mène toujours à la section utile : service en défaut
   // d'abord, sinon l'onglet Application quand une mise à jour attend.
   const navLinks = [
-    { to: "/", label: t("nav.home"), serviceDown: false, paused: false },
-    { to: "/cleanup", label: t("nav.cleanup"), serviceDown: false, paused: false },
+    { to: remembered("/"), label: t("nav.home"), serviceDown: false, paused: false },
+    { to: remembered("/cleanup"), label: t("nav.cleanup"), serviceDown: false, paused: false },
     { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0, paused: automationsPaused },
   ]
 
@@ -83,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <NavLink
                   key={link.label}
                   to={link.to}
-                  end={link.to === "/"}
+                  end={link.to.split("?")[0] === "/"}
                   className={({ isActive }) =>
                     cn(
                       "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors sm:px-3",
