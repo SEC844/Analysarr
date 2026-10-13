@@ -812,9 +812,10 @@ export const fr = {
       "Le téléchargement est terminé, mais Sonarr/Radarr n'a pas réussi à ranger le fichier dans la bibliothèque.",
     retry: "Relancer l'import",
     retried: {
-      one: "1 fichier envoyé à l'import.",
-      other: "{count} fichiers envoyés à l'import.",
+      one: "1 fichier importé.",
+      other: "{count} fichiers importés.",
     },
+    alreadyResolved: "Plus aucun import bloqué : Sonarr/Radarr l'a déjà réglé.",
     nothingImported: "Aucun fichier n'a pu être importé : voir le détail ci-dessous.",
     noDownload: "Téléchargement inconnu du client torrent : à relancer depuis Sonarr/Radarr.",
     stalledTitle: {
@@ -1157,13 +1158,13 @@ export const fr = {
       mode: "Mode de classement",
       presets: { prudent: "Ancienneté et intérêt", balanced: "Équilibré", space_first: "Place avant tout" },
       custom: "Personnalisé",
-      spacePriority: "Priorité à l'espace : {value}",
       modeHints: {
         prudent: "La note seule : les médias délaissés depuis longtemps d'abord, quelle que soit leur taille.",
         balanced: "La note d'abord, puis l'espace libérable.",
         space_first: "Les médias délaissés qui libèrent le plus d'espace d'abord.",
         custom: "Vos propres réglages : répartissez les 100 points de la note entre les critères.",
       },
+      spacePriority: "Priorité à l'espace : {value}",
       spacePriorityHint: "0 : score seul · 100 : espace libérable d'abord",
       disinterestDays: "Désintérêt maximal après",
       ageDays: "Ancienneté maximale après",

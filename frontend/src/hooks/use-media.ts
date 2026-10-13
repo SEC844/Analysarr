@@ -113,9 +113,10 @@ export function useRetryImportMutation() {
   return useMutation({
     mutationFn: (id: number) => retryImport(id),
     onSuccess: (_data, id) => {
-      // L'import se fait en tâche de fond côté Sonarr/Radarr : le statut
-      // définitif viendra du prochain scan, mais la fiche est rechargée pour
-      // refléter ce qui a déjà changé.
+      // Le résultat est déjà vérifié côté serveur, et une analyse du média
+      // suit : fiche et bibliothèque sont rechargées (le temps réel les
+      // rafraîchira encore à la fin de cette analyse).
+      queryClient.invalidateQueries({ queryKey: ["media"] })
       queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
     },
   })

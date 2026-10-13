@@ -18,6 +18,17 @@ def http_error_text(exc: httpx.HTTPError) -> str:
 class ArrClient:
     """Base commune Sonarr/Radarr : même schéma d'authentification (X-Api-Key) et d'API v3."""
 
+    # Paramètre qui désigne le média dans la file d'attente (`seriesIds` /
+    # `movieIds`, filtre ignoré par une version trop ancienne : le résultat est
+    # de toute façon refiltré par l'appelant).
+    _QUEUE_MEDIA_PARAM = ""
+    # Paramètre `/manualimport` qui impose le média aux fichiers d'un
+    # téléchargement. Radarr seulement : chez Sonarr, `seriesId` fait lister les
+    # fichiers DÉJÀ dans la série (ManualImportController.GetMediaFiles), jamais
+    # ceux du téléchargement.
+    _MANUAL_IMPORT_MEDIA_PARAM = ""
+    _QUEUE_PARAMS: dict[str, str] = {}
+
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -100,8 +111,16 @@ class ArrClient:
                 break
         return records
 
+    async def get_media_queue(self, media_id: int) -> list[dict[str, Any]]:
+        """File d'attente d'un seul média, lue en direct (relance d'un import :
+        l'état relevé au dernier scan peut avoir changé depuis)."""
+        return await self._queue({**self._QUEUE_PARAMS, self._QUEUE_MEDIA_PARAM: str(media_id)})
+
+    async def get_command(self, command_id: int) -> dict[str, Any]:
+        return await self._get(f"/api/v3/command/{command_id}")
+
     async def manual_import_candidates(
-        self, *, download_id: str | None = None, folder: str | None = None
+        self, *, download_id: str | None = None, folder: str | None = None, media_id: int | None = None
     ) -> list[dict[str, Any]]:
         """Fichiers proposés à l'import, avec les motifs de refus éventuels
         (`rejections`). Par téléchargement, ou à défaut par dossier de sortie —
@@ -114,6 +133,9 @@ class ArrClient:
         params: dict[str, Any] = {"filterExistingFiles": "false"}
         if download_id:
             params["downloadId"] = download_id
+            # Sans téléchargement, l'identifiant ferait lister la bibliothèque.
+            if media_id and self._MANUAL_IMPORT_MEDIA_PARAM:
+                params[self._MANUAL_IMPORT_MEDIA_PARAM] = media_id
         if folder:
             params["folder"] = folder
         return await self._get("/api/v3/manualimport", params=params)
@@ -125,22 +147,31 @@ class ArrClient:
         proposé à l'import."""
         await self._post("/api/v3/command", json={"name": "ProcessMonitoredDownloads"})
 
-    async def manual_import(self, files: list[dict[str, Any]]) -> None:
+    async def manual_import(self, files: list[dict[str, Any]]) -> int | None:
         """Relance l'import des fichiers choisis (équivalent du bouton
         « Manual Import » de Sonarr/Radarr). `importMode: auto` laisse le
         serveur décider entre déplacement et copie selon sa configuration —
-        indispensable pour ne pas casser les hardlinks d'un torrent en seed."""
+        indispensable pour ne pas casser les hardlinks d'un torrent en seed.
+        Renvoie l'identifiant de la commande, pour en suivre l'exécution."""
         if not files:
-            return
-        await self._post("/api/v3/command", json={"name": "ManualImport", "importMode": "auto", "files": files})
+            return None
+        command = await self._post(
+            "/api/v3/command", json={"name": "ManualImport", "importMode": "auto", "files": files}
+        )
+        command_id = command.get("id") if isinstance(command, dict) else None
+        return command_id if isinstance(command_id, int) and not isinstance(command_id, bool) else None
 
 
 class RadarrClient(ArrClient):
+    _QUEUE_MEDIA_PARAM = "movieIds"
+    _MANUAL_IMPORT_MEDIA_PARAM = "movieId"
+    _QUEUE_PARAMS = {"includeUnknownMovieItems": "false", "includeMovie": "false"}
+
     async def get_movies(self) -> list[dict[str, Any]]:
         return await self._get("/api/v3/movie")
 
     async def get_queue(self) -> list[dict[str, Any]]:
-        return await self._queue({"includeUnknownMovieItems": "false", "includeMovie": "false"})
+        return await self._queue(self._QUEUE_PARAMS)
 
     async def get_movie(self, movie_id: int) -> dict[str, Any] | None:
         """Un seul film, pour l'analyse d'un média. `None` si Radarr ne le
@@ -247,11 +278,14 @@ class RadarrClient(ArrClient):
 
 
 class SonarrClient(ArrClient):
+    _QUEUE_MEDIA_PARAM = "seriesIds"
+    _QUEUE_PARAMS = {"includeUnknownSeriesItems": "false", "includeSeries": "false"}
+
     async def get_series(self) -> list[dict[str, Any]]:
         return await self._get("/api/v3/series")
 
     async def get_queue(self) -> list[dict[str, Any]]:
-        return await self._queue({"includeUnknownSeriesItems": "false", "includeSeries": "false"})
+        return await self._queue(self._QUEUE_PARAMS)
 
     async def get_series_by_id(self, series_id: int) -> dict[str, Any] | None:
         """Une seule série (voir `RadarrClient.get_movie`)."""

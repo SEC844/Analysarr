@@ -9,9 +9,10 @@ import { formatBytes } from "@/lib/format"
 import type { DeleteStepResult, ImportIssueRead } from "@/types/media"
 
 /** Entrées problématiques de la file d'attente Sonarr/Radarr : les imports
- * bloqués, relançables en un clic (rien n'est supprimé, le fichier déjà
- * téléchargé est simplement redonné à Sonarr/Radarr), et les téléchargements
- * en souffrance, purement informatifs. */
+ * bloqués, relançables en un clic (rien n'est supprimé : le fichier déjà
+ * téléchargé est redonné à l'import manuel de Sonarr/Radarr, puis le résultat
+ * est vérifié dans sa file), et les téléchargements en souffrance, purement
+ * informatifs. */
 export function ImportIssues({ mediaId, issues }: { mediaId: number; issues: ImportIssueRead[] }) {
   const { t } = useI18n()
   const retry = useRetryImportMutation()
@@ -28,6 +29,8 @@ export function ImportIssues({ mediaId, issues }: { mediaId: number; issues: Imp
       onSuccess: (result) => {
         setSteps(result.steps)
         if (result.imported_files > 0) toast.success(t("importIssues.retried", { count: result.imported_files }))
+        // Réglé entre-temps côté Sonarr/Radarr : rien à relancer, rien d'anormal.
+        else if (result.steps.every((step) => step.success)) toast.success(t("importIssues.alreadyResolved"))
         else toast.error(t("importIssues.nothingImported"))
       },
       onError: (err) => toast.error(err instanceof Error ? err.message : t("common.saveFailed")),
