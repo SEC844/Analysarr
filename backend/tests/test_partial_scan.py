@@ -2,6 +2,7 @@
 reste du cache intact et recalcule des statuts justes."""
 
 import asyncio
+import importlib
 import os
 import time
 
@@ -12,7 +13,6 @@ from sqlmodel import Session, select
 from app.database import engine
 from app.models.media import ImportIssue, Media, MediaFile, MediaType, MediaWatch, ScanRun, ScanStatus, Torrent
 from app.models.settings import Settings
-from app.services import partial_scan
 from app.services.events import scan_events
 from app.services.partial_scan import run_service_scan
 
@@ -468,22 +468,34 @@ def test_the_scan_button_ignores_realtime_runs(admin_client):
     assert (status["trigger"], status["status"]) == ("manual", "completed")
 
 
-@pytest.mark.parametrize("scope, slow_step", [("torrents", "attach_torrents"), ("queue", "refresh_statuses")])
+@pytest.mark.parametrize(
+    "scope, slow_step",
+    [
+        ("torrents", "app.services.torrent_match._resolve_files"),
+        ("torrents", "app.services.partial_scan.attach_torrents"),
+        ("queue", "app.services.partial_scan.refresh_statuses"),
+    ],
+)
 def test_an_analysis_never_freezes_the_application(
     fake_http, fake_inodes, settings, tmp_path, monkeypatch, scope, slow_step
 ):
-    """Rattachement et statuts lisent le disque (lent sur un partage Unraid) :
-    faits dans la boucle asyncio, ils figeaient toute l'interface pendant
-    chaque analyse du temps réel — une requête de 30 ms en prenait 18 s."""
+    """Inodes des torrents, rattachement et statuts lisent le disque (lent sur
+    un partage Unraid) : faits dans la boucle asyncio, ils figeaient toute
+    l'interface pendant chaque analyse du temps réel — une requête de 30 ms en
+    prenait 18 s, puis encore 6 s le temps de lire les inodes des torrents."""
     seed_library(tmp_path)
-    fake_http["http://qbit"] = qbit_handler([])
-    real = getattr(partial_scan, slow_step)
+    fake_http["http://qbit"] = qbit_handler(
+        [{"hash": "aaa", "name": "Matrix", "save_path": "/data/torrents", "size": 10}]
+    )
+    module_name, _, name = slow_step.rpartition(".")
+    module = importlib.import_module(module_name)
+    real = getattr(module, name)
 
     def slow(*args, **kwargs):
         time.sleep(0.3)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(partial_scan, slow_step, slow)
+    monkeypatch.setattr(module, name, slow)
 
     async def run() -> int:
         ticks = 0

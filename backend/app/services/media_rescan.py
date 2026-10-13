@@ -25,6 +25,7 @@ from typing import Any
 
 import httpx
 from sqlmodel import Session, col, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client, torrent_client_configured
@@ -53,10 +54,10 @@ from app.services.scan.results import (
 from app.services.torrent_match import (
     FetchedTorrents,
     MediaView,
-    add_fetched,
     attach_torrents,
     optional_read,
     read_private_flag,
+    resolve_fetched,
 )
 from app.services.watch_stats import refresh_media_watch
 
@@ -390,8 +391,9 @@ async def _rebuild_torrents(
             trackers = await optional_read(client.get_trackers, raw["hash"], "Trackers")
             files_raw = await optional_read(client.get_files, raw["hash"], "Fichiers")
             private = await read_private_flag(client, raw)
-            # Même ligne Torrent que le scan complet (torrent_match.fetch_torrents).
-            add_fetched(fetched, raw, trackers, files_raw, private)
+            # Même ligne Torrent que le scan complet (torrent_match.fetch_torrents),
+            # inodes lus hors de la boucle asyncio.
+            fetched.append(await run_in_threadpool(resolve_fetched, raw, trackers, files_raw, private))
 
     view = MediaView(
         media_type=media.media_type,

@@ -8,7 +8,7 @@ from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.services.automations import _concerned_torrents
 from app.services.cascade_delete import build_delete_preview
 from app.services.scan.statuses import compute_statuses, is_healthy
-from app.services.torrent_match import FetchedTorrents, MediaView, add_fetched, attach_torrents
+from app.services.torrent_match import FetchedTorrents, MediaView, attach_torrents, resolve_fetched
 
 
 def _write(path, size):
@@ -22,7 +22,7 @@ def _fetch(torrent_dir, names_and_sizes, torrent_hash):
         _write(torrent_dir / name, size)
     raw = {"hash": torrent_hash, "name": torrent_dir.name, "save_path": str(torrent_dir), "size": 1}
     fetched = FetchedTorrents()
-    add_fetched(fetched, raw, [], [{"name": name, "size": size} for name, size in names_and_sizes])
+    fetched.append(resolve_fetched(raw, [], [{"name": name, "size": size} for name, size in names_and_sizes]))
     return fetched
 
 

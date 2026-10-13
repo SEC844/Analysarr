@@ -12,7 +12,7 @@ TOUS ses liens font partie de ce qu'on supprime. 100 hardlinks d'un même
 fichier = une seule taille, et zéro si un lien vit ailleurs (autre média,
 torrent non rattaché, copie hors d'Analysarr).
 
-Lecture seule : `os.stat` et `os.path.islink`."""
+Lecture seule : `os.lstat`."""
 
 import logging
 import os
@@ -42,13 +42,17 @@ class FootprintBuilder:
         ne libère rien) ; un chemin non résolu (dossier, fichier absent)
         devient une unité isolée de la taille connue en base : estimation
         prudente plutôt que de faire disparaître l'élément du calcul."""
-        if path and os.path.islink(path):
-            return []
+        # Un seul appel disque par fichier (`lstat`, qui voit le lien
+        # symbolique sans le suivre) : sur un partage Unraid, chaque appel
+        # compte, et l'espace de toute la bibliothèque est recalculé à chaque
+        # analyse.
         try:
-            st = os.stat(path) if path else None
+            st = os.lstat(path) if path else None
         except OSError:
             logger.debug("Fichier illisible pour l'empreinte disque : %s", path, exc_info=True)
             st = None
+        if st is not None and stat_module.S_ISLNK(st.st_mode):
+            return []
         if st is None or not stat_module.S_ISREG(st.st_mode):
             self.units.append(DiskUnit(size=fallback_size or 0, links=1))
             self.keys.append(None)
