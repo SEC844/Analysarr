@@ -179,7 +179,7 @@ L'accès en écriture aux données ne sert qu'à la suppression de médias et à
 
 ## Widget de tableau de bord
 
-Générez une clé dans **Réglages → Configuration → Widget**, puis interrogez `http://<hôte>:1818/api/status` avec l'en-tête `X-Api-Key` (ou `Authorization: Bearer`). La réponse ne contient que des compteurs : total des médias, films, séries, médias sains, médias par statut, espace récupérable, dernier scan et état des services. Exemple pour [Homepage](https://gethomepage.dev/widgets/services/customapi/) :
+Générez une clé dans **Réglages → Système → Widget**, puis interrogez `http://<hôte>:1818/api/status` avec l'en-tête `X-Api-Key` (ou `Authorization: Bearer`). La réponse ne contient que des compteurs : total des médias, films, séries, médias sains, médias par statut, espace récupérable, dernier scan et état des services. Exemple pour [Homepage](https://gethomepage.dev/widgets/services/customapi/) :
 
 ```yaml
 - Analysarr:

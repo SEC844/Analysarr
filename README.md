@@ -177,7 +177,7 @@ Write access to the data share is only used when you delete media or repair hard
 
 ## Dashboard widget
 
-Generate a key in **Settings → Configuration → Widget**, then query `http://<host>:1818/api/status` with the `X-Api-Key` header (or `Authorization: Bearer`). The response only contains counters: media total, movies, series, healthy media, media per status, reclaimable space, last scan and service status. Example for [Homepage](https://gethomepage.dev/widgets/services/customapi/):
+Generate a key in **Settings → System → Widget**, then query `http://<host>:1818/api/status` with the `X-Api-Key` header (or `Authorization: Bearer`). The response only contains counters: media total, movies, series, healthy media, media per status, reclaimable space, last scan and service status. Example for [Homepage](https://gethomepage.dev/widgets/services/customapi/):
 
 ```yaml
 - Analysarr:

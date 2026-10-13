@@ -65,15 +65,15 @@ const SECTION_GROUPS = [
       { id: "automations", label: "settings.sections.automations" },
       { id: "seed-protection", label: "settings.sections.seedProtection" },
       { id: "ignored", label: "settings.sections.ignored" },
-      { id: "widget", label: "settings.sections.widget" },
-      { id: "preferences", label: "settings.sections.preferences" },
     ],
   },
   {
     label: "settings.groups.system",
     sections: [
       { id: "application", label: "settings.sections.application" },
+      { id: "preferences", label: "settings.sections.preferences" },
       { id: "account", label: "settings.sections.account" },
+      { id: "widget", label: "settings.sections.widget" },
       { id: "trash", label: "settings.sections.trash" },
       { id: "history", label: "settings.sections.history" },
     ],
