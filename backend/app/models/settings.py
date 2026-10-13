@@ -57,7 +57,9 @@ class Settings(SQLModel, table=True):
     seer_url: str | None = None
     seer_api_key: str | None = None
 
-    scan_schedule_enabled: bool = False
+    # Scan complet planifié : avec le temps réel, un filet de sécurité de
+    # nuit (activé d'office, voir `scan_schedule_mode`).
+    scan_schedule_enabled: bool = True
     scan_schedule_interval_minutes: int | None = None
 
     # Préférences de l'application (Réglages → Application). `language` None =
@@ -81,6 +83,41 @@ class Settings(SQLModel, table=True):
     # nettoyage tant qu'on ne l'a pas demandé.
     trash_enabled: bool = False
     trash_retention_days: int = 7
+    # Historique de la bibliothèque (services/library_history.py) : nombre de
+    # jours de photographies quotidiennes conservés.
+    library_history_retention_days: int = 730
+    # Protection du seed (services/seed_protection.py) : un torrent qui n'a
+    # pas fini son temps de seed minimum n'est jamais supprimé par un
+    # nettoyage ni une automatisation. Activée pour une nouvelle installation ;
+    # une installation existante la reçoit désactivée (colonne DEFAULT 0, voir
+    # database.py) avec un bandeau qui propose de l'activer.
+    seed_protection_enabled: bool = True
+    # Bandeau refusé (« Non merci ») ou protection désactivée volontairement.
+    seed_protection_prompt_dismissed: bool = False
+    seed_private_min_days: int = 14
+    seed_public_enabled: bool = False
+    seed_public_min_days: int = 3
+    # Surcharges par tracker (JSON validé par schemas/seed.py::TrackerSeedRule) :
+    # [{"domain": str, "min_days": int, "min_ratio": float | null}].
+    seed_tracker_rules: str = "[]"
+    # Assistant de nettoyage (schemas/cleanup.py::CleanupSettings, JSON validé
+    # à la lecture : valeur illisible = préréglage « Équilibré »).
+    cleanup_settings: str = "{}"
+    # Temps réel (services/realtime/) : la norme, sans réglage — chaque
+    # service configuré est suivi d'office. Les webhooks Sonarr/Radarr vivent
+    # dans la table ArrWebhook (un par instance), créés automatiquement.
+    # Adresse d'Analysarr vue depuis Sonarr/Radarr (webhooks) : détectée depuis
+    # le navigateur à la première visite, modifiable dans Réglages → Application.
+    analysarr_url: str = ""
+    # Planification du scan complet : `nightly` (une fois par nuit à
+    # `scan_nightly_hour` heures, heure du conteneur : vérification du temps
+    # réel) ou `interval` (toutes les N minutes).
+    scan_schedule_mode: str = "nightly"
+    scan_nightly_hour: int = 4
+    # Passage au temps réel par défaut appliqué (une fois) à une installation
+    # existante : scan complet ramené à une vérification de nuit. Colonne
+    # `DEFAULT 0` pour l'existant, vrai pour une nouvelle installation.
+    realtime_default_applied: bool = True
     # Dernière version annoncée par notification : une version n'est notifiée
     # qu'une fois, même si la vérification périodique repasse toutes les 3 h.
     update_notified_version: str | None = None

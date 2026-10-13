@@ -25,6 +25,15 @@ import {
   useUpdateAutomationMutation,
 } from "@/hooks/use-automations"
 import { useI18n, type MessageKey } from "@/i18n"
+import {
+  CLEANUP_DEFAULTS,
+  GIGABYTE,
+  MAX_MEDIA_DELETIONS,
+  MIN_CLEANUP_GIB,
+  MIN_CLEANUP_SCORE,
+  cleanupRuleInvalid,
+  maxActionsFor,
+} from "@/lib/automations"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
@@ -37,7 +46,6 @@ import {
   type AutomationWrite,
 } from "@/types/automations"
 
-const GIGABYTE = 1024 ** 3
 // La réparation des hardlinks n'a de sens que sur les torrents non hardlinkés
 // (même règle côté backend).
 const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, readonly [AutomationAction, ...AutomationAction[]]> = {
@@ -54,6 +62,8 @@ const ACTIONS_BY_TRIGGER: Record<AutomationTrigger, readonly [AutomationAction, 
   // Ajouter le média dans Sonarr/Radarr est une décision humaine :
   // Analysarr se contente de le signaler.
   untracked_detected: ["link_to_arr", "notify_only"],
+  // Candidat de l'assistant de nettoyage : supprimé entier, ou signalé.
+  cleanup_candidate: ["delete_media", "notify_only"],
 }
 
 const emptyRule = (): AutomationWrite => ({
@@ -140,6 +150,9 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
   const actions = ACTIONS_BY_TRIGGER[rule.trigger]
   const available: readonly string[] = CONDITIONS_BY_TRIGGER[rule.trigger]
   const saving = create.isPending || update.isPending
+  const isCleanup = rule.trigger === "cleanup_candidate"
+  const invalid = cleanupRuleInvalid(rule)
+  const maxActions = maxActionsFor(rule.action)
 
   function handleSave() {
     const payload = { ...rule, name: rule.name.trim() }
@@ -225,9 +238,9 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
               id={`rule-max-${automation?.id ?? "new"}`}
               type="number"
               min={1}
-              max={50}
+              max={maxActions}
               value={rule.max_actions}
-              onChange={(e) => set("max_actions", Math.min(50, Math.max(1, Number(e.target.value) || 1)))}
+              onChange={(e) => set("max_actions", Math.min(maxActions, Math.max(1, Number(e.target.value) || 1)))}
             />
             <p className="text-muted-foreground text-sm">{t("automations.maxActionsHelp")}</p>
           </div>
@@ -242,21 +255,29 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
                 const trigger = value as AutomationTrigger
                 const allowed = ACTIONS_BY_TRIGGER[trigger]
                 const keep: readonly string[] = CONDITIONS_BY_TRIGGER[trigger]
-                setRule((current) => ({
-                  ...current,
-                  trigger,
-                  action: allowed.includes(current.action) ? current.action : allowed[0],
-                  // Conditions sans objet pour le nouveau déclencheur : effacées
-                  // tout de suite, comme le fait le backend à l'enregistrement.
-                  conditions: {
-                    media_types: current.conditions.media_types,
-                    min_seed_days: keep.includes("min_seed_days") ? current.conditions.min_seed_days : null,
-                    min_ratio: keep.includes("min_ratio") ? current.conditions.min_ratio : null,
-                    min_reclaimable_bytes: keep.includes("min_reclaimable_bytes")
-                      ? current.conditions.min_reclaimable_bytes
-                      : null,
-                  },
-                }))
+                setRule((current) => {
+                  const action = allowed.includes(current.action) ? current.action : allowed[0]
+                  const cleanup = trigger === "cleanup_candidate"
+                  return {
+                    ...current,
+                    trigger,
+                    action,
+                    max_actions: Math.min(current.max_actions, maxActionsFor(action)),
+                    // Conditions sans objet pour le nouveau déclencheur : effacées
+                    // tout de suite, comme le fait le backend à l'enregistrement.
+                    // Candidat au nettoyage : valeurs prudentes proposées d'office.
+                    conditions: {
+                      media_types: current.conditions.media_types,
+                      min_seed_days: keep.includes("min_seed_days") ? current.conditions.min_seed_days : null,
+                      min_ratio: keep.includes("min_ratio") ? current.conditions.min_ratio : null,
+                      min_reclaimable_bytes: keep.includes("min_reclaimable_bytes")
+                        ? (current.conditions.min_reclaimable_bytes ??
+                          (cleanup ? CLEANUP_DEFAULTS.min_reclaimable_bytes : null))
+                        : null,
+                      min_score: cleanup ? (current.conditions.min_score ?? CLEANUP_DEFAULTS.min_score) : null,
+                    },
+                  }
+                })
               }}
             >
               <SelectTrigger id={`rule-trigger-${automation?.id ?? "new"}`}>
@@ -273,7 +294,17 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`rule-action-${automation?.id ?? "new"}`}>{t("automations.action")}</Label>
-            <Select value={rule.action} onValueChange={(value) => set("action", value as AutomationAction)}>
+            <Select
+              value={rule.action}
+              onValueChange={(value) => {
+                const action = value as AutomationAction
+                setRule((current) => ({
+                  ...current,
+                  action,
+                  max_actions: Math.min(current.max_actions, maxActionsFor(action)),
+                }))
+              }}
+            >
               <SelectTrigger id={`rule-action-${automation?.id ?? "new"}`}>
                 <SelectValue>{(v: string) => t(`automations.actions.${v}` as MessageKey)}</SelectValue>
               </SelectTrigger>
@@ -285,17 +316,35 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-muted-foreground text-sm">{t(`automations.actionHelp.${rule.action}` as MessageKey)}</p>
+            <p className="text-muted-foreground text-sm">
+              {t(`automations.actionHelp.${rule.action}` as MessageKey, { max: MAX_MEDIA_DELETIONS })}
+            </p>
           </div>
         </div>
 
         <div className="space-y-3 border-t pt-4">
-          <p className="text-sm font-medium">{t("automations.conditions")}</p>
+          <p className="text-sm font-medium">
+            {isCleanup ? t("automations.conditionsRequired") : t("automations.conditions")}
+          </p>
           {/* Seules les conditions qui ont un sens pour ce déclencheur : parler
               de temps de seed ou de ratio sur un import bloqué n'aurait aucun
               effet et laisserait croire le contraire. */}
           {available.length > 0 && (
             <div className="grid gap-4 sm:grid-cols-3">
+              {available.includes("min_score") && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`rule-score-${automation?.id ?? "new"}`}>{t("automations.minScore")}</Label>
+                  <Input
+                    id={`rule-score-${automation?.id ?? "new"}`}
+                    type="number"
+                    min={MIN_CLEANUP_SCORE}
+                    max={100}
+                    value={rule.conditions.min_score ?? ""}
+                    aria-invalid={invalid}
+                    onChange={(e) => setCondition("min_score", numberOrNull(e.target.value))}
+                  />
+                </div>
+              )}
               {available.includes("min_seed_days") && (
                 <div className="space-y-1.5">
                   <Label htmlFor={`rule-seed-${automation?.id ?? "new"}`}>{t("automations.minSeedDays")}</Label>
@@ -325,13 +374,16 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
               )}
               {available.includes("min_reclaimable_bytes") && (
                 <div className="space-y-1.5">
-                  <Label htmlFor={`rule-size-${automation?.id ?? "new"}`}>{t("automations.minSize")}</Label>
+                  <Label htmlFor={`rule-size-${automation?.id ?? "new"}`}>
+                    {isCleanup ? t("automations.minFreed") : t("automations.minSize")}
+                  </Label>
                   <Input
                     id={`rule-size-${automation?.id ?? "new"}`}
                     type="number"
-                    min={0}
+                    min={isCleanup ? MIN_CLEANUP_GIB : 0}
                     step="0.5"
                     placeholder={t("automations.noCondition")}
+                    aria-invalid={isCleanup && invalid}
                     value={
                       rule.conditions.min_reclaimable_bytes ? rule.conditions.min_reclaimable_bytes / GIGABYTE : ""
                     }
@@ -346,6 +398,11 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
                 </div>
               )}
             </div>
+          )}
+          {invalid && (
+            <p className="text-destructive text-sm">
+              {t("automations.cleanupInvalid", { score: MIN_CLEANUP_SCORE, size: MIN_CLEANUP_GIB })}
+            </p>
           )}
           <div className="flex flex-wrap items-center gap-4">
             {(["movie", "series"] as const).map((mediaType) => (
@@ -373,7 +430,7 @@ function AutomationCard({ automation, onDone }: AutomationCardProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-          <Button type="button" disabled={!rule.name.trim() || saving} onClick={handleSave}>
+          <Button type="button" disabled={!rule.name.trim() || invalid || saving} onClick={handleSave}>
             {saving && <Loader2 className="size-4 animate-spin" />}
             {t("common.save")}
           </Button>

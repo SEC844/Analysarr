@@ -29,6 +29,20 @@ class OmbiClient:
             raise ValueError(f"Réponse inattendue d'Ombi pour {path}")
         return [item for item in data if isinstance(item, dict)]
 
+    async def requests_fingerprint(self) -> tuple[Any, ...]:
+        """Nombre de demandes de films et de séries (`/total`, deux appels
+        légers) : une NOUVELLE demande le change. Ombi n'offre pas de tri par
+        modification : une approbation n'apparaît qu'à l'analyse suivante."""
+        async with self._client() as client:
+            totals = []
+            for path in ("/api/v1/Request/movie/total", "/api/v1/Request/tv/total"):
+                resp = await client.get(path)
+                resp.raise_for_status()
+                totals.append(resp.json())
+        if not all(isinstance(total, int) for total in totals):
+            raise ValueError("Réponse inattendue d'Ombi pour le nombre de demandes")
+        return tuple(totals)
+
     async def get_movie_requests(self) -> list[dict[str, Any]]:
         return await self._get_list("/api/v1/Request/movie")
 

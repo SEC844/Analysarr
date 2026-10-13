@@ -60,13 +60,19 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Targeted cross-seed search per episode, season or whole series.
 
 **Decision support**
-- Watch activity per user (`3/10` watched it, progress on hover), last played date, date added.
+- Watch activity per user (`3/10` watched it, progress on hover), last played date, date added, favourites and each account's last activity.
+- Series status from Sonarr (continuing, ended) and private torrents flagged, whatever the torrent client.
 - Requests from Seer or Ombi: who asked, when, who approved (Ombi does not record who approved).
 - "Cleanup candidates" sort: big files nobody watched for a long time.
+- **Deletion assistant** (**Cleanup** tab, a poster grid like the library, filters and selection kept while you browse): ranks the media nobody watches any more with a score out of 100 you can open to see why (time without playback, active accounts that have not finished it, age in the library, ended series), next to the space its deletion would **really** free (hardlinks and cross-seed copies counted once). Favourites of active accounts, requests not yet watched by their requester, recent additions, torrents still seeding their minimum and media you excluded are never suggested — with the reason shown. Four modes (Age and interest, Balanced, Space first, Custom): in Custom, the criteria share the 100 points of the score; deletion goes through the usual selective deletion, one media after the other, after a preview and a confirmation.
+- **Disk forecasts** (**Cleanup → Space and forecasts**): from one measurement a day, the growth trend of each disk over the last 30 days with a high/low range, a chart of the history and the projection, and "full in 6 to 9 weeks". Below 14 days of history, it says so instead of guessing.
+- **Cleanup automations** (**Settings → Automations**, trigger *Cleanup candidate*): delete whole media whose score AND freeable space are above the thresholds you set (score 50 and 1 GB at the very least), at most 10 per run, in simulation until you switch it off, through the same deletion as the assistant. Protected media and media someone is watching are never touched — checked again right before each deletion — and nothing is deleted when watch data or requests could not be read at the last full scan (the assistant shows a warning too). Every run is in the history and can be notified.
+- **Weekly summary** (opt-in: subscribe a notification channel to *Weekly summary*): every Monday at 9 am, library growth, estimated disk filling, top 10 cleanup candidates and torrents whose seeding obligation ends within a week. **Send now** in **Settings → Notifications** shows it right away.
 
 **Everyday comfort**
 - Library filters: media type, state (healthy / alert / hidden alerts), sorting and search at hand, plus a "Filters" panel where several statuses and watch states can be combined.
 - Scheduled scans, scan history, path diagnostics that pinpoint a missing Docker mount.
+- **Real time, by default**: no setting. Analysarr creates a webhook in every Sonarr/Radarr instance by itself (state, test and retry in each instance's settings), reads the torrent client lightly (`sync/maindata` for qBittorrent), the media server's latest changes — removals included, through its item counts — and the request manager (Seer or Ombi). An import, a deletion, a finished torrent, a watched episode or a new request shows up within seconds, the changed media is briefly highlighted, and the full scan becomes a nightly check (4 am by default, **Settings → Schedule**). Sonarr/Radarr must be able to reach Analysarr: its address is detected from your browser and can be changed in **Settings → Application**.
 - **Targeted scans**: the arrow next to **Scan** runs a single service — Radarr, Sonarr, the media server, the torrent client, the queue, watch activity or Seer/Ombi — and every media page has its own **Scan this media** button. Both are much faster than a full scan and leave the rest of the cache untouched.
 - qBittorrent, Deluge or Transmission: the torrent client is a setting, everything else works the same way.
 - Several Sonarr and Radarr instances (e.g. a dedicated 4K Radarr): each media stays linked to the instance tracking it, and a version tracked by another instance is never treated as a duplicate.
@@ -75,6 +81,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Read-only dashboard widget (`/api/status`) for Homepage, Homarr or any JSON-capable tool.
 - Rich notifications on Discord, ntfy or Gotify (poster, space freed, result of every step). Several channels, each with its own events: scan finished, scan failed, orphans detected, blocked imports, stalled downloads, deletion, cleanup, hardlink repair, cross-seed search, automation, update available.
 - Optional automations: on orphans, duplicates, non-hardlinked torrents or blocked imports, clean up, repair, retry the import, search a cross-seed or just notify — with conditions (seed time, ratio, media type, reclaimable space), a simulation mode and a cap per run.
+- **Seed protection**: a torrent that has not finished its minimum seeding time is never deleted by a cleanup or an automation — private torrents by default (a torrent whose privacy is unknown counts as private), public ones if you wish, with per-tracker rules (time and optional ratio). The cleanup preview says until when each torrent is protected; a manual deletion stays possible, with a warning. On for new installs; existing installs are offered to turn it on (**Settings → Seed protection**).
 - Mount safety net: any action that touches the disk is refused when a volume is not mounted, so nothing is removed from Sonarr/Radarr or from the database while the files are still there.
 - Optional trash: every deletion is kept as one restorable entry — library files, torrents (removed from the client without touching their data), and Sonarr/Radarr tracking all come back together, hardlinks included (**Settings → Trash**).
 - Hardened for exposure: security headers (strict CSP, clickjacking protection), rate limiting on the sign-in routes, real client address behind a declared reverse proxy, and a sign-in log in **Settings → Account**.
@@ -170,7 +177,7 @@ Write access to the data share is only used when you delete media or repair hard
 
 ## Dashboard widget
 
-Generate a key in **Settings → Configuration → Widget**, then query `http://<host>:1818/api/status` with the `X-Api-Key` header (or `Authorization: Bearer`). The response only contains counters: media total, movies, series, healthy media, media per status, reclaimable space, last scan and service status. Example for [Homepage](https://gethomepage.dev/widgets/services/customapi/):
+Generate a key in **Settings → System → Widget**, then query `http://<host>:1818/api/status` with the `X-Api-Key` header (or `Authorization: Bearer`). The response only contains counters: media total, movies, series, healthy media, media per status, reclaimable space, last scan and service status. Example for [Homepage](https://gethomepage.dev/widgets/services/customapi/):
 
 ```yaml
 - Analysarr:

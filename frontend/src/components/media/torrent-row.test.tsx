@@ -28,6 +28,8 @@ function torrent(overrides: Partial<TorrentRead>): TorrentRead {
     added_on: null,
     completed_on: null,
     trackers: [],
+    is_private: null,
+    seed_obligation: null,
     ...overrides,
   }
 }
@@ -60,5 +62,34 @@ describe("TorrentRow", () => {
 
     expect(screen.getByText(en.media.notHardlinked)).toBeInTheDocument()
     expect(screen.queryByText(en.media.orphan)).not.toBeInTheDocument()
+  })
+})
+
+describe("TorrentRow seed protection", () => {
+  it("marks a private torrent", () => {
+    renderRow({ is_private: true })
+
+    expect(screen.getByText(en.seed.private)).toHaveAttribute("title", en.seed.privateHint)
+  })
+
+  it("says until when and why a torrent is protected", () => {
+    renderRow({
+      seed_obligation: {
+        reason: "min_seed",
+        until: "2026-10-12T10:00:00",
+        tracker: "tracker.example.org",
+        min_days: 14,
+        min_ratio: null,
+      },
+    })
+
+    expect(screen.getByText(/Protected until .*2026 \(minimum seeding on tracker\.example\.org\)/)).toBeInTheDocument()
+  })
+
+  it("shows nothing when the protection does not apply", () => {
+    renderRow({ is_private: false })
+
+    expect(screen.queryByText(en.seed.private)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Protected/)).not.toBeInTheDocument()
   })
 })

@@ -15,6 +15,7 @@ from app.services.cascade_delete import build_delete_preview
 from app.services.hardlink_repair import build_repair_preview
 from app.services.ignores import IgnoreSet, media_key
 from app.services.media_status import apply_statuses, refresh_media_statuses
+from app.services.seed_protection import SeedPolicy
 
 
 def movie(session, **fields):
@@ -299,7 +300,7 @@ def test_the_full_scan_applies_and_records_the_rules(session):
     orphan = Torrent(hash="AAAA", name="Matrix.AAAA", is_hardlinked=False)
 
     ignores = IgnoreSet.load(session)
-    apply_statuses(rebuilt, [], [orphan], [], ignores)
+    apply_statuses(rebuilt, [], [orphan], [], ignores, policy=SeedPolicy(), torrent_files={})
     ignores.persist(session)
 
     assert orphan.ignored and "orphelin_qbit" not in rebuilt.statuses

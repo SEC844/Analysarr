@@ -15,7 +15,14 @@ from app.database import get_session
 from app.models.ids import row_id
 from app.models.notification_channel import NotificationChannel
 from app.models.settings import Settings
-from app.schemas.notifications import ChannelKind, ChannelRead, ChannelTestResult, ChannelWrite
+from app.schemas.notifications import (
+    ChannelKind,
+    ChannelRead,
+    ChannelTestResult,
+    ChannelWrite,
+    SummaryChannelResult,
+    WeeklySummaryResult,
+)
 from app.services.notifications import (
     MAX_CHANNELS,
     NOTIFICATION_EVENTS,
@@ -28,6 +35,7 @@ from app.services.notifications import (
     send,
 )
 from app.services.scheduler import refresh_update_watch
+from app.services.weekly_summary import send_weekly_summary
 
 router = APIRouter()
 
@@ -148,3 +156,14 @@ def _test_target(channel_id: int, session: Session) -> tuple[ChannelTarget, str]
         events=channel_events(channel),
     )
     return target, notification_language(session.get(Settings, 1))
+
+
+@router.post("/weekly-summary", response_model=WeeklySummaryResult)
+async def send_weekly_summary_now() -> WeeklySummaryResult:
+    """Envoie le résumé hebdomadaire tout de suite, aux seuls canaux abonnés
+    (pour le voir sans attendre lundi)."""
+    delivery = await send_weekly_summary()
+    return WeeklySummaryResult(
+        channels=[SummaryChannelResult(name=name, error=error) for name, error in delivery.results.items()],
+        skipped=delivery.skipped,
+    )

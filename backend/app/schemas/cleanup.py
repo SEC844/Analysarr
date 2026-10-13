@@ -1,0 +1,170 @@
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+from app.schemas.seed import SeedObligationRead
+
+PresetName = Literal["prudent", "balanced", "space_first"]
+# Sources facultatives d'un scan dont l'échec vide les données (ScanRun.failed_sources).
+UnreliableSource = Literal["watch", "requests"]
+UNRELIABLE_SOURCES: tuple[UnreliableSource, ...] = ("watch", "requests")
+
+
+WEIGHT_BUDGET = 100
+_WEIGHT_KEYS = ("disinterest", "potential", "age", "series")
+
+
+class CleanupWeights(BaseModel):
+    """Points des sous-scores : le score étant une note sur 100, les poids se
+    partagent toujours 100 points (au moins un non nul). Des poids d'un autre
+    total (réglages enregistrés avant ce partage, client ancien) sont ramenés à
+    100 en gardant leurs proportions : le classement ne change pas."""
+
+    disinterest: int = Field(ge=0, le=100)
+    potential: int = Field(ge=0, le=100)
+    age: int = Field(ge=0, le=100)
+    series: int = Field(ge=0, le=100)
+
+    @model_validator(mode="after")
+    def _share_the_budget(self) -> "CleanupWeights":
+        values = [getattr(self, key) for key in _WEIGHT_KEYS]
+        total = sum(values)
+        if not total:
+            raise ValueError("Au moins un poids doit être supérieur à zéro.")
+        if total == WEIGHT_BUDGET:
+            return self
+        # Méthode du plus fort reste : parts entières qui font exactement 100.
+        exact = [WEIGHT_BUDGET * value / total for value in values]
+        shares = [int(share) for share in exact]
+        by_remainder = sorted(range(len(values)), key=lambda i: shares[i] - exact[i])
+        for index in by_remainder[: WEIGHT_BUDGET - sum(shares)]:
+            shares[index] += 1
+        for key, share in zip(_WEIGHT_KEYS, shares, strict=True):
+            setattr(self, key, share)
+        return self
+
+
+class CleanupSettings(BaseModel):
+    """Réglages de l'assistant de nettoyage, bornés côté serveur. `preset` :
+    préréglage de départ (None = réglages personnalisés)."""
+
+    preset: PresetName | None = "balanced"
+    # Jours sans lecture (ou depuis l'ajout, jamais vu) pour un désintérêt de 100.
+    disinterest_days: int = Field(default=365, ge=30, le=1825)
+    # Jours depuis l'ajout pour une ancienneté de 100.
+    age_days: int = Field(default=730, ge=30, le=3650)
+    # Un compte sans activité depuis ce nombre de jours ne compte plus.
+    inactive_days: int = Field(default=90, ge=7, le=730)
+    # Ajouté depuis moins de ce nombre de jours : protégé.
+    recent_days: int = Field(default=30, ge=0, le=365)
+    # 0 = classement par score seul, 100 = espace libérable prioritaire.
+    space_priority: int = Field(default=30, ge=0, le=100)
+    weights: CleanupWeights = Field(
+        default_factory=lambda: CleanupWeights(disinterest=35, potential=35, age=15, series=15)
+    )
+
+
+class CleanupSettingsRead(BaseModel):
+    settings: CleanupSettings
+    presets: dict[str, CleanupSettings]
+
+
+ComponentKey = Literal["disinterest", "potential", "age", "series"]
+
+
+class ScoreComponentRead(BaseModel):
+    """Un sous-score et de quoi l'expliquer : `days` (désintérêt, ancienneté),
+    `unfinished`/`users` (potentiel restant), `series_status` (séries).
+    `weight` : part effective en % (poids redistribués quand un sous-score ne
+    s'applique pas, ex. statut de série pour un film)."""
+
+    key: ComponentKey
+    value: int
+    weight: int
+    contribution: float
+    days: int | None = None
+    # `undated` : vu par au moins un compte, sans date de lecture connue.
+    since: Literal["last_played", "added", "undated"] | None = None
+    users: int | None = None
+    unfinished: int | None = None
+    series_status: str | None = None
+
+
+ProtectionKind = Literal["favorite", "request", "request_unknown", "recent", "seed", "excluded"]
+
+
+class ProtectionRead(BaseModel):
+    """Raison pour laquelle un média n'est jamais proposé. `names` : comptes
+    concernés (favori, demandeur) ; `days` : ajouté depuis ce nombre de jours ;
+    `obligation` : obligation de seed en cours."""
+
+    kind: ProtectionKind
+    names: list[str] = Field(default_factory=list)
+    days: int | None = None
+    obligation: SeedObligationRead | None = None
+
+
+class CleanupCandidateRead(BaseModel):
+    media_id: int
+    media_type: str
+    title: str
+    year: int | None
+    has_poster: bool
+    poster_image_tag: str | None
+    arr_instance_name: str | None = None
+    score: int
+    rank: float
+    # Espace réellement libéré en supprimant tout le média.
+    reclaimable_bytes: int
+    # Sous-score qui pèse le plus : raison principale affichée.
+    main_reason: ComponentKey | None
+    malus_in_progress: bool
+    protections: list[ProtectionRead]
+    last_played_at: datetime | None
+    date_added: datetime | None
+    # De quoi formuler la raison principale sans charger le détail.
+    series_status: str | None = None
+    active_users: int = 0
+
+
+class CleanupSpaceRead(BaseModel):
+    """Espace sur le disque (chaque fichier physique compté une fois) contre
+    espace réellement libéré : la différence est retenue par
+    `external_links` liens qui vivent hors du média."""
+
+    on_disk_bytes: int
+    freed_bytes: int
+    held_bytes: int
+    external_links: int
+
+
+class OtherLinksRead(BaseModel):
+    """Autres liens trouvés sous `roots`. `complete` : faux si la recherche
+    s'est arrêtée (limite de temps ou de résultats) avant la fin."""
+
+    paths: list[str]
+    complete: bool
+    roots: list[str]
+
+
+class CleanupCandidateDetail(CleanupCandidateRead):
+    components: list[ScoreComponentRead]
+    space: CleanupSpaceRead
+    # Score avant le malus « en cours de visionnage ».
+    raw_score: int
+    in_progress_users: list[str]
+
+
+class CleanupCandidatesPage(BaseModel):
+    items: list[CleanupCandidateRead]
+    total: int
+    # Médias proposés (non protégés) correspondant aux filtres, et l'espace
+    # que leur suppression libérerait (somme : exacte tant qu'aucun fichier
+    # n'est hardlinké entre deux médias).
+    candidate_count: int
+    protected_count: int
+    total_reclaimable_bytes: int
+    # Sources illisibles au dernier scan complet (`watch`, `requests`) :
+    # scores et protections faussés, l'interface le signale.
+    unreliable_sources: list[UnreliableSource] = []

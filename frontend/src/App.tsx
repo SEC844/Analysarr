@@ -22,6 +22,7 @@ const OnboardingWizard = lazy(() =>
   import("@/pages/onboarding-wizard").then((m) => ({ default: m.OnboardingWizard })),
 )
 const SettingsPage = lazy(() => import("@/pages/settings-page").then((m) => ({ default: m.SettingsPage })))
+const CleanupPage = lazy(() => import("@/pages/cleanup-page").then((m) => ({ default: m.CleanupPage })))
 
 function PageSkeleton() {
   return (
@@ -145,6 +146,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MediaListPage />} />
           <Route path="/media/:id" element={<MediaDetailPage />} />
+          <Route path="/cleanup" element={<CleanupPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </Suspense>

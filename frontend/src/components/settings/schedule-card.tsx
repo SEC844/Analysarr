@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useI18n } from "@/i18n"
+import type { ScheduleMode } from "@/types/settings"
 
 const PRESETS = [
   { value: "60", label: "schedule.presets.hourly" },
@@ -11,23 +12,44 @@ const PRESETS = [
   { value: "360", label: "schedule.presets.every6h" },
   { value: "720", label: "schedule.presets.every12h" },
   { value: "1440", label: "schedule.presets.daily" },
+  { value: "nightly", label: "schedule.presets.nightly" },
   { value: "custom", label: "schedule.presets.custom" },
 ] as const
 
-const PRESET_VALUES = new Set<string>(PRESETS.map((p) => p.value).filter((v) => v !== "custom"))
+const PRESET_VALUES = new Set<string>(PRESETS.map((p) => p.value).filter((v) => v !== "custom" && v !== "nightly"))
+const HOURS = Array.from({ length: 24 }, (_, hour) => String(hour))
 
 interface ScheduleCardProps {
   enabled: boolean
   onEnabledChange: (value: boolean) => void
   intervalMinutes: number | null
   onIntervalMinutesChange: (value: number | null) => void
+  mode: ScheduleMode
+  onModeChange: (value: ScheduleMode) => void
+  nightlyHour: number
+  onNightlyHourChange: (value: number) => void
 }
 
-export function ScheduleCard({ enabled, onEnabledChange, intervalMinutes, onIntervalMinutesChange }: ScheduleCardProps) {
+export function ScheduleCard({
+  enabled,
+  onEnabledChange,
+  intervalMinutes,
+  onIntervalMinutesChange,
+  mode,
+  onModeChange,
+  nightlyHour,
+  onNightlyHourChange,
+}: ScheduleCardProps) {
   const { t } = useI18n()
   const presetLabels: Record<string, string> = Object.fromEntries(PRESETS.map((p) => [p.value, t(p.label)]))
   const currentValue =
-    intervalMinutes != null ? (PRESET_VALUES.has(String(intervalMinutes)) ? String(intervalMinutes) : "custom") : "60"
+    mode === "nightly"
+      ? "nightly"
+      : intervalMinutes != null
+        ? PRESET_VALUES.has(String(intervalMinutes))
+          ? String(intervalMinutes)
+          : "custom"
+        : "60"
   const isCustom = currentValue === "custom"
 
   function handleEnabledChange(value: boolean) {
@@ -57,7 +79,12 @@ export function ScheduleCard({ enabled, onEnabledChange, intervalMinutes, onInte
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 value={currentValue}
-                onValueChange={(v) => onIntervalMinutesChange(v === "custom" ? (intervalMinutes ?? 60) : Number(v))}
+                onValueChange={(v) => {
+                  // « Une fois par nuit » est un mode à part ; l'intervalle
+                  // enregistré est gardé pour un retour en arrière.
+                  onModeChange(v === "nightly" ? "nightly" : "interval")
+                  if (v !== "nightly") onIntervalMinutesChange(v === "custom" ? (intervalMinutes ?? 60) : Number(v))
+                }}
               >
                 <SelectTrigger id="schedule-interval" className="w-56">
                   <SelectValue placeholder={t("schedule.frequency")}>{(v: string) => presetLabels[v] ?? v}</SelectValue>
@@ -70,6 +97,24 @@ export function ScheduleCard({ enabled, onEnabledChange, intervalMinutes, onInte
                   ))}
                 </SelectContent>
               </Select>
+              {mode === "nightly" && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-sm">{t("schedule.nightlyHour")}</span>
+                  <Select value={String(nightlyHour)} onValueChange={(v) => onNightlyHourChange(Number(v))}>
+                    <SelectTrigger className="w-20" aria-label={t("schedule.nightlyHour")}>
+                      <SelectValue>{(v: string) => v}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {HOURS.map((hour) => (
+                        <SelectItem key={hour} value={hour}>
+                          {hour}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-muted-foreground text-sm">{t("schedule.hours")}</span>
+                </div>
+              )}
               {isCustom && (
                 <div className="flex items-center gap-1.5">
                   <Input

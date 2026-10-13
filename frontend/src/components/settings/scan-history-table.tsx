@@ -21,7 +21,8 @@ function formatDuration(startedAt: string, finishedAt: string | null): string {
 export function ScanHistoryTable({ trigger }: { trigger: "manual" | "scheduled" }) {
   const { t } = useI18n()
   const { data: allRuns, isLoading } = useScanHistoryQuery()
-  const data = allRuns?.filter((run) => (run.trigger === "scheduled") === (trigger === "scheduled"))
+  // Vue « automatique » : planification et temps réel ; vue manuelle : le reste.
+  const data = allRuns?.filter((run) => (run.trigger !== "manual") === (trigger === "scheduled"))
 
   return (
     <Card>
@@ -58,9 +59,12 @@ export function ScanHistoryTable({ trigger }: { trigger: "manual" | "scheduled" 
                     <td className="py-1.5 pr-4">
                       {/* Le périmètre explique un compte de médias ou de
                           torrents différent d'une analyse complète. */}
-                      <Badge variant={run.scope === "full" ? "outline" : "secondary"}>
-                        {t(`scan.scopes.${run.scope}` as MessageKey)}
-                      </Badge>
+                      <span className="inline-flex flex-wrap gap-1">
+                        <Badge variant={run.scope === "full" ? "outline" : "secondary"}>
+                          {t(`scan.scopes.${run.scope}` as MessageKey)}
+                        </Badge>
+                        {run.trigger === "realtime" && <Badge variant="outline">{t("scanHistory.realtime")}</Badge>}
+                      </span>
                     </td>
                     <td className="py-1.5 pr-4">
                       {run.status === "completed" && (

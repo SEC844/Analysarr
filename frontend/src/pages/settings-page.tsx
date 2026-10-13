@@ -1,12 +1,14 @@
 import { useState } from "react"
 import { Loader2, RefreshCw, XCircle } from "lucide-react"
 import { useSearchParams } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { AccountSection } from "@/components/settings/account-card"
 import { ActionHistory } from "@/components/settings/action-history"
 import { ApiKeyServiceCard } from "@/components/settings/api-key-service-card"
 import { ApplicationSection } from "@/components/settings/application-section"
+import { ArrWebhooksCard } from "@/components/realtime/arr-webhooks-card"
 import { ArrInstancesCard } from "@/components/settings/arr-instances-card"
 import { AutomationsSection } from "@/components/settings/automations-section"
 import { CrossSeedCard } from "@/components/settings/cross-seed-card"
@@ -18,7 +20,9 @@ import { PreferencesSection } from "@/components/settings/preferences-section"
 import { TorrentClientCard } from "@/components/settings/torrent-client-card"
 import { ScanHistoryTable } from "@/components/settings/scan-history-table"
 import { IgnoredSection } from "@/components/settings/ignored-section"
+import { SeedProtectionSection } from "@/components/settings/seed-protection-section"
 import { TrashSection } from "@/components/settings/trash-section"
+import { SideNavLayout } from "@/components/layout/side-nav"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
 import { WidgetSection } from "@/components/settings/widget-section"
@@ -28,11 +32,14 @@ import { PulseDot } from "@/components/ui/pulse-dot"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useAutomationGuardQuery } from "@/hooks/use-automations"
+import { REALTIME_QUERY_KEY } from "@/hooks/use-realtime"
 import { useRefreshServicesStatusMutation, useServicesStatusQuery } from "@/hooks/use-services"
 import { useSaveSettingsMutation, useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n, type MediaServer, type MessageKey } from "@/i18n"
+import { unregisterWebhook } from "@/lib/api"
 import { formatRelativeTime } from "@/lib/format"
 import { summarizeServices, type SectionServiceStatus } from "@/lib/services"
+import { removedInstances } from "@/lib/settings-instances"
 import { cn } from "@/lib/utils"
 import { TORRENT_CLIENT_NAMES, settingsReadToForm, type SettingsRead } from "@/types/settings"
 
@@ -56,16 +63,17 @@ const SECTION_GROUPS = [
       { id: "schedule", label: "settings.sections.schedule" },
       { id: "notifications", label: "settings.sections.notifications" },
       { id: "automations", label: "settings.sections.automations" },
+      { id: "seed-protection", label: "settings.sections.seedProtection" },
       { id: "ignored", label: "settings.sections.ignored" },
-      { id: "widget", label: "settings.sections.widget" },
-      { id: "preferences", label: "settings.sections.preferences" },
     ],
   },
   {
     label: "settings.groups.system",
     sections: [
       { id: "application", label: "settings.sections.application" },
+      { id: "preferences", label: "settings.sections.preferences" },
       { id: "account", label: "settings.sections.account" },
+      { id: "widget", label: "settings.sections.widget" },
       { id: "trash", label: "settings.sections.trash" },
       { id: "history", label: "settings.sections.history" },
     ],
@@ -76,7 +84,7 @@ type SectionId = (typeof SECTION_GROUPS)[number]["sections"][number]["id"]
 
 const SECTION_IDS = new Set<string>(SECTION_GROUPS.flatMap((g) => g.sections.map((s) => s.id)))
 // Sections qui enregistrent elles-mêmes leurs changements (pas de bouton global).
-const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "widget", "history", "account", "trash", "preferences", "application"])
+const SELF_SAVING_SECTIONS = new Set<SectionId>(["notifications", "automations", "seed-protection", "widget", "history", "account", "trash", "preferences", "application"])
 
 export function SettingsPage() {
   const { t } = useI18n()
@@ -129,6 +137,7 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
   const setSection = (id: SectionId) => setSearchParams({ section: id }, { replace: true })
 
   const [form, setForm] = useState(() => settingsReadToForm(existing))
+  const queryClient = useQueryClient()
   const saveSettings = useSaveSettingsMutation()
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
@@ -145,9 +154,20 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
   }
 
   async function handleSave() {
+    // Instance retirée : son webhook disparaît aussi chez elle, avant que ses
+    // paramètres ne soient oubliés (sinon il y resterait, en échec).
+    for (const { service, instanceId, name } of removedInstances(existing, form)) {
+      try {
+        await unregisterWebhook(service, instanceId)
+      } catch (err) {
+        toast.warning(t("realtime.webhooks.unregisterFailed", { name, error: err instanceof Error ? err.message : "" }))
+      }
+    }
     try {
       await saveSettings.mutateAsync(form)
       toast.success(t("settings.saved"))
+      // Le superviseur branche les nouvelles instances dans les secondes qui suivent.
+      queryClient.invalidateQueries({ queryKey: REALTIME_QUERY_KEY })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.saveFailed"))
     }
@@ -167,193 +187,188 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
         )}
       </div>
 
-      <div className="flex flex-col gap-8 sm:flex-row">
-        <nav className="flex shrink-0 flex-row gap-4 overflow-x-auto sm:w-44 sm:flex-col sm:gap-6 sm:overflow-visible">
-          {SECTION_GROUPS.map((group) => (
-            <div key={group.label} className="flex flex-col gap-0.5">
-              <p className="text-muted-foreground px-2 pb-1 text-xs font-medium tracking-wide uppercase">
-                {label(group.label)}
-              </p>
-              {group.sections.map((s) => (
-                <button
-                  key={s.id}
+      <SideNavLayout
+        label={t("settings.title")}
+        value={section}
+        onChange={setSection}
+        groups={SECTION_GROUPS.map((group) => ({
+          label: label(group.label),
+          items: group.sections.map((s) => ({
+            id: s.id,
+            label: label(s.label),
+            adornment: (
+              <>
+                <ServiceDot status={serviceStatuses.bySection[s.id]} />
+                {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
+                {s.id === "automations" && automationsPaused && (
+                  <PulseDot tone="warning" label={t("automations.guard.pausedTitle")} />
+                )}
+              </>
+            ),
+          })),
+        }))}
+        className="space-y-6"
+      >
+        {sectionStatus && !sectionStatus.ok && (
+          <Alert variant="destructive">
+            <XCircle className="size-4" />
+            <AlertTitle>{t("servicesStatus.alertTitle", { count: sectionStatus.down.length })}</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <ul className="space-y-1">
+                {sectionStatus.down.map((service, index) => (
+                  <li key={`${service.name}-${index}`} className="break-words">
+                    <span className="font-medium">{service.name}</span> — {service.message}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
                   type="button"
-                  onClick={() => setSection(s.id)}
-                  className={cn(
-                    "flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm whitespace-nowrap transition-colors",
-                    section === s.id
-                      ? "bg-secondary text-secondary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted",
-                  )}
+                  variant="outline"
+                  size="sm"
+                  disabled={refreshServices.isPending}
+                  onClick={() => refreshServices.mutate()}
                 >
-                  {label(s.label)}
-                  <ServiceDot status={serviceStatuses.bySection[s.id]} />
-                  {s.id === "application" && updateAvailable && <PulseDot label={t("nav.updateAvailable")} />}
-                  {s.id === "automations" && automationsPaused && (
-                    <PulseDot tone="warning" label={t("automations.guard.pausedTitle")} />
-                  )}
-                </button>
-              ))}
-            </div>
-          ))}
-        </nav>
+                  <RefreshCw className={cn("size-4", refreshServices.isPending && "animate-spin")} />
+                  {t("servicesStatus.refresh")}
+                </Button>
+                <span className="text-xs">
+                  {t("servicesStatus.checked", { time: formatRelativeTime(services?.checked_at) ?? "—" })}
+                </span>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
-        <div className="min-w-0 flex-1 space-y-6">
-          {sectionStatus && !sectionStatus.ok && (
-            <Alert variant="destructive">
-              <XCircle className="size-4" />
-              <AlertTitle>{t("servicesStatus.alertTitle", { count: sectionStatus.down.length })}</AlertTitle>
-              <AlertDescription className="space-y-2">
-                <ul className="space-y-1">
-                  {sectionStatus.down.map((service, index) => (
-                    <li key={`${service.name}-${index}`} className="break-words">
-                      <span className="font-medium">{service.name}</span> — {service.message}
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={refreshServices.isPending}
-                    onClick={() => refreshServices.mutate()}
-                  >
-                    <RefreshCw className={cn("size-4", refreshServices.isPending && "animate-spin")} />
-                    {t("servicesStatus.refresh")}
-                  </Button>
-                  <span className="text-xs">
-                    {t("servicesStatus.checked", { time: formatRelativeTime(services?.checked_at) ?? "—" })}
-                  </span>
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
+        {(section === "emby" || section === "sonarr" || section === "radarr") && (
+          <ApiKeyServiceCard
+            key={section}
+            service={section}
+            url={form[`${section}_url`]}
+            onUrlChange={(v) => set(`${section}_url`, v)}
+            apiKey={form[`${section}_api_key`]}
+            onApiKeyChange={(v) => set(`${section}_api_key`, v)}
+            apiKeySet={existing[section].api_key_set}
+            {...(section === "emby"
+              ? { mediaServer: form.media_server, onMediaServerChange: (v: MediaServer) => set("media_server", v) }
+              : {})}
+          />
+        )}
 
-          {(section === "emby" || section === "sonarr" || section === "radarr") && (
-            <ApiKeyServiceCard
-              key={section}
-              service={section}
-              url={form[`${section}_url`]}
-              onUrlChange={(v) => set(`${section}_url`, v)}
-              apiKey={form[`${section}_api_key`]}
-              onApiKeyChange={(v) => set(`${section}_api_key`, v)}
-              apiKeySet={existing[section].api_key_set}
-              {...(section === "emby"
-                ? { mediaServer: form.media_server, onMediaServerChange: (v: MediaServer) => set("media_server", v) }
-                : {})}
+        {(section === "sonarr" || section === "radarr") && (
+          <ArrInstancesCard
+            kind={section}
+            instances={form.arr_instances}
+            saved={existing.arr_instances}
+            onChange={(v) => set("arr_instances", v)}
+          />
+        )}
+        {(section === "sonarr" || section === "radarr") && <ArrWebhooksCard service={section} />}
+
+        {section === "emby" && existing.emby.api_key_set && (
+          <EmbyUsersCard
+            excluded={form.excluded_emby_user_ids}
+            onExcludedChange={(v) => set("excluded_emby_user_ids", v)}
+          />
+        )}
+
+        {section === "qbittorrent" && (
+          <TorrentClientCard
+            client={form.torrent_client}
+            onClientChange={(v) => set("torrent_client", v)}
+            url={form.qbittorrent_url}
+            onUrlChange={(v) => set("qbittorrent_url", v)}
+            username={form.qbittorrent_username}
+            onUsernameChange={(v) => set("qbittorrent_username", v)}
+            password={form.qbittorrent_password}
+            onPasswordChange={(v) => set("qbittorrent_password", v)}
+            passwordSet={existing.qbittorrent.password_set}
+          />
+        )}
+
+        {section === "cross-seed" && (
+          <CrossSeedCard
+            enabled={form.cross_seed_enabled}
+            onEnabledChange={(v) => set("cross_seed_enabled", v)}
+            url={form.cross_seed_url}
+            onUrlChange={(v) => set("cross_seed_url", v)}
+            apiKey={form.cross_seed_api_key}
+            onApiKeyChange={(v) => set("cross_seed_api_key", v)}
+            apiKeySet={existing.cross_seed.api_key_set}
+            libraryPath={form.cross_seed_library_path}
+            onLibraryPathChange={(v) => set("cross_seed_library_path", v)}
+          />
+        )}
+
+        {section === "seer" && (
+          <SeerCard
+            enabled={form.seer_enabled}
+            onEnabledChange={(v) => set("seer_enabled", v)}
+            kind={form.seer_type}
+            onKindChange={(v) => set("seer_type", v)}
+            url={form.seer_url}
+            onUrlChange={(v) => set("seer_url", v)}
+            apiKey={form.seer_api_key}
+            onApiKeyChange={(v) => set("seer_api_key", v)}
+            apiKeySet={existing.seer.api_key_set}
+          />
+        )}
+
+        {section === "paths" && (
+          <div className="space-y-6">
+            <PathsCard
+              torrentClientName={TORRENT_CLIENT_NAMES[form.torrent_client]}
+              embyLibraryPath={form.emby_library_path}
+              onEmbyLibraryPathChange={(v) => set("emby_library_path", v)}
+              qbittorrentDownloadPath={form.qbittorrent_download_path}
+              onQbittorrentDownloadPathChange={(v) => set("qbittorrent_download_path", v)}
             />
-          )}
+            <PathDiagnosticsPanel />
+          </div>
+        )}
 
-          {(section === "sonarr" || section === "radarr") && (
-            <ArrInstancesCard
-              kind={section}
-              instances={form.arr_instances}
-              saved={existing.arr_instances}
-              onChange={(v) => set("arr_instances", v)}
+        {section === "schedule" && (
+          <div className="space-y-6">
+            <ScheduleCard
+              enabled={form.scan_schedule_enabled}
+              onEnabledChange={(v) => set("scan_schedule_enabled", v)}
+              intervalMinutes={form.scan_schedule_interval_minutes}
+              onIntervalMinutesChange={(v) => set("scan_schedule_interval_minutes", v)}
+              mode={form.scan_schedule_mode}
+              onModeChange={(v) => set("scan_schedule_mode", v)}
+              nightlyHour={form.scan_nightly_hour}
+              onNightlyHourChange={(v) => set("scan_nightly_hour", v)}
             />
-          )}
+            <ScanHistoryTable trigger="scheduled" />
+          </div>
+        )}
 
-          {section === "emby" && existing.emby.api_key_set && (
-            <EmbyUsersCard
-              excluded={form.excluded_emby_user_ids}
-              onExcludedChange={(v) => set("excluded_emby_user_ids", v)}
-            />
-          )}
+        {section === "notifications" && <NotificationsSection />}
 
-          {section === "qbittorrent" && (
-            <TorrentClientCard
-              client={form.torrent_client}
-              onClientChange={(v) => set("torrent_client", v)}
-              url={form.qbittorrent_url}
-              onUrlChange={(v) => set("qbittorrent_url", v)}
-              username={form.qbittorrent_username}
-              onUsernameChange={(v) => set("qbittorrent_username", v)}
-              password={form.qbittorrent_password}
-              onPasswordChange={(v) => set("qbittorrent_password", v)}
-              passwordSet={existing.qbittorrent.password_set}
-            />
-          )}
+        {section === "automations" && <AutomationsSection />}
 
-          {section === "cross-seed" && (
-            <CrossSeedCard
-              enabled={form.cross_seed_enabled}
-              onEnabledChange={(v) => set("cross_seed_enabled", v)}
-              url={form.cross_seed_url}
-              onUrlChange={(v) => set("cross_seed_url", v)}
-              apiKey={form.cross_seed_api_key}
-              onApiKeyChange={(v) => set("cross_seed_api_key", v)}
-              apiKeySet={existing.cross_seed.api_key_set}
-              libraryPath={form.cross_seed_library_path}
-              onLibraryPathChange={(v) => set("cross_seed_library_path", v)}
-            />
-          )}
+        {section === "ignored" && <IgnoredSection />}
+        {section === "seed-protection" && <SeedProtectionSection />}
 
-          {section === "seer" && (
-            <SeerCard
-              enabled={form.seer_enabled}
-              onEnabledChange={(v) => set("seer_enabled", v)}
-              kind={form.seer_type}
-              onKindChange={(v) => set("seer_type", v)}
-              url={form.seer_url}
-              onUrlChange={(v) => set("seer_url", v)}
-              apiKey={form.seer_api_key}
-              onApiKeyChange={(v) => set("seer_api_key", v)}
-              apiKeySet={existing.seer.api_key_set}
-            />
-          )}
+        {section === "widget" && <WidgetSection />}
 
-          {section === "paths" && (
-            <div className="space-y-6">
-              <PathsCard
-                torrentClientName={TORRENT_CLIENT_NAMES[form.torrent_client]}
-                embyLibraryPath={form.emby_library_path}
-                onEmbyLibraryPathChange={(v) => set("emby_library_path", v)}
-                qbittorrentDownloadPath={form.qbittorrent_download_path}
-                onQbittorrentDownloadPathChange={(v) => set("qbittorrent_download_path", v)}
-              />
-              <PathDiagnosticsPanel />
-            </div>
-          )}
+        {section === "history" && (
+          <div className="space-y-6">
+            <ActionHistory />
+            {/* Analyses lancées à la main : elles n'ont rien à faire dans la
+                Planification, qui ne montre que les analyses automatiques. */}
+            <ScanHistoryTable trigger="manual" />
+          </div>
+        )}
 
-          {section === "schedule" && (
-            <div className="space-y-6">
-              <ScheduleCard
-                enabled={form.scan_schedule_enabled}
-                onEnabledChange={(v) => set("scan_schedule_enabled", v)}
-                intervalMinutes={form.scan_schedule_interval_minutes}
-                onIntervalMinutesChange={(v) => set("scan_schedule_interval_minutes", v)}
-              />
-              <ScanHistoryTable trigger="scheduled" />
-            </div>
-          )}
+        {section === "account" && <AccountSection />}
 
-          {section === "notifications" && <NotificationsSection />}
+        {section === "trash" && <TrashSection />}
 
-          {section === "automations" && <AutomationsSection />}
+        {section === "preferences" && <PreferencesSection seerEnabled={existing.seer.enabled} />}
 
-          {section === "ignored" && <IgnoredSection />}
-
-          {section === "widget" && <WidgetSection />}
-
-          {section === "history" && (
-            <div className="space-y-6">
-              <ActionHistory />
-              {/* Analyses lancées à la main : elles n'ont rien à faire dans la
-                  Planification, qui ne montre que les analyses automatiques. */}
-              <ScanHistoryTable trigger="manual" />
-            </div>
-          )}
-
-          {section === "account" && <AccountSection />}
-
-          {section === "trash" && <TrashSection />}
-
-          {section === "preferences" && <PreferencesSection seerEnabled={existing.seer.enabled} />}
-
-          {section === "application" && <ApplicationSection />}
-        </div>
-      </div>
+        {section === "application" && <ApplicationSection />}
+      </SideNavLayout>
     </div>
   )
 }

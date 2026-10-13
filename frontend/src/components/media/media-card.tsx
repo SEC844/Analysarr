@@ -1,30 +1,45 @@
-import { useState } from "react"
+import { memo, useState } from "react"
 import { Link } from "react-router-dom"
 import { Clapperboard, HardDrive, Tv, UserPlus, Users } from "lucide-react"
 
 import { StatusBadgeList } from "@/components/media/status-badge"
-import { usePreferences } from "@/hooks/use-app"
+import { useRecentlyUpdated } from "@/hooks/use-recently-updated"
 import { useI18n } from "@/i18n"
 import { posterUrl } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { MediaListItem } from "@/types/media"
 
-export function MediaCard({ media }: { media: MediaListItem }) {
+/** Informations secondaires de la carte, chacune activable dans Réglages →
+ * Préférences. Lues une fois par la page, pas par chacune des cartes. */
+export interface MediaCardDisplay {
+  watch: boolean
+  totalSize: boolean
+  requestedBy: boolean
+  reclaimable: boolean
+}
+
+// Mémoïsée : après une relecture de la liste (temps réel), seules les cartes
+// dont le média a changé sont redessinées (TanStack Query garde les autres
+// objets à l'identique).
+export const MediaCard = memo(function MediaCard({ media, display }: { media: MediaListItem; display: MediaCardDisplay }) {
+  const recentlyUpdated = useRecentlyUpdated(media.id)
   const { t } = useI18n()
-  const prefs = usePreferences()
   const [imgError, setImgError] = useState(false)
   const Icon = media.media_type === "movie" ? Clapperboard : Tv
 
-  // Informations secondaires, chacune activable dans Réglages → Préférences.
-  const showQuota = prefs.card_show_watch && media.has_emby_item && media.watch_user_count > 0
-  const showSize = prefs.card_show_total_size && media.total_size > 0
-  const showRequester = prefs.card_show_requested_by && Boolean(media.requested_by)
-  const showReclaimable = prefs.card_show_reclaimable && media.reclaimable_bytes > 0
+  const showQuota = display.watch && media.has_emby_item && media.watch_user_count > 0
+  const showSize = display.totalSize && media.total_size > 0
+  const showRequester = display.requestedBy && Boolean(media.requested_by)
+  const showReclaimable = display.reclaimable && media.reclaimable_bytes > 0
 
   return (
     <Link
       to={`/media/${media.id}`}
-      className="group border-border bg-card hover:border-foreground/20 flex flex-col overflow-hidden rounded-lg border transition-colors"
+      className={cn(
+        "group border-border bg-card hover:border-foreground/20 flex flex-col overflow-hidden rounded-lg border transition-colors",
+        recentlyUpdated && "live-updated",
+      )}
     >
       <div className="bg-muted relative aspect-2/3 w-full overflow-hidden">
         {media.has_poster && !imgError ? (
@@ -85,4 +100,4 @@ export function MediaCard({ media }: { media: MediaListItem }) {
       </div>
     </Link>
   )
-}
+})

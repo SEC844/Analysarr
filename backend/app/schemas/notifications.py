@@ -32,3 +32,16 @@ class ChannelTestResult(BaseModel):
     ok: bool
     # Message d'erreur réduit (code HTTP ou type d'erreur), jamais l'URL.
     error: str | None = None
+
+
+class SummaryChannelResult(BaseModel):
+    name: str
+    error: str | None = None
+
+
+class WeeklySummaryResult(BaseModel):
+    """Envoi immédiat du résumé hebdomadaire. `skipped` : rien envoyé, faute
+    de canal abonné (`no_subscriber`) ou de scan complet (`library_unknown`)."""
+
+    channels: list[SummaryChannelResult]
+    skipped: Literal["no_subscriber", "library_unknown"] | None = None

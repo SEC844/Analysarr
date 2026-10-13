@@ -20,7 +20,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 const MEDIA_ID = 7
 const DUPLICATE = { kind: "duplicate_file", label: "/data/media/movies/Inception/Inception.1080p.mkv", size: 2000 } as const
 const ORPHAN = { kind: "orphan_torrent", label: "Inception.2010.720p", size: 1700 } as const
-const PREVIEW: DeletePreview = { items: [DUPLICATE, ORPHAN], total_reclaimable_bytes: 3700 }
+const PREVIEW: DeletePreview = { items: [DUPLICATE, ORPHAN], total_reclaimable_bytes: 3700, protected: [] }
 
 async function openDialog() {
   const user = userEvent.setup()
@@ -50,6 +50,27 @@ describe("DeleteCascadeDialog", () => {
     expect(deleteExecute).not.toHaveBeenCalled()
   })
 
+  it("shows the orphans kept for their seeding obligation, apart from what will be deleted", async () => {
+    vi.mocked(deletePreview).mockResolvedValue({
+      items: [],
+      total_reclaimable_bytes: 0,
+      protected: [
+        {
+          label: "Inception.2010.2160p",
+          size: 5000,
+          obligation: { reason: "unknown_date", until: null, tracker: null, min_days: 14, min_ratio: null },
+        },
+      ],
+    })
+    await openDialog()
+
+    expect(await screen.findByText("Inception.2010.2160p")).toBeInTheDocument()
+    expect(screen.getByText(en.seed.cascadeProtected)).toBeInTheDocument()
+    expect(screen.getByText(en.seed.obligation.unknown_date)).toBeInTheDocument()
+    // Rien d'autre à supprimer : aucune confirmation proposée.
+    expect(queryConfirm()).not.toBeInTheDocument()
+  })
+
   it("offers no confirmation before the preview is known", async () => {
     vi.mocked(deletePreview).mockReturnValue(new Promise(() => {}))
     await openDialog()
@@ -59,7 +80,7 @@ describe("DeleteCascadeDialog", () => {
   })
 
   it("offers no confirmation when there is nothing to clean", async () => {
-    vi.mocked(deletePreview).mockResolvedValue({ items: [], total_reclaimable_bytes: 0 })
+    vi.mocked(deletePreview).mockResolvedValue({ items: [], total_reclaimable_bytes: 0, protected: [] })
     await openDialog()
 
     expect(await screen.findByText(en.cascade.nothing)).toBeInTheDocument()

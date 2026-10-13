@@ -37,6 +37,8 @@ const TORRENT: TorrentRead = {
   added_on: null,
   completed_on: null,
   trackers: [],
+  is_private: null,
+  seed_obligation: null,
 }
 
 const FILE: MediaFileRead = {
@@ -70,6 +72,8 @@ const MEDIA: MediaDetail = {
   last_played_at: null,
   requested_by: null,
   arr_instance_name: null,
+  watch_favorite_count: 0,
+  series_status: null,
   radarr_id: null,
   sonarr_id: null,
   emby_item_id: "e",
@@ -82,6 +86,7 @@ const MEDIA: MediaDetail = {
   requests: [],
   import_issues: [],
   muted_rules: [{ status: "doublon", rule_id: 41, note: null }],
+  cleanup_rule_id: null,
 }
 
 const optionsButton = () => screen.getByRole("button", { name: en.ignore.options })
@@ -178,6 +183,30 @@ describe("ignore actions", () => {
     )
 
     await waitFor(() => expect(deleteIgnore).toHaveBeenCalledWith(41))
+  })
+
+  it("excludes a media from the cleanup assistant, even without any alert", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<MediaAlertOptions media={{ ...MEDIA, statuses: [], muted_rules: [] }} />)
+
+    await user.click(optionsButton())
+    await user.click(await screen.findByRole("menuitem", { name: en.ignore.excludeCleanup }))
+    expect(screen.getByText(en.ignore.excludeCleanupDescription)).toBeInTheDocument()
+    await user.click(confirmButton())
+
+    await waitFor(() =>
+      expect(createIgnore).toHaveBeenCalledWith({ media_id: 7, kind: "cleanup", note: undefined }),
+    )
+  })
+
+  it("suggests an excluded media for cleanup again", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<MediaAlertOptions media={{ ...MEDIA, cleanup_rule_id: 55 }} />)
+
+    await user.click(optionsButton())
+    await user.click(await screen.findByRole("menuitem", { name: en.ignore.includeCleanup }))
+
+    await waitFor(() => expect(deleteIgnore).toHaveBeenCalledWith(55))
   })
 })
 

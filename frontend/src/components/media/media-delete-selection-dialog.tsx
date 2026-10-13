@@ -6,6 +6,7 @@ import {
   Clapperboard,
   HardDriveDownload,
   Loader2,
+  ShieldAlert,
   Trash2,
   Tv,
   XCircle,
@@ -30,6 +31,7 @@ import { useTrashSettingsQuery } from "@/hooks/use-trash"
 import { useI18n } from "@/i18n"
 import { diskBytes, fileKey, indexFootprint, reclaimedBytes, torrentKey } from "@/lib/footprint"
 import { formatBytes } from "@/lib/format"
+import { obligationText } from "@/lib/seed"
 import { cn } from "@/lib/utils"
 import type { MediaDeleteSelectionResult, MediaDetail, MediaFileRead } from "@/types/media"
 
@@ -191,6 +193,7 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
 
   const isSeries = media.media_type === "series"
   const selectedTorrents = media.torrents.filter((torrent) => selected.has(torrentKey(torrent.id)))
+  const protectedTorrents = selectedTorrents.filter((torrent) => torrent.seed_obligation !== null)
   const { data: trash } = useTrashSettingsQuery()
   const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
   const hasSelection = selected.size > 0
@@ -359,6 +362,24 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
                     list: watchingUsers.map((u) => `${u.name} (${watchProgressLabel(u, watchStats, t)})`).join(", "),
                   })}
                 </span>
+              </div>
+            )}
+
+            {protectedTorrents.length > 0 && (
+              // Protection du seed : la suppression manuelle reste possible
+              // (geste explicite), mais jamais sans prévenir.
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+                <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                <div className="min-w-0 space-y-1">
+                  <p>{t("seed.selectionWarning", { count: protectedTorrents.length })}</p>
+                  <ul className="space-y-0.5">
+                    {protectedTorrents.map((torrent) => (
+                      <li key={torrent.id} className="break-all">
+                        {torrent.name} — {torrent.seed_obligation ? obligationText(t, torrent.seed_obligation) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
 

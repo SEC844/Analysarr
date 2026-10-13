@@ -18,6 +18,8 @@ function useIgnoreInvalidation() {
     queryClient.invalidateQueries({ queryKey: IGNORES_QUERY_KEY })
     queryClient.invalidateQueries({ queryKey: ["media"] })
     queryClient.invalidateQueries({ queryKey: ["history"] })
+    // Un média exclu du nettoyage quitte (ou retrouve) l'assistant.
+    queryClient.invalidateQueries({ queryKey: ["cleanup"] })
   }
 }
 

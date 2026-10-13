@@ -38,6 +38,8 @@ from app.services.poster_cache import read_cached_poster, safe_image_type
 
 if TYPE_CHECKING:
     from app.services.action_log import MediaRef
+    from app.services.forecast import DiskForecast
+    from app.services.weekly_summary import WeeklySummary
 
 logger = logging.getLogger("analysarr.notifications")
 
@@ -72,6 +74,7 @@ NOTIFICATION_EVENTS = (
     "automation",
     "update_available",
     "automations_paused",
+    "weekly_summary",
 )
 DISCORD_WEBHOOK_PREFIXES = (
     "https://discord.com/api/webhooks/",
@@ -167,6 +170,39 @@ _TEXT: dict[str, dict[str, str]] = {
         "update_available_summary": "Une nouvelle version d'Analysarr est publiée.",
         "installed_version": "Version installée",
         "latest_version": "Dernière version",
+        "weekly_summary": "Résumé de la semaine",
+        "weekly_summary_description": "Votre bibliothèque cette semaine.",
+        "library": "Bibliothèque",
+        "library_value_one": "{count} média · {size}",
+        "library_value_other": "{count} médias · {size}",
+        "week_growth": "Sur 7 jours",
+        "trend": "Tendance",
+        "trend_value": "{value} par mois (entre {low} et {high})",
+        "disk": "Disque",
+        "role_library": "Bibliothèque",
+        "role_downloads": "Téléchargements",
+        "disk_unavailable": "indisponible à la dernière mesure",
+        "disk_no_trend": "pas encore assez d'historique pour une prévision",
+        "used_percent": "{percent} % occupé",
+        "fill_never": "pas de remplissage prévu",
+        "fill_now": "plein dès maintenant",
+        "fill_earliest": "plein dans {duration} au plus tôt",
+        "fill_range": "plein dans {low} à {high}",
+        "fill_about": "plein dans environ {duration}",
+        "cleanup_candidates": "Candidats au nettoyage",
+        "cleanup_candidates_value": "{count} · {size}",
+        "top_candidates": "Meilleurs candidats",
+        "candidate_line": "{title} — {size} · score {score}",
+        "seed_releases": "Fin de seed d'ici 7 jours",
+        "none": "aucun",
+        "day_one": "{count} jour",
+        "day_other": "{count} jours",
+        "week_one": "{count} semaine",
+        "week_other": "{count} semaines",
+        "month_one": "{count} mois",
+        "month_other": "{count} mois",
+        "year_one": "{count} an",
+        "year_other": "{count} ans",
     },
     "en": {
         "colon": ": ",
@@ -226,6 +262,39 @@ _TEXT: dict[str, dict[str, str]] = {
         "update_available_summary": "A new version of Analysarr has been released.",
         "installed_version": "Installed version",
         "latest_version": "Latest version",
+        "weekly_summary": "Weekly summary",
+        "weekly_summary_description": "Your library this week.",
+        "library": "Library",
+        "library_value_one": "{count} media · {size}",
+        "library_value_other": "{count} media · {size}",
+        "week_growth": "Last 7 days",
+        "trend": "Trend",
+        "trend_value": "{value} per month (between {low} and {high})",
+        "disk": "Disk",
+        "role_library": "Library",
+        "role_downloads": "Downloads",
+        "disk_unavailable": "unavailable at the last measurement",
+        "disk_no_trend": "not enough history yet for a forecast",
+        "used_percent": "{percent}% used",
+        "fill_never": "not expected to fill up",
+        "fill_now": "full now",
+        "fill_earliest": "full in {duration} at the earliest",
+        "fill_range": "full in {low} to {high}",
+        "fill_about": "full in about {duration}",
+        "cleanup_candidates": "Cleanup candidates",
+        "cleanup_candidates_value": "{count} · {size}",
+        "top_candidates": "Top candidates",
+        "candidate_line": "{title} — {size} · score {score}",
+        "seed_releases": "Seeding obligation ending within 7 days",
+        "none": "none",
+        "day_one": "{count} day",
+        "day_other": "{count} days",
+        "week_one": "{count} week",
+        "week_other": "{count} weeks",
+        "month_one": "{count} month",
+        "month_other": "{count} months",
+        "year_one": "{count} year",
+        "year_other": "{count} years",
     },
 }
 
@@ -517,6 +586,123 @@ async def load_poster(client: EmbyClient | None, media: "MediaRef") -> tuple[byt
     if content_type is None or not content or len(content) > _MAX_POSTER_BYTES:
         return None
     return content, content_type
+
+
+# ---- Résumé hebdomadaire -------------------------------------------------------
+
+
+def _duration_unit(days: float) -> tuple[str, int]:
+    """Même découpage que l'interface (lib/forecast.ts::durationUnit)."""
+    if days < 14:
+        return "day", max(0, round(days))
+    if days < 183:
+        return "week", round(days / 7)
+    if days < 730:
+        return "month", round(days / 30.44)
+    return "year", round(days / 365.25)
+
+
+def _duration(language: str, days: float) -> str:
+    text = _TEXT[language]
+    unit, value = _duration_unit(days)
+    # Français : singulier pour 0 et 1 ; anglais : pour 1 seulement.
+    singular = value <= 1 if language == "fr" else value == 1
+    return text[f"{unit}_{'one' if singular else 'other'}"].format(count=value)
+
+
+def _signed_bytes(value: float, language: str) -> str:
+    rounded = round(value)
+    if rounded == 0:
+        return format_bytes(0, language)
+    return ("+" if rounded > 0 else "−") + format_bytes(abs(rounded), language)
+
+
+def _disk_text(language: str, disk: "DiskForecast") -> str:
+    text = _TEXT[language]
+    if not disk.available or disk.total is None or disk.used is None:
+        return text["disk_unavailable"]
+    used = text["used_percent"].format(percent=round(disk.used * 100 / disk.total)) if disk.total else ""
+    if disk.trend is None:
+        state = text["disk_no_trend"]
+    elif disk.fill is None:
+        state = text["fill_never"]
+    elif disk.fill.earliest_days < 1:
+        state = text["fill_now"]
+    elif disk.fill.latest_days is None:
+        state = text["fill_earliest"].format(duration=_duration(language, disk.fill.earliest_days))
+    else:
+        state = _fill_range(language, disk.fill.earliest_days, disk.fill.latest_days)
+    return f"{used} — {state}"
+
+
+def _fill_range(language: str, earliest: float, latest: float) -> str:
+    """« plein dans 6 à 9 semaines », « dans environ 12 semaines » quand les
+    deux bornes se confondent (même logique que lib/forecast.ts::fillText)."""
+    text = _TEXT[language]
+    low, high = _duration_unit(earliest), _duration_unit(latest)
+    if low == high:
+        return text["fill_about"].format(duration=_duration(language, earliest))
+    start = str(low[1]) if low[0] == high[0] else _duration(language, earliest)
+    return text["fill_range"].format(low=start, high=_duration(language, latest))
+
+
+def weekly_summary_notification(language: str, summary: "WeeklySummary") -> Notification:
+    text = _TEXT[language]
+    fields = [
+        (
+            text["library"],
+            text["library_value_one" if summary.media_count <= 1 else "library_value_other"].format(
+                count=summary.media_count, size=format_bytes(summary.library_size, language)
+            ),
+        )
+    ]
+    if summary.week_growth is not None:
+        fields.append((text["week_growth"], _signed_bytes(summary.week_growth, language)))
+    trend = summary.library_trend
+    if trend is not None:
+        fields.append(
+            (
+                text["trend"],
+                text["trend_value"].format(
+                    value=_signed_bytes(trend.per_day * 30.44, language),
+                    low=_signed_bytes(trend.low * 30.44, language),
+                    high=_signed_bytes(trend.high * 30.44, language),
+                ),
+            )
+        )
+    for disk in summary.disks:
+        roles = " · ".join(text[f"role_{role}"] for role in disk.roles)
+        fields.append((f"{text['disk']} {roles}", _disk_text(language, disk)))
+    fields.append(
+        (
+            text["cleanup_candidates"],
+            text["cleanup_candidates_value"].format(
+                count=summary.candidate_count, size=format_bytes(summary.candidate_bytes, language)
+            ),
+        )
+    )
+    if summary.seed_releases is not None:
+        names = ", ".join(_shorten(r.name, 60) for r in summary.seed_releases[:5])
+        more = len(summary.seed_releases) - 5
+        value = names + (" " + text["more"].format(count=more) if more > 0 else "") if names else text["none"]
+        fields.append((f"{text['seed_releases']} ({len(summary.seed_releases)})", value))
+    details = [
+        text["candidate_line"].format(
+            title=_shorten(f"{c.title} ({c.year})" if c.year else c.title, 70),
+            size=format_bytes(c.reclaimable_bytes, language),
+            score=c.score,
+        )
+        for c in summary.top_candidates
+    ]
+    return Notification(
+        title=text["weekly_summary"],
+        description=text["weekly_summary_description"],
+        level="info",
+        fields=fields,
+        details_label=text["top_candidates"],
+        details=details,
+        colon=text["colon"],
+    )
 
 
 # ---- Envoi -------------------------------------------------------------------

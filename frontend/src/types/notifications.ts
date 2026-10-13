@@ -19,6 +19,7 @@ export const NOTIFICATION_EVENTS = [
   "automation",
   "update_available",
   "automations_paused",
+  "weekly_summary",
 ] as const
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number]
@@ -48,4 +49,11 @@ export interface NotificationChannelWrite {
 export interface ChannelTestResult {
   ok: boolean
   error: string | null
+}
+
+/** Envoi immédiat du résumé hebdomadaire (backend : services/weekly_summary.py).
+ * `skipped` : rien n'a été envoyé. */
+export interface WeeklySummaryResult {
+  channels: { name: string; error: string | null }[]
+  skipped: "no_subscriber" | "library_unknown" | null
 }

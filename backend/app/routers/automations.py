@@ -32,12 +32,18 @@ from app.services.automation_guard import (
     watched_statuses,
 )
 from app.services.automations import (
-    TRIGGER_STATUSES,
+    CLEANUP_TRIGGER,
+    MIN_CLEANUP_BYTES,
+    MIN_CLEANUP_SCORE,
+    TRIGGERS,
     applicable_conditions,
     as_rule,
     eligible_medias,
+    max_actions_for,
+    planned_bytes,
     rule_conditions,
     run_rule,
+    source_blocker,
 )
 from app.services.notifications import channel_targets
 
@@ -99,6 +105,7 @@ def _apply(automation: Automation, payload: AutomationWrite) -> None:
         raise HTTPException(400, "La réparation des hardlinks ne s'applique qu'aux torrents non hardlinkés.")
     if payload.action == "link_to_arr" and payload.trigger != "untracked_detected":
         raise HTTPException(400, "Le rattachement ne s'applique qu'aux médias non suivis par Sonarr/Radarr.")
+    _check_cleanup_rule(payload)
     automation.name = payload.name.strip()
     automation.enabled = payload.enabled
     automation.trigger = payload.trigger
@@ -114,6 +121,25 @@ def _apply(automation: Automation, payload: AutomationWrite) -> None:
     automation.conditions = json.dumps(conditions)
     automation.max_actions = payload.max_actions
     automation.dry_run = payload.dry_run
+
+
+def _check_cleanup_rule(payload: AutomationWrite) -> None:
+    """Suppression de médias entiers : seulement depuis l'assistant de
+    nettoyage, avec score ET espace minimum au-dessus des planchers et un
+    plafond par exécution plus bas que les autres actions."""
+    if payload.action == "delete_media" and payload.trigger != CLEANUP_TRIGGER:
+        raise HTTPException(400, "La suppression de médias entiers ne s'applique qu'aux candidats au nettoyage.")
+    if payload.trigger == CLEANUP_TRIGGER and payload.action not in ("delete_media", "notify_only"):
+        raise HTTPException(400, "Un candidat au nettoyage ne peut qu'être supprimé ou signalé.")
+    if payload.max_actions > max_actions_for(payload.action):
+        raise HTTPException(400, f"{max_actions_for(payload.action)} médias au plus par exécution pour cette action.")
+    if payload.trigger != CLEANUP_TRIGGER:
+        return
+    conditions = payload.conditions
+    if conditions.min_score is None or conditions.min_score < MIN_CLEANUP_SCORE:
+        raise HTTPException(400, f"Indiquez un score minimum d'au moins {MIN_CLEANUP_SCORE}.")
+    if conditions.min_reclaimable_bytes is None or conditions.min_reclaimable_bytes < MIN_CLEANUP_BYTES:
+        raise HTTPException(400, "Indiquez un espace libérable minimum d'au moins 1 Go.")
 
 
 @router.get("/guard", response_model=AutomationGuard)
@@ -180,6 +206,12 @@ def preview_automation(automation_id: int, session: Session = Depends(get_sessio
     """Ce que la règle ferait maintenant, sans rien exécuter."""
     automation = _get(automation_id, session)
     rule = as_rule(automation)
+    blocker = source_blocker(session) if rule.trigger == CLEANUP_TRIGGER else None
+    if blocker:
+        steps = [AutomationStep(label=rule.name, success=False, error=blocker)]
+        return AutomationRunResult(
+            automation_id=automation_id, name=rule.name, matched=0, executed=0, dry_run=True, freed_bytes=0, steps=steps
+        )
     eligible = eligible_medias(session, rule)
     return AutomationRunResult(
         automation_id=automation_id,
@@ -187,7 +219,7 @@ def preview_automation(automation_id: int, session: Session = Depends(get_sessio
         matched=len(eligible),
         executed=0,
         dry_run=True,
-        freed_bytes=sum(media.reclaimable_bytes for media, _ in eligible[: rule.max_actions]),
+        freed_bytes=sum(planned_bytes(rule, media) for media, _ in eligible[: rule.max_actions]),
         steps=[AutomationStep(label=media.title, success=True) for media, _ in eligible[: rule.max_actions]],
     )
 
@@ -200,6 +232,6 @@ async def run_automation(automation_id: int, session: Session = Depends(get_sess
     settings = session.get(Settings, 1)
     if settings is None:
         raise HTTPException(400, "Configuration manquante.")
-    if automation.trigger not in TRIGGER_STATUSES:
+    if automation.trigger not in TRIGGERS:
         raise HTTPException(400, "Déclencheur inconnu.")
     return await run_rule(session, settings, channel_targets(session), automation)

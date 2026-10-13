@@ -1,25 +1,32 @@
-import { useState } from "react"
+import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
 import { AutomationsPausedBanner } from "@/components/automations/automations-paused-banner"
-import { GRID_SIZE_CLASSES, type GridSize } from "@/components/media/grid-size"
+import { RealtimeIndicator } from "@/components/realtime/realtime-indicator"
+import { SeedProtectionBanner } from "@/components/seed/seed-protection-banner"
 import { GridSizeToggle } from "@/components/media/grid-size-toggle"
-import { MediaCard } from "@/components/media/media-card"
+import { MediaGrid } from "@/components/media/media-grid"
+import { MediaCard, type MediaCardDisplay } from "@/components/media/media-card"
 import { MediaFilters } from "@/components/media/media-filters"
 import { ScanButton } from "@/components/media/scan-button"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { usePreferences } from "@/hooks/use-app"
+import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { useGridSize } from "@/hooks/use-grid-size"
+import { useIncrementalList } from "@/hooks/use-incremental-list"
 import { useMediaListQuery } from "@/hooks/use-media"
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration"
 import { useI18n } from "@/i18n"
-import { cn } from "@/lib/utils"
-import type { MediaListParams, MediaSort, MediaStatus, WatchFilter } from "@/types/media"
+import type { MediaListItem, MediaListParams, MediaSort, MediaStatus, WatchFilter } from "@/types/media"
 
 // Les filtres vivent dans l'URL (pas un simple useState) : ils survivent ainsi
 // à un retour arrière depuis la fiche détail, et une bibliothèque filtrée
 // reste partageable/bookmarkable. Le tri par défaut (Réglages → Préférences)
 // n'apparaît pas dans l'URL.
+const SEARCH_DELAY_MS = 250
+const NO_ITEMS: MediaListItem[] = []
+
 function listOf<T extends string>(params: URLSearchParams, key: string): T[] | undefined {
   const values = (params.get(key) ?? "").split(",").filter(Boolean) as T[]
   return values.length > 0 ? values : undefined
@@ -54,10 +61,20 @@ export function MediaListPage() {
   const prefs = usePreferences()
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = paramsToFilters(searchParams, prefs.library_default_sort)
-  // Taille choisie pendant la visite ; à défaut, celle des préférences.
-  const [gridOverride, setGridOverride] = useState<GridSize | null>(null)
-  const gridSize = gridOverride ?? prefs.library_default_grid
-  const { data, isLoading, isError } = useMediaListQuery(filters)
+  // Le champ de recherche suit la frappe ; la requête attend une pause.
+  const search = useDebouncedValue(filters.search, SEARCH_DELAY_MS)
+  const [gridSize, setGridSize] = useGridSize()
+  const { data, isLoading, isError } = useMediaListQuery({ ...filters, search })
+  const { visible, sentinel } = useIncrementalList(data?.items ?? NO_ITEMS)
+  const display = useMemo<MediaCardDisplay>(
+    () => ({
+      watch: prefs.card_show_watch,
+      totalSize: prefs.card_show_total_size,
+      requestedBy: prefs.card_show_requested_by,
+      reclaimable: prefs.card_show_reclaimable,
+    }),
+    [prefs.card_show_watch, prefs.card_show_total_size, prefs.card_show_requested_by, prefs.card_show_reclaimable],
+  )
 
   useScrollRestoration(!isLoading)
 
@@ -71,15 +88,19 @@ export function MediaListPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <RealtimeIndicator />
           <ScanButton />
-          <GridSizeToggle value={gridSize} onChange={setGridOverride} />
+          <GridSizeToggle value={gridSize} onChange={setGridSize} />
         </div>
       </div>
 
       {/* Automatisations suspendues par le garde-fou : visible dès l'accueil,
-          sinon la pause passerait inaperçue jusqu'à l'ouverture des réglages. */}
-      <div className="mb-6 empty:mb-0">
+          sinon la pause passerait inaperçue jusqu'à l'ouverture des réglages.
+          Même endroit pour la protection du seed proposée aux installations
+          existantes. */}
+      <div className="mb-6 space-y-3 empty:mb-0">
         <AutomationsPausedBanner />
+        <SeedProtectionBanner />
       </div>
 
       <div className="mb-6">
@@ -91,11 +112,11 @@ export function MediaListPage() {
       </div>
 
       {isLoading && (
-        <div className={cn("grid gap-4", GRID_SIZE_CLASSES[gridSize])}>
+        <MediaGrid size={gridSize}>
           {Array.from({ length: 12 }).map((_, i) => (
             <Skeleton key={i} className="aspect-2/3 w-full" />
           ))}
-        </div>
+        </MediaGrid>
       )}
 
       {isError && <p className="text-destructive">{t("library.loadFailed")}</p>}
@@ -116,11 +137,14 @@ export function MediaListPage() {
       )}
 
       {data && data.items.length > 0 && (
-        <div className={cn("grid gap-4", GRID_SIZE_CLASSES[gridSize])}>
-          {data.items.map((media) => (
-            <MediaCard key={media.id} media={media} />
-          ))}
-        </div>
+        <>
+          <MediaGrid size={gridSize}>
+            {visible.map((media) => (
+              <MediaCard key={media.id} media={media} display={display} />
+            ))}
+          </MediaGrid>
+          <div ref={sentinel} aria-hidden="true" />
+        </>
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 import type { MediaStatus } from "@/types/media"
 
-export type IgnoreKind = "torrent" | "file" | "status"
+export type IgnoreKind = "torrent" | "file" | "status" | "cleanup"
 
 /** Ce qu'on ignore est toujours désigné par un identifiant du média : le
  * serveur revérifie qu'il déclenche bien une alerte (jamais un hash ou un

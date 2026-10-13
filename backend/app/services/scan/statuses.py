@@ -115,13 +115,17 @@ def evaluate_statuses(
     import_blocked_hashes: set[str] | None = None,
     queue_kinds: set[str] | None = None,
     tracked_by_arr: bool = True,
+    seed_protected: frozenset[str] = frozenset(),
 ) -> StatusEvaluation:
     """Statuts, espace récupérable par statut et situation de chaque alerte.
 
     Un fichier gardé volontairement ou un torrent ignoré (`ignored`, voir
     services/ignores.py) ne déclenche plus d'alerte le concernant — doublon,
     orphelin, non hardlinké. Un torrent réparable ignoré seede pourtant
-    toujours le média : il compte encore contre « non seedé »."""
+    toujours le média : il compte encore contre « non seedé ». Un orphelin
+    protégé par son obligation de seed (`seed_protected`, hashes en
+    minuscules) reste un orphelin, mais son espace n'est pas récupérable
+    tant qu'aucun nettoyage ne peut le supprimer."""
     # Un torrent dont Sonarr/Radarr attend encore l'import n'est ni un
     # orphelin ni une copie à réparer : son fichier n'a simplement pas encore
     # rejoint la bibliothèque. Le proposer au nettoyage supprimerait le
@@ -154,7 +158,7 @@ def evaluate_statuses(
         statuses=statuses,
         reclaimable={
             "doublon": _duplicate_bytes(found.active_files) or 0,
-            "orphelin_qbit": _orphan_bytes(found.orphans) or 0,
+            "orphelin_qbit": _orphan_bytes([t for t in found.orphans if t.hash.lower() not in seed_protected]) or 0,
         },
         situations={
             "doublon": _joined(f.path for f in found.duplicates),
@@ -257,15 +261,35 @@ def is_orphan(torrent: Torrent) -> bool:
     return torrent.is_hardlinked is False and not torrent.repairable and not torrent.not_imported
 
 
+def tracker_count(domain_sets: list[set[str]]) -> int:
+    """Trackers distincts : un torrent appartient à UN tracker, même annoncé
+    sur plusieurs adresses (`c411.org` et `tk.c411.tw`), et deux torrents qui
+    partagent une adresse sont sur le même tracker. Bug réel : compter les
+    domaines faisait passer un seul torrent C411 pour du cross-seed."""
+    groups: list[set[str]] = []
+    for domains in domain_sets:
+        if not domains:
+            continue
+        merged = set(domains)
+        kept = []
+        for group in groups:
+            if group & merged:
+                merged |= group
+            else:
+                kept.append(group)
+        groups = [*kept, merged]
+    return len(groups)
+
+
 def _tracker_coverage(torrents: list[Torrent]) -> str | None:
     """Couverture tracker : information, pas problème de santé. Calculée sur
     les torrents qui protègent vraiment le média (hardlinkés) — les trackers
     d'un orphelin ne couvrent plus rien."""
     protecting = [t for t in torrents if t.is_hardlinked is True] or torrents
-    domains = {d["domain"] for t in protecting for d in json.loads(t.trackers_json)}
-    if len(domains) == 1:
+    count = tracker_count([{d["domain"] for d in json.loads(t.trackers_json)} for t in protecting])
+    if count == 1:
         return "tracker_unique"
-    if len(domains) > 1:
+    if count > 1:
         return "cross_seed"
     return None
 

@@ -14,7 +14,7 @@ from sqlmodel import Session, col, select
 from app.models.ids import row_id
 from app.models.ignore import IgnoreRule
 from app.models.media import Media, MediaFile, Torrent
-from app.schemas.ignores import IgnoreCreate, IgnoreRuleRead, MutedStatusRead
+from app.schemas.ignores import IgnoreCreate, IgnoreKind, IgnoreRuleRead, MutedStatusRead
 from app.services.action_log import MediaRef, record_action
 from app.services.ignores import (
     IGNORABLE_TORRENT_STATES,
@@ -65,6 +65,9 @@ def create_ignores(session: Session, media: Media, payload: IgnoreCreate) -> lis
         targets = [_torrent_target(session, media, payload.torrent_id)]
     elif payload.kind == "file":
         targets = [_file_target(session, media, payload.file_id)]
+    elif payload.kind == "cleanup":
+        # Le média lui-même : jamais proposé par l'assistant de nettoyage.
+        targets = [_Target("cleanup", media_key(media), media.title)]
     else:
         targets = _status_targets(media, payload.statuses)
     key = media_key(media)
@@ -110,7 +113,7 @@ def list_ignores(session: Session) -> list[IgnoreRuleRead]:
         reads.append(
             IgnoreRuleRead(
                 id=row_id(rule),
-                kind="torrent" if rule.kind == "torrent" else "file" if rule.kind == "file" else "status",
+                kind=_read_kind(rule.kind),
                 label=rule.label,
                 status=rule.target if rule.kind == "status" else None,
                 media_title=media.title if media else rule.media_title,
@@ -131,6 +134,8 @@ class MediaIgnores:
     by_torrent_hash: dict[str, int]
     by_file_path: dict[str, int]
     muted: list[MutedStatusRead]
+    # Règle « jamais proposé au nettoyage », s'il y en a une.
+    cleanup_rule_id: int | None = None
 
 
 def media_ignores(
@@ -140,7 +145,7 @@ def media_ignores(
     paths = [f.path for f in files]
     rules = session.exec(
         select(IgnoreRule).where(
-            ((col(IgnoreRule.kind) == "status") & (col(IgnoreRule.media_key) == media_key(media)))
+            (col(IgnoreRule.kind).in_(("status", "cleanup")) & (col(IgnoreRule.media_key) == media_key(media)))
             | ((col(IgnoreRule.kind) == "torrent") & col(IgnoreRule.target).in_(hashes))
             | ((col(IgnoreRule.kind) == "file") & col(IgnoreRule.target).in_(paths))
         )
@@ -154,6 +159,7 @@ def media_ignores(
             for r in rules
             if r.kind == "status" and r.target in muted_statuses
         ],
+        cleanup_rule_id=next((row_id(r) for r in rules if r.kind == "cleanup"), None),
     )
 
 
@@ -192,6 +198,13 @@ def _status_targets(media: Media, statuses: list[str]) -> list[_Target]:
     return [_Target("status", status, STATUS_NAMES[status]) for status in dict.fromkeys(statuses)]
 
 
+_READ_KINDS: dict[str, IgnoreKind] = {"torrent": "torrent", "file": "file", "cleanup": "cleanup"}
+
+
+def _read_kind(kind: str) -> IgnoreKind:
+    return _READ_KINDS.get(kind, "status")
+
+
 def _existing(session: Session, key: str, target: _Target) -> IgnoreRule | None:
     query = select(IgnoreRule).where(col(IgnoreRule.kind) == target.kind, col(IgnoreRule.target) == target.target)
     if target.kind == "status":
@@ -204,6 +217,8 @@ def _describe(rule: IgnoreRule) -> str:
         return f"Torrent {rule.label}"
     if rule.kind == "file":
         return f"Fichier {rule.label}"
+    if rule.kind == "cleanup":
+        return f"Jamais proposé au nettoyage : {rule.label}"
     return f"Alerte « {rule.label} »"
 
 

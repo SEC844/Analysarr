@@ -3,6 +3,10 @@ import ipaddress
 import secrets
 
 import bcrypt
+from sqlmodel import Session
+
+from app.database import engine
+from app.models.settings import Settings
 
 SESSION_COOKIE_NAME = "analysarr_session"
 SESSION_DURATION_DAYS = 7
@@ -72,3 +76,11 @@ def client_ip(request, trusted: list) -> str:
         if not _in_networks(candidate, trusted):
             return candidate
     return peer
+
+
+def load_trusted_proxies() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """Proxys de confiance enregistrés (accès base synchrone : à appeler hors
+    de la boucle asyncio, `run_in_threadpool`)."""
+    with Session(engine) as session:
+        settings = session.get(Settings, 1)
+        return parse_trusted_proxies(settings.trusted_proxies if settings else "")

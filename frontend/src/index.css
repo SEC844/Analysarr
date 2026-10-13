@@ -128,3 +128,24 @@
     @apply font-sans;
     }
 }
+
+/* Média mis à jour en temps réel : un liseré qui s'estompe (voir
+   LiveEventsProvider). Aucune animation si l'utilisateur la refuse. */
+@keyframes live-update {
+  from {
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+  to {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+.live-updated {
+  animation: live-update 2.5s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-updated {
+    animation: none;
+  }
+}

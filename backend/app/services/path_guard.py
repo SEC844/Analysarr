@@ -60,7 +60,9 @@ def looks_unmounted(path: str) -> bool:
         return True
 
 
-def _root_unavailable(root: str) -> bool:
+def root_unavailable(root: str) -> bool:
+    """Racine configurée absente, illisible ou vide : volume non monté. Une
+    racine vide (non configurée) n'est jamais signalée."""
     if not root:
         return False
     try:
@@ -74,7 +76,7 @@ def unavailable_paths(settings: Settings | None, paths: Iterable[str]) -> list[s
     un volume non monté."""
     problems: list[str] = []
     root = (settings.emby_library_path or "").strip() if settings else ""
-    if _root_unavailable(root):
+    if root_unavailable(root):
         problems.append(root)
     problems.extend(path for path in dict.fromkeys(paths) if path and looks_unmounted(path))
     return problems

@@ -1,6 +1,7 @@
 import { Bug, CheckCircle2, Code, ExternalLink, Loader2, RefreshCw, Star } from "lucide-react"
 import { toast } from "sonner"
 
+import { AnalysarrAddressCard } from "@/components/realtime/analysarr-address-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -97,6 +98,7 @@ function AboutCard({ info }: { info: AppInfo }) {
               <Button
                 variant="outline"
                 size="sm"
+                nativeButton={false}
                 render={<a href={update.release_url} target="_blank" rel="noopener noreferrer" />}
               >
                 <ExternalLink className="size-4" />
@@ -155,13 +157,19 @@ function AboutCard({ info }: { info: AppInfo }) {
         </div>
 
         <div className="flex flex-wrap gap-2 border-t pt-4">
-          <Button variant="ghost" size="sm" render={<a href={info.repository_url} target="_blank" rel="noopener noreferrer" />}>
+          <Button
+            variant="ghost"
+            size="sm"
+            nativeButton={false}
+            render={<a href={info.repository_url} target="_blank" rel="noopener noreferrer" />}
+          >
             <Code className="size-4" />
             {t("application.sourceCode")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
+            nativeButton={false}
             render={<a href={`${info.repository_url}/issues`} target="_blank" rel="noopener noreferrer" />}
           >
             <Bug className="size-4" />
@@ -183,6 +191,7 @@ export function ApplicationSection() {
   return (
     <div className="space-y-6">
       <AboutCard info={info} />
+      <AnalysarrAddressCard />
       <StarCard repositoryUrl={info.repository_url} />
     </div>
   )
@@ -204,6 +213,7 @@ function StarCard({ repositoryUrl }: { repositoryUrl: string }) {
           variant="outline"
           size="sm"
           className="shrink-0"
+          nativeButton={false}
           render={<a href={repositoryUrl} target="_blank" rel="noopener noreferrer" />}
         >
           <Star className="size-4" />

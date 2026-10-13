@@ -8,6 +8,7 @@ média ») : inode d'abord, puis historique Sonarr/Radarr, puis chemin racine,
 puis héritage entre copies cross-seed, puis similarité de titre.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -19,8 +20,10 @@ from typing import Any
 
 import httpx
 from sqlmodel import Session, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_name
+from app.clients.torrent_base import TorrentClient
 from app.models.media import MediaFile, MediaType, Torrent, TorrentFile
 from app.models.settings import Settings
 from app.services.hardlink import episode_label_from_filename, resolve_current_files, stat_inode
@@ -29,14 +32,15 @@ from app.services.trackers import extract_tracker_domain, status_label
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "FetchedTorrent",
     "FetchedTorrents",
     "MediaView",
-    "add_fetched",
     "attach_torrents",
     "fetch_torrents",
     "is_usable_root",
     "optional_read",
     "persist_files",
+    "resolve_fetched",
     "torrents_from_cache",
 ]
 
@@ -117,6 +121,18 @@ class MediaView:
 
 
 @dataclass
+class FetchedTorrent:
+    """Un torrent du client, résolu : sa ligne et ses fichiers relus sur le
+    disque."""
+
+    row: Torrent
+    content_path: str | None
+    file_inodes: list[tuple[int, int]]
+    file_details: list[tuple[str, int | None]]
+    file_paths: list[tuple[str, int | None]]
+
+
+@dataclass
 class FetchedTorrents:
     """Torrents du client, déjà résolus (inodes de chaque fichier, trackers)."""
 
@@ -136,6 +152,21 @@ class FetchedTorrents:
     def __len__(self) -> int:
         return len(self.rows)
 
+    def append(self, torrent: FetchedTorrent) -> None:
+        self.rows.append(torrent.row)
+        self.content_paths.append(torrent.content_path)
+        self.file_inodes.append(torrent.file_inodes)
+        self.file_details.append(torrent.file_details)
+        self.file_paths.append(torrent.file_paths)
+
+    def files_by_hash(self) -> dict[str, list[tuple[str, int | None]]]:
+        """Fichiers de chaque torrent, par hash en minuscules."""
+        return {row.hash.lower(): paths for row, paths in zip(self.rows, self.file_paths, strict=True) if row.hash}
+
+
+# Lectures simultanées du détail des torrents (trackers, fichiers, inodes).
+DETAIL_CONCURRENCY = 8
+
 
 async def fetch_torrents(settings: Settings) -> FetchedTorrents:
     """Lit tous les torrents du client configuré, avec leurs trackers et leurs
@@ -144,19 +175,29 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
     try:
         async with torrent_client(settings) as client:
             torrents = await client.get_torrents()
-            details = [
-                (
-                    await optional_read(client.get_trackers, t["hash"], "Trackers"),
-                    await optional_read(client.get_files, t["hash"], "Fichiers"),
-                )
-                for t in torrents
-            ]
+            # Quelques lectures en parallèle plutôt qu'une à la fois : avec
+            # deux appels par torrent, plus d'un millier de torrents prenait
+            # une demi-minute, verrou d'analyse tenu tout du long. Borné pour
+            # ne pas submerger le client torrent.
+            limit = asyncio.Semaphore(DETAIL_CONCURRENCY)
+
+            async def detail(t: dict[str, Any]) -> FetchedTorrent:
+                async with limit:
+                    trackers = await optional_read(client.get_trackers, t["hash"], "Trackers")
+                    files = await optional_read(client.get_files, t["hash"], "Fichiers")
+                    private = await read_private_flag(client, t)
+                    # Inodes lus sur le disque (lent sur un partage Unraid) :
+                    # hors de la boucle asyncio. Bug réel : 6 s d'interface
+                    # figée à chaque analyse des torrents.
+                    return await run_in_threadpool(resolve_fetched, t, trackers, files, private)
+
+            resolved = await asyncio.gather(*(detail(t) for t in torrents))
     except TorrentAuthError as exc:
         raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée pendant le scan : {exc}") from exc
 
     fetched = FetchedTorrents()
-    for t, (trackers, files) in zip(torrents, details, strict=True):
-        add_fetched(fetched, t, trackers, files)
+    for torrent in resolved:
+        fetched.append(torrent)
     return fetched
 
 
@@ -172,9 +213,24 @@ async def optional_read(
         return []
 
 
-def add_fetched(
-    fetched: FetchedTorrents, t: dict[str, Any], trackers: list[dict[str, Any]], files: list[dict[str, Any]]
-) -> None:
+async def read_private_flag(client: TorrentClient, torrent: dict[str, Any]) -> bool | None:
+    """Drapeau « privé », jamais bloquant : illisible = inconnu (et un torrent
+    inconnu est traité comme privé par la protection du seed)."""
+    try:
+        return await client.private_flag(torrent)
+    except (httpx.HTTPError, ValueError, KeyError):
+        logger.warning("Drapeau « privé » illisible pour le torrent %s", torrent.get("hash"), exc_info=True)
+        return None
+
+
+def resolve_fetched(
+    t: dict[str, Any],
+    trackers: list[dict[str, Any]],
+    files: list[dict[str, Any]],
+    private: bool | None = None,
+) -> FetchedTorrent:
+    """Ligne Torrent et fichiers d'un torrent du client. Lit le disque
+    (inodes) : jamais dans la boucle asyncio."""
     content_path = t.get("content_path") or t.get("save_path")
     save_path = t.get("save_path")
 
@@ -189,29 +245,25 @@ def add_fetched(
 
     resolved_inodes, file_details = _resolve_files(file_entries)
     first_inode = resolved_inodes[0] if resolved_inodes else None
-    fetched.rows.append(
-        Torrent(
-            media_id=0,
-            hash=t["hash"],
-            name=t.get("name", ""),
-            save_path=save_path,
-            content_path=t.get("content_path"),
-            category=t.get("category") or None,
-            size=t.get("size"),
-            inode=first_inode[0] if first_inode else None,
-            device=first_inode[1] if first_inode else None,
-            ratio=t.get("ratio"),
-            seeders=t.get("num_seeds"),
-            leechers=t.get("num_leechs"),
-            added_on=epoch_to_datetime(t.get("added_on")),
-            completed_on=epoch_to_datetime(t.get("completion_on")),
-            trackers_json=json.dumps(_tracker_domains(trackers)),
-        )
+    row = Torrent(
+        media_id=0,
+        hash=t["hash"],
+        name=t.get("name", ""),
+        save_path=save_path,
+        content_path=t.get("content_path"),
+        category=t.get("category") or None,
+        size=t.get("size"),
+        inode=first_inode[0] if first_inode else None,
+        device=first_inode[1] if first_inode else None,
+        ratio=t.get("ratio"),
+        seeders=t.get("num_seeds"),
+        leechers=t.get("num_leechs"),
+        added_on=epoch_to_datetime(t.get("added_on")),
+        completed_on=epoch_to_datetime(t.get("completion_on")),
+        is_private=private,
+        trackers_json=json.dumps(_tracker_domains(trackers)),
     )
-    fetched.content_paths.append(content_path)
-    fetched.file_inodes.append(resolved_inodes)
-    fetched.file_details.append(file_details)
-    fetched.file_paths.append(file_entries)
+    return FetchedTorrent(row, content_path, resolved_inodes, file_details, file_entries)
 
 
 def _resolve_files(
@@ -467,27 +519,25 @@ def torrents_from_cache(session: Session) -> FetchedTorrents:
             entries = [(content_path, torrent.size)] if content_path else []
 
         resolved_inodes, details = _resolve_files(entries)
-        fetched.rows.append(
-            Torrent(
-                media_id=0,
-                hash=torrent.hash,
-                name=torrent.name,
-                save_path=torrent.save_path,
-                content_path=torrent.content_path,
-                category=torrent.category,
-                size=torrent.size,
-                inode=resolved_inodes[0][0] if resolved_inodes else None,
-                device=resolved_inodes[0][1] if resolved_inodes else None,
-                ratio=torrent.ratio,
-                seeders=torrent.seeders,
-                leechers=torrent.leechers,
-                added_on=torrent.added_on,
-                completed_on=torrent.completed_on,
-                trackers_json=torrent.trackers_json,
-            )
+        cached = Torrent(
+            media_id=0,
+            hash=torrent.hash,
+            name=torrent.name,
+            save_path=torrent.save_path,
+            content_path=torrent.content_path,
+            category=torrent.category,
+            size=torrent.size,
+            inode=resolved_inodes[0][0] if resolved_inodes else None,
+            device=resolved_inodes[0][1] if resolved_inodes else None,
+            ratio=torrent.ratio,
+            seeders=torrent.seeders,
+            leechers=torrent.leechers,
+            added_on=torrent.added_on,
+            completed_on=torrent.completed_on,
+            is_private=torrent.is_private,
+            trackers_json=torrent.trackers_json,
         )
-        fetched.content_paths.append(torrent.content_path or torrent.save_path)
-        fetched.file_inodes.append(resolved_inodes)
-        fetched.file_details.append(details)
-        fetched.file_paths.append(entries)
+        fetched.append(
+            FetchedTorrent(cached, torrent.content_path or torrent.save_path, resolved_inodes, details, entries)
+        )
     return fetched

@@ -1,4 +1,6 @@
 
+from dataclasses import dataclass
+
 from sqlmodel import Session, select
 
 from app.models.media import Media, MediaFile, Torrent
@@ -8,18 +10,30 @@ from app.schemas.media import (
     DeletePreview,
     DeletePreviewItem,
     DeleteStepResult,
+    ProtectedTorrentRead,
 )
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
 from app.services.scan.statuses import duplicate_groups, is_orphan
+from app.services.seed_protection import SeedObligation, obligation_read, seed_policy, split_protected
 
 
-def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile], list[Torrent]]:
+@dataclass
+class _Candidates:
+    duplicate_files: list[MediaFile]
+    orphan_torrents: list[Torrent]
+    # Orphelins écartés : obligation de seed en cours.
+    protected: list[tuple[Torrent, SeedObligation]]
+
+
+def _resolve_candidates(session: Session, media: Media) -> _Candidates:
     """Fichiers en doublon "non actuels" à supprimer directement, et torrents orphelins
-    à supprimer via qBittorrent. Utilisé identiquement par le preview et l'exécution.
+    à supprimer via qBittorrent. Utilisé identiquement par le preview et l'exécution
+    (donc aussi par les automatisations).
     Un fichier gardé volontairement ou un torrent ignoré n'est jamais proposé :
-    les doublons sont cherchés parmi les autres fichiers seulement."""
+    les doublons sont cherchés parmi les autres fichiers seulement. Un orphelin
+    qui n'a pas fini son temps de seed minimum est écarté (protection du seed)."""
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
 
@@ -37,13 +51,15 @@ def _resolve_candidates(session: Session, media: Media) -> tuple[list[MediaFile]
     # ce n'est pas un vrai orphelin, le supprimer perdrait le fichier même que
     # "Réparer les hardlinks" propose d'utiliser pour protéger le média. Un
     # torrent « non importé » (saisons prises d'avance) n'est pas un orphelin.
-    orphan_torrents = [t for t in torrents if is_orphan(t) and not t.ignored]
+    orphans = [t for t in torrents if is_orphan(t) and not t.ignored]
+    orphan_torrents, protected = split_protected(orphans, seed_policy(session.get(Settings, 1)))
 
-    return duplicate_files, orphan_torrents
+    return _Candidates(duplicate_files, orphan_torrents, protected)
 
 
 def build_delete_preview(session: Session, media: Media) -> DeletePreview:
-    duplicate_files, orphan_torrents = _resolve_candidates(session, media)
+    candidates = _resolve_candidates(session, media)
+    duplicate_files, orphan_torrents = candidates.duplicate_files, candidates.orphan_torrents
 
     items = [DeletePreviewItem(kind="duplicate_file", label=f.path, size=f.size) for f in duplicate_files]
     items += [DeletePreviewItem(kind="orphan_torrent", label=t.name, size=t.size) for t in orphan_torrents]
@@ -62,11 +78,17 @@ def build_delete_preview(session: Session, media: Media) -> DeletePreview:
             seen_inodes.add(key)
         total += t.size or 0
 
-    return DeletePreview(items=items, total_reclaimable_bytes=total)
+    protected = [
+        ProtectedTorrentRead(label=t.name, size=t.size, obligation=read)
+        for t, obligation in candidates.protected
+        if (read := obligation_read(obligation)) is not None
+    ]
+    return DeletePreview(items=items, total_reclaimable_bytes=total, protected=protected)
 
 
 async def execute_delete(session: Session, media: Media, settings: Settings) -> DeleteExecuteResult:
-    duplicate_files, orphan_torrents = _resolve_candidates(session, media)
+    candidates = _resolve_candidates(session, media)
+    duplicate_files, orphan_torrents = candidates.duplicate_files, candidates.orphan_torrents
     # Voir services/path_guard.py : un volume non monté ferait passer des
     # fichiers intacts pour des doublons ou des orphelins supprimables.
     ensure_paths_available(settings, [f.path for f in duplicate_files], "Suppression")

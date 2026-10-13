@@ -68,6 +68,12 @@ class Media(SQLModel, table=True):
     # Taille totale récupérable estimée (fichiers en doublon + torrents orphelins), en octets.
     reclaimable_bytes: int = 0
 
+    # Espace réellement libéré si l'on supprime TOUT le média (fichiers de
+    # bibliothèque et tous ses torrents), hardlinks et copies cross-seed
+    # comptés une seule fois, rien pour un fichier dont un lien vit ailleurs
+    # (voir services/disk_footprint.py). Sert à l'assistant de nettoyage.
+    full_reclaimable_bytes: int = 0
+
     # Taille des fichiers actuellement suivis (hors doublons), en octets —
     # sert au tri "candidats au nettoyage" sans recharger les fichiers.
     total_size: int = 0
@@ -83,7 +89,14 @@ class Media(SQLModel, table=True):
     watch_user_count: int = 0
     watch_played_count: int = 0
     watch_in_progress_count: int = 0
+    # Utilisateurs pris en compte qui ont mis le média en favori.
+    watch_favorite_count: int = 0
     last_played_at: datetime | None = None
+
+    # Séries : statut Sonarr (`continuing` en cours de diffusion, `ended`
+    # terminée, `upcoming` à venir, `deleted` retirée de TheTVDB). None pour
+    # un film ou une série non suivie par Sonarr.
+    series_status: str | None = None
 
     # Seer : nom du demandeur de la plus ancienne demande rattachée (carte de
     # la bibliothèque). Détail complet dans MediaRequest.
@@ -189,6 +202,10 @@ class Torrent(SQLModel, table=True):
     leechers: int | None = None
     added_on: datetime | None = None
     completed_on: datetime | None = None
+    # Torrent privé (drapeau du .torrent) : True, False, ou None quand le
+    # client ne le dit pas (qBittorrent avant 4.5.1, métadonnées absentes).
+    # Inconnu = traité comme privé par la protection du seed.
+    is_private: bool | None = None
 
     # JSON list [{"domain": str, "status": str}]
     trackers_json: str = "[]"
@@ -204,6 +221,9 @@ class EmbyUser(SQLModel, table=True):
     # comme pour les jaquettes. None = pas d'avatar.
     image_tag: str | None = None
     is_disabled: bool = False
+    # Dernière activité sur le serveur multimédia (`LastActivityDate`) : un
+    # compte inactif depuis longtemps ne regardera plus ce qu'il n'a pas fini.
+    last_activity_at: datetime | None = None
 
 
 class MediaWatch(SQLModel, table=True):
@@ -222,6 +242,8 @@ class MediaWatch(SQLModel, table=True):
     # série partiellement vue).
     in_progress: bool = False
     last_played_at: datetime | None = None
+    # Mis en favori par cet utilisateur (`UserData.IsFavorite`).
+    favorite: bool = False
 
 
 class TorrentFile(SQLModel, table=True):
@@ -336,6 +358,14 @@ class ScanRun(SQLModel, table=True):
     # "manual" (bouton/API) ou "scheduled" (planificateur) — distingue les
     # deux dans l'historique des scans.
     trigger: str = "manual"
+
+    # Sources lues sans succès pendant ce scan, séparées par des virgules :
+    # "watch" (visionnage) et "requests" (Seer/Ombi). Leur échec n'interrompt
+    # pas le scan mais VIDE ces données (aucun visionnage, aucune demande) :
+    # scores et protections de l'assistant de nettoyage sont alors faussés, et
+    # une automatisation fondée sur le score refuse d'agir
+    # (services/automations.py::source_blocker).
+    failed_sources: str = ""
 
     # Périmètre analysé : "full" (tout), ou un service — "radarr", "sonarr",
     # "media_server", "torrents", "queue", "watch", "seer". Voir

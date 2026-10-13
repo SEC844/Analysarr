@@ -13,12 +13,14 @@ import pytest
 from app import main
 from app.main import app
 
-# Accessibles sans session. `/api/status` (widget) a sa propre clé API, et les
-# routes d'authentification vérifient elles-mêmes ce qui doit l'être (`/me`,
-# changement de mot de passe...).
+# Accessibles sans session. `/api/status` (widget) a sa propre clé API, les
+# webhooks Sonarr/Radarr leur secret par instance (tests/test_realtime.py), et
+# les routes d'authentification vérifient elles-mêmes ce qui doit l'être
+# (`/me`, changement de mot de passe...).
 EXPECTED_PUBLIC = {
     "/api/health",
     "/api/status",
+    "/api/webhooks/1/1",
     "/api/auth/status",
     "/api/auth/setup",
     "/api/auth/login",
@@ -58,7 +60,21 @@ def test_exactly_the_expected_routes_skip_the_session_check(client, monkeypatch)
     assert all_paths >= EXPECTED_PUBLIC  # la liste ne désigne que des routes réelles
 
 
-@pytest.mark.parametrize("path", ["/api/media", "/api/scan/history", "/api/ignores", "/api/auth/login-history"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/media",
+        "/api/scan/history",
+        "/api/ignores",
+        "/api/auth/login-history",
+        "/api/library/history",
+        "/api/seed-protection",
+        "/api/cleanup/candidates",
+        "/api/realtime/settings",
+        "/api/realtime/status",
+        "/api/events/stream",
+    ],
+)
 def test_a_protected_route_refuses_a_request_without_cookie(client, path):
     response = client.get(path)
 

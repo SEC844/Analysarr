@@ -13,11 +13,27 @@ import type {
   TwoFactorSetup,
 } from "@/types/auth"
 import type { DiagnosticsResult } from "@/types/diagnostics"
+import type { Forecast } from "@/types/forecast"
 import type { TrashAction, TrashRestoreResult, TrashSettings } from "@/types/trash"
+import type { SeedProtection, SeedProtectionWrite } from "@/types/seed"
+import type { RealtimeStatus, WebhooksRead } from "@/types/realtime"
+import type {
+  CleanupCandidateDetail,
+  CleanupCandidatesPage,
+  CleanupQuery,
+  CleanupSettings,
+  CleanupSettingsRead,
+  OtherLinks,
+} from "@/types/cleanup"
 import type { Automation, AutomationGuard, AutomationRunResult, AutomationWrite } from "@/types/automations"
 import type { ActionLogEntry } from "@/types/history"
 import type { IgnoreCreate, IgnoreRuleRead } from "@/types/ignores"
-import type { ChannelTestResult, NotificationChannel, NotificationChannelWrite } from "@/types/notifications"
+import type {
+  ChannelTestResult,
+  NotificationChannel,
+  NotificationChannelWrite,
+  WeeklySummaryResult,
+} from "@/types/notifications"
 import type { ServicesStatus } from "@/types/services"
 import type {
   ArrLinkPreview,
@@ -232,6 +248,11 @@ export function testNotificationChannel(id: number): Promise<ChannelTestResult> 
   return request<ChannelTestResult>(`/api/notifications/channels/${id}/test`, { method: "POST" })
 }
 
+// Résumé hebdomadaire tout de suite, aux seuls canaux abonnés.
+export function sendWeeklySummary(): Promise<WeeklySummaryResult> {
+  return request<WeeklySummaryResult>("/api/notifications/weekly-summary", { method: "POST" })
+}
+
 // --- Automatisations --------------------------------------------------------
 export function listAutomations(): Promise<Automation[]> {
   return request<Automation[]>("/api/automations")
@@ -295,6 +316,85 @@ export function getTrashSettings(): Promise<TrashSettings> {
 
 export function saveTrashSettings(payload: { enabled: boolean; retention_days: number }): Promise<TrashSettings> {
   return request<TrashSettings>("/api/trash/settings", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function getCleanupCandidates(query: CleanupQuery): Promise<CleanupCandidatesPage> {
+  const params = new URLSearchParams({
+    page: String(query.page),
+    page_size: String(query.page_size),
+    sort: query.sort,
+    include_protected: String(query.include_protected),
+  })
+  if (query.media_type) params.set("media_type", query.media_type)
+  if (query.search) params.set("search", query.search)
+  return request<CleanupCandidatesPage>(`/api/cleanup/candidates?${params}`)
+}
+
+// Parcours du disque côté serveur, borné en temps : à la demande seulement.
+export function getCleanupOtherLinks(id: number): Promise<OtherLinks> {
+  return request<OtherLinks>(`/api/cleanup/candidates/${id}/links`)
+}
+
+export function getCleanupCandidate(id: number): Promise<CleanupCandidateDetail> {
+  return request<CleanupCandidateDetail>(`/api/cleanup/candidates/${id}`)
+}
+
+export function getForecast(): Promise<Forecast> {
+  return request<Forecast>("/api/library/forecast")
+}
+
+export function getCleanupSettings(): Promise<CleanupSettingsRead> {
+  return request<CleanupSettingsRead>("/api/cleanup/settings")
+}
+
+export function saveCleanupSettings(settings: CleanupSettings): Promise<CleanupSettingsRead> {
+  return request<CleanupSettingsRead>("/api/cleanup/settings", { method: "PUT", body: JSON.stringify(settings) })
+}
+
+export function getRealtimeStatus(): Promise<RealtimeStatus> {
+  return request<RealtimeStatus>("/api/realtime/status")
+}
+
+export function getWebhooks(): Promise<WebhooksRead> {
+  return request<WebhooksRead>("/api/realtime/webhooks")
+}
+
+// `detected` : adresse proposée par le navigateur, jamais enregistrée par-dessus
+// une adresse déjà connue.
+export function saveAnalysarrAddress(url: string, detected = false): Promise<WebhooksRead> {
+  return request<WebhooksRead>("/api/realtime/address", {
+    method: "PUT",
+    body: JSON.stringify({ analysarr_url: url, detected }),
+  })
+}
+
+function webhookPath(service: string, instanceId: number): string {
+  return `/api/realtime/webhooks/${encodeURIComponent(service)}/${instanceId}`
+}
+
+export function retryWebhook(service: string, instanceId: number): Promise<WebhooksRead> {
+  return request<WebhooksRead>(webhookPath(service, instanceId), { method: "POST" })
+}
+
+export function testWebhook(service: string, instanceId: number): Promise<void> {
+  return request<void>(`${webhookPath(service, instanceId)}/test`, { method: "POST" })
+}
+
+export function unregisterWebhook(service: string, instanceId: number): Promise<void> {
+  return request<void>(webhookPath(service, instanceId), { method: "DELETE" })
+}
+
+export function getSeedProtection(): Promise<SeedProtection> {
+  return request<SeedProtection>("/api/seed-protection")
+}
+
+export function saveSeedProtection(payload: SeedProtectionWrite): Promise<SeedProtection> {
+  return request<SeedProtection>("/api/seed-protection", { method: "PUT", body: JSON.stringify(payload) })
+}
+
+/** « Non merci » sur le bandeau : la protection reste désactivée. */
+export function dismissSeedProtectionPrompt(): Promise<SeedProtection> {
+  return request<SeedProtection>("/api/seed-protection/dismiss-prompt", { method: "POST" })
 }
 
 /** Restauration d'une suppression entière : fichiers, torrents, Sonarr/Radarr

@@ -2,13 +2,16 @@ import type { ReactNode } from "react"
 import { LogOut } from "lucide-react"
 import { Link, NavLink } from "react-router-dom"
 
+import { LiveEventsProvider } from "@/components/realtime/live-events-provider"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/logo"
 import { PulseDot } from "@/components/ui/pulse-dot"
 import { useAppInfoQuery } from "@/hooks/use-app"
 import { useAutomationGuardQuery } from "@/hooks/use-automations"
 import { useLogoutMutation } from "@/hooks/use-auth"
+import { useDetectAnalysarrAddress } from "@/hooks/use-realtime"
 import { useServicesStatusQuery } from "@/hooks/use-services"
+import { useRememberedPath } from "@/hooks/use-session-state"
 import { useI18n } from "@/i18n"
 import { formatVersion } from "@/lib/format"
 import { summarizeServices } from "@/lib/services"
@@ -20,6 +23,7 @@ const AUTOMATIONS_SETTINGS = "/settings?section=automations"
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useI18n()
   const logoutMutation = useLogoutMutation()
+  useDetectAnalysarrAddress()
   const { data: appInfo } = useAppInfoQuery()
   const updateAvailable = appInfo?.update?.update_available ?? false
 
@@ -29,6 +33,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: services } = useServicesStatusQuery()
   const { firstDownSection } = summarizeServices(services)
   const downCount = services?.services.filter((s) => !s.ok).length ?? 0
+  // Bibliothèque et Nettoyage rouverts tels que laissés (filtres, tri, page).
+  const remembered = useRememberedPath()
 
   // Service injoignable : le lien mène directement à sa section (prioritaire).
   // Mise à jour disponible : le lien mène à l'onglet Application.
@@ -42,14 +48,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Le lien Réglages mène toujours à la section utile : service en défaut
   // d'abord, sinon l'onglet Application quand une mise à jour attend.
   const navLinks = [
-    { to: "/", label: t("nav.home"), serviceDown: false, paused: false },
+    { to: remembered("/"), label: t("nav.home"), serviceDown: false, paused: false },
+    { to: remembered("/cleanup"), label: t("nav.cleanup"), serviceDown: false, paused: false },
     { to: settingsTarget, label: t("nav.settings"), serviceDown: downCount > 0, paused: automationsPaused },
   ]
 
   return (
     <div className="bg-background min-h-svh">
       <header className="border-border border-b">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6">
+        {/* Sur un téléphone, la navigation passe sous la marque plutôt que de
+            déborder de l'écran (trois liens + déconnexion ne tiennent pas
+            à côté du nom sous ~450 px). */}
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-y-2 px-4 py-3 sm:px-6">
           {/* Marque et version alignées sur la même ligne : `items-center` sur
               le conteneur, la version décalée d'un cheveu pour retomber sur la
               ligne de base du nom. */}
@@ -70,16 +80,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <nav className="flex gap-1">
               {navLinks.map((link) => (
                 <NavLink
                   key={link.label}
                   to={link.to}
-                  end={link.to === "/"}
+                  end={link.to.split("?")[0] === "/"}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
+                      "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors sm:px-3",
                       isActive
                         ? "bg-secondary text-secondary-foreground"
                         : "text-muted-foreground hover:text-foreground",
@@ -111,7 +121,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main>{children}</main>
+      <main>
+        <LiveEventsProvider>{children}</LiveEventsProvider>
+      </main>
     </div>
   )
 }

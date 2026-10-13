@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlmodel import Session, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import media_server_name
 from app.clients.torrent import torrent_client_configured, torrent_client_name
@@ -26,6 +27,7 @@ from app.models.media import (
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget, arr_targets
 from app.services.events import scan_events
+from app.services.library_history import record_snapshot
 from app.services.notifications import (
     ChannelTarget,
     Notification,
@@ -71,7 +73,7 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
     with Session(engine) as session:
         ignores = _load_ignores(session)
     try:
-        results, fetched_torrents, emby_users = await _collect(
+        results, fetched_torrents, emby_users, failed_sources = await _collect(
             settings, run_id, radarr_targets, sonarr_targets, ignores
         )
     except Exception as exc:  # noqa: BLE001 - toute erreur externe doit être reportée proprement, pas planter le process
@@ -79,14 +81,20 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         return
 
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
-    previously_flagged, counts, summary = _store_results(
-        run_id, settings, results, fetched_torrents, emby_users, ignores
+    # Remplacement de tout le cache : hors de la boucle asyncio.
+    previously_flagged, counts, summary = await run_in_threadpool(
+        _store_results, run_id, settings, results, fetched_torrents, emby_users, ignores, failed_sources
     )
 
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
     notify(channels, "scan_completed", summary)
     _notify_new_detections(channels, settings, results, previously_flagged)
     await _run_automations(channels, run_id)
+    # Photographie du jour, APRÈS les automatisations : elle décrit la
+    # bibliothèque telle qu'elle est au bout du scan. Seul le scan complet
+    # passe ici (les analyses par service ne couvrent qu'une partie des
+    # médias). Disque et base lus hors de la boucle asyncio.
+    await run_in_threadpool(record_snapshot)
 
 
 def _start_run(
@@ -129,6 +137,7 @@ def _store_results(
     fetched_torrents: FetchedTorrents,
     emby_users: list[EmbyUser],
     ignores: "IgnoreSet",
+    failed_sources: list[str],
 ) -> tuple[dict[str, set[tuple[str, str, int | None]]], dict[str, int], Notification]:
     """Remplace le cache par le résultat du scan et clôt l'analyse. Une seule
     session : les médias restent lisibles pour les notifications qui suivent."""
@@ -141,7 +150,7 @@ def _store_results(
         # Situations des éléments ignorés : adoptées, ou règles retirées si
         # elles ont changé (voir services/ignores.py).
         ignores.persist(session)
-        run = _complete_run(session, run_id, results, fetched_torrents)
+        run = _complete_run(session, run_id, results, fetched_torrents, failed_sources)
         counts = {
             "media_count": run.media_count,
             "duplicate_count": run.duplicate_count,
@@ -192,7 +201,11 @@ def _replace_cache(session: Session, results: list[MediaBuildResult], emby_users
 
 
 def _complete_run(
-    session: Session, run_id: int, results: list[MediaBuildResult], fetched_torrents: FetchedTorrents
+    session: Session,
+    run_id: int,
+    results: list[MediaBuildResult],
+    fetched_torrents: FetchedTorrents,
+    failed_sources: list[str],
 ) -> ScanRun:
     run = session.get(ScanRun, run_id)
     if run is None:
@@ -210,6 +223,7 @@ def _complete_run(
     run.tracker_unique_count = count("tracker_unique")
     run.qbittorrent_torrent_count = len(fetched_torrents)
     run.qbittorrent_matched_count = sum(len(r.torrents) for r in results)
+    run.failed_sources = ",".join(failed_sources)
     session.add(run)
     session.commit()
     return run
@@ -281,8 +295,15 @@ def _media_key(media: Media) -> tuple[str, str, int | None]:
 
 
 async def _fail_scan(
-    run_id: int, message: str, channels: list[ChannelTarget], settings: Settings | None = None
+    run_id: int,
+    message: str,
+    channels: list[ChannelTarget],
+    settings: Settings | None = None,
+    *,
+    announce: bool = True,
 ) -> None:
+    """`announce=False` : analyse du temps réel, absente du flux du bouton
+    Scanner (voir partial_scan.run_service_scan)."""
     notify(channels, "scan_failed", scan_failed_notification(notification_language(settings), message))
     with Session(engine) as session:
         run = session.get(ScanRun, run_id)
@@ -292,4 +313,5 @@ async def _fail_scan(
             run.finished_at = datetime.now(UTC)
             session.add(run)
             session.commit()
-    await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
+    if announce:
+        await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})

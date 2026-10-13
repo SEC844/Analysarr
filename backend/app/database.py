@@ -99,6 +99,13 @@ _CURRENT_SCHEMA_MARKERS = [
     ("torrent", "ignored"),
     ("mediafile", "ignored"),
     ("media", "muted_statuses"),
+    ("torrent", "is_private"),
+    ("media", "series_status"),
+    ("media", "watch_favorite_count"),
+    ("mediawatch", "favorite"),
+    ("embyuser", "last_activity_at"),
+    ("media", "full_reclaimable_bytes"),
+    ("scanrun", "failed_sources"),
 ]
 
 
@@ -175,6 +182,27 @@ _SETTINGS_NEW_COLUMNS = [
     ("trusted_proxies", "VARCHAR NOT NULL DEFAULT ''"),
     ("trash_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     ("trash_retention_days", "INTEGER NOT NULL DEFAULT 7"),
+    ("library_history_retention_days", "INTEGER NOT NULL DEFAULT 730"),
+    # DEFAULT 0 volontaire : une installation existante ne voit jamais ses
+    # nettoyages ni ses automatisations changer en silence — un bandeau lui
+    # propose d'activer la protection. Une nouvelle installation l'a d'office
+    # (valeur du modèle, voir models/settings.py).
+    ("seed_protection_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("seed_protection_prompt_dismissed", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("seed_private_min_days", "INTEGER NOT NULL DEFAULT 14"),
+    ("seed_public_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("seed_public_min_days", "INTEGER NOT NULL DEFAULT 3"),
+    ("seed_tracker_rules", "VARCHAR NOT NULL DEFAULT '[]'"),
+    ("cleanup_settings", "VARCHAR NOT NULL DEFAULT '{}'"),
+    ("analysarr_url", "VARCHAR NOT NULL DEFAULT ''"),
+    ("scan_schedule_mode", "VARCHAR NOT NULL DEFAULT 'interval'"),
+    ("scan_nightly_hour", "INTEGER NOT NULL DEFAULT 4"),
+    ("realtime_default_applied", "BOOLEAN NOT NULL DEFAULT 0"),
+]
+
+# Webhooks Sonarr/Radarr (configuration, jamais recréée).
+_ARR_WEBHOOK_NEW_COLUMNS = [
+    ("target_signature", "VARCHAR NOT NULL DEFAULT ''"),
 ]
 
 
@@ -242,9 +270,27 @@ def _migrate_legacy_notifications() -> None:
         session.commit()
 
 
+def _apply_realtime_default() -> None:
+    """Le temps réel devient la norme : une installation existante passe,
+    une seule fois, à un scan complet de nuit (vérification du temps réel)
+    au lieu de son ancienne planification."""
+    from app.models.settings import Settings
+
+    with Session(engine) as session:
+        row = session.get(Settings, 1)
+        if row is None or row.realtime_default_applied:
+            return
+        row.scan_schedule_enabled = True
+        row.scan_schedule_mode = "nightly"
+        row.realtime_default_applied = True
+        session.add(row)
+        session.commit()
+
+
 def init_db() -> None:
     from app.models.activity import ActionLog  # noqa: F401
     from app.models.arr_instance import ArrInstance  # noqa: F401
+    from app.models.arr_webhook import ArrWebhook  # noqa: F401
     from app.models.auth import (
         LoginAttempt,  # noqa: F401
         User,  # noqa: F401
@@ -252,6 +298,7 @@ def init_db() -> None:
     from app.models.auth import Session as AuthSession  # noqa: F401
     from app.models.automation import Automation  # noqa: F401
     from app.models.ignore import IgnoreRule  # noqa: F401
+    from app.models.library_snapshot import LibrarySnapshot  # noqa: F401
     from app.models.media import (  # noqa: F401
         EmbyUser,
         ImportIssue,
@@ -271,8 +318,10 @@ def init_db() -> None:
     _drop_legacy_trash()
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
     _ensure_columns("user", _USER_NEW_COLUMNS)
+    _ensure_columns("arrwebhook", _ARR_WEBHOOK_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
     _migrate_legacy_notifications()
+    _apply_realtime_default()
 
 
 def _drop_legacy_trash() -> None:

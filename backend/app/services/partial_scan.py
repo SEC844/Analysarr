@@ -29,6 +29,7 @@ from typing import Any
 
 import httpx
 from sqlmodel import Session, col, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import media_server_client, media_server_name
 from app.clients.torrent import torrent_client_configured, torrent_client_name
@@ -60,6 +61,7 @@ from app.services.scan.orchestrator import _fail_scan
 from app.services.scan.results import build_untracked_results
 from app.services.scan_scopes import SERVICE_SCOPES
 from app.services.seer import (
+    RequestKey,
     build_request_rows,
     fetch_request_index,
     request_manager_name,
@@ -67,6 +69,7 @@ from app.services.seer import (
     seer_configured,
 )
 from app.services.torrent_match import (
+    FetchedTorrents,
     MediaView,
     attach_torrents,
     fetch_torrents,
@@ -74,6 +77,7 @@ from app.services.torrent_match import (
     torrents_from_cache,
 )
 from app.services.watch_stats import (
+    UserWatchData,
     apply_aggregates,
     build_watch_rows,
     collect_watch_data,
@@ -117,13 +121,20 @@ async def _refresh_torrents(session: Session, settings: Settings, medias: list[M
     n'est pas redemandé : le rattachement déjà établi pour un hash connu est
     réutilisé, ce qui donne le même résultat qu'un scan complet sans un appel
     par média."""
+    fetched = await fetch_torrents(settings)
+    # Inodes lus sur le disque et réécriture de tous les torrents : hors de la
+    # boucle asyncio, sinon toute l'interface attend la fin de l'analyse.
+    return await run_in_threadpool(_store_torrents, session, settings, medias, fetched)
+
+
+def _store_torrents(
+    session: Session, settings: Settings, medias: list[Media], fetched: FetchedTorrents
+) -> tuple[int, int]:
     index_by_media_id = _media_index(medias)
     known = list(session.exec(select(Torrent)).all())
     hash_to_index = {
         t.hash.lower(): index_by_media_id[t.media_id] for t in known if t.media_id in index_by_media_id
     }
-
-    fetched = await fetch_torrents(settings)
     by_media = attach_torrents(settings, _views(session, medias), fetched, hash_to_index)
 
     session.exec(delete(Torrent))
@@ -178,6 +189,12 @@ async def _refresh_watch(session: Session, settings: Settings, medias: list[Medi
         logger.warning("Statistiques de visionnage illisibles", exc_info=True)
         return
 
+    await run_in_threadpool(_store_watch, session, settings, medias, users, data)
+
+
+def _store_watch(
+    session: Session, settings: Settings, medias: list[Media], users: list[EmbyUser], data: dict[str, UserWatchData]
+) -> None:
     session.exec(delete(MediaWatch))
     session.exec(delete(EmbyUser))
     session.commit()
@@ -206,6 +223,10 @@ async def _refresh_seer(session: Session, settings: Settings, medias: list[Media
         logger.warning("Demandes du gestionnaire de demandes illisibles", exc_info=True)
         return
 
+    await run_in_threadpool(_store_requests, session, medias, index)
+
+
+def _store_requests(session: Session, medias: list[Media], index: dict[RequestKey, list[dict[str, Any]]]) -> None:
     session.exec(delete(MediaRequest))
     session.commit()
     for media in medias:
@@ -239,9 +260,19 @@ def _missing_service(scope: str, settings: Settings) -> str | None:
 async def run_service_scan(scope: str, trigger: str = "manual") -> None:
     """Analyse d'un seul service. L'appelant détient déjà le verrou de scan
     (voir `services/scan/__init__.py::run_scan`) : une analyse par service et un scan
-    complet ne tournent jamais en même temps."""
+    complet ne tournent jamais en même temps.
+
+    Une analyse du temps réel (`trigger="realtime"`) ne passe pas par le flux
+    du bouton Scanner : elle s'y afficherait comme un scan lancé à la main,
+    bloquerait le bouton, et sa fin fermerait le flux d'un scan qui attend son
+    tour (le navigateur en est prévenu par `live_events`, `library.changed`)."""
     if scope not in SERVICE_SCOPES:
         raise ValueError(f"Périmètre d'analyse inconnu : {scope}")
+    announce = trigger != "realtime"
+
+    async def publish(event: dict[str, Any]) -> None:
+        if announce:
+            await scan_events.publish(event)
 
     with Session(engine) as session:
         settings = session.get(Settings, 1)
@@ -254,19 +285,19 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
         session.refresh(run)
         run_id = row_id(run)
 
-    await scan_events.publish({"type": "started", "run_id": run_id, "scope": scope})
+    await publish({"type": "started", "run_id": run_id, "scope": scope})
 
     if settings is None:
-        await _fail_scan(run_id, "Aucune configuration enregistrée.", channels, settings)
+        await _fail_scan(run_id, "Aucune configuration enregistrée.", channels, settings, announce=announce)
         return
     missing = _missing_service(scope, settings)
     if missing:
-        await _fail_scan(run_id, f"Services non configurés : {missing}.", channels, settings)
+        await _fail_scan(run_id, f"Services non configurés : {missing}.", channels, settings, announce=announce)
         return
 
     torrent_count = matched_count = 0
     try:
-        await scan_events.publish({"type": "progress", "run_id": run_id, "stage": scope})
+        await publish({"type": "progress", "run_id": run_id, "stage": scope})
         with Session(engine) as session:
             if scope in ("radarr", "sonarr", "media_server"):
                 # Reconstruit les médias du service : lui seul peut en ajouter
@@ -287,8 +318,9 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
                 # Visionnage et Seer ne changent aucun statut : inutile de tout
                 # recalculer pour rien.
                 if scope in ("torrents", "queue"):
-                    await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "statuts"})
-                    _recompute_statuses(session, medias)
+                    await publish({"type": "progress", "run_id": run_id, "stage": "statuts"})
+                    # Espace récupérable : lu sur le disque, hors de la boucle asyncio.
+                    await run_in_threadpool(_recompute_statuses, session, medias)
             session.commit()
 
             stored = session.get(ScanRun, run_id)
@@ -312,10 +344,10 @@ async def run_service_scan(scope: str, trigger: str = "manual") -> None:
                 "orphan_count": run.orphan_count,
             }
     except Exception as exc:  # noqa: BLE001 - toute erreur externe est reportée, jamais propagée
-        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", channels, settings)
+        await _fail_scan(run_id, f"{type(exc).__name__} : {exc}", channels, settings, announce=announce)
         return
 
-    await scan_events.publish({"type": "completed", "run_id": run_id, "scope": scope, **summary})
+    await publish({"type": "completed", "run_id": run_id, "scope": scope, **summary})
 
 
 # --- Analyses par service (Sonarr, Radarr, serveur multimédia) ---------------
@@ -357,6 +389,7 @@ def _copy_media_fields(row: Media, source: Media) -> None:
         "emby_date_added",
         "episode_count",
         "missing_emby_episodes",
+        "series_status",
     ):
         setattr(row, name, getattr(source, name))
 
@@ -396,7 +429,10 @@ async def _refresh_service(session: Session, settings: Settings, scope: str) -> 
         claimed = {r.media.emby_item_id for r in results if r.media.emby_item_id}
         results.extend(await build_untracked_results(ctx, emby_movies, emby_series, claimed))
 
-    return _persist_service_results(
+    # Écriture des médias, rattachement des torrents connus (inodes relus) et
+    # statuts : hors de la boucle asyncio.
+    return await run_in_threadpool(
+        _persist_service_results,
         session,
         settings,
         results,

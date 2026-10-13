@@ -33,7 +33,7 @@ from app.schemas.settings import (
 from app.services.arr_instances import ARR_KINDS, MAX_EXTRA_INSTANCES, extra_instances
 from app.services.connection_test import TESTERS
 from app.services.notifications import is_http_url
-from app.services.scheduler import configure_scan_schedule
+from app.services.scheduler import configure_scan_schedule_from
 from app.services.security import generate_token, hash_token
 from app.services.watch_stats import excluded_user_ids, recompute_all_aggregates
 
@@ -109,6 +109,8 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
         schedule=ScheduleRead(
             enabled=s.scan_schedule_enabled,
             interval_minutes=s.scan_schedule_interval_minutes,
+            mode="nightly" if s.scan_schedule_mode == "nightly" else "interval",
+            nightly_hour=s.scan_nightly_hour,
         ),
         arr_instances=[
             ArrInstanceRead(
@@ -149,6 +151,11 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     row.seer_url = payload.seer_url
     row.scan_schedule_enabled = payload.scan_schedule_enabled
     row.scan_schedule_interval_minutes = payload.scan_schedule_interval_minutes
+    # Absents (client plus ancien) : inchangés, jamais remis au mode historique.
+    if payload.scan_schedule_mode is not None:
+        row.scan_schedule_mode = payload.scan_schedule_mode
+    if payload.scan_nightly_hour is not None:
+        row.scan_nightly_hour = payload.scan_nightly_hour
     previous_exclusions = excluded_user_ids(row)
     row.excluded_emby_user_ids = json.dumps(sorted(set(payload.excluded_emby_user_ids)))
 
@@ -176,7 +183,7 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
     session.commit()
     session.refresh(row)
 
-    configure_scan_schedule(row.scan_schedule_interval_minutes if row.scan_schedule_enabled else None)
+    configure_scan_schedule_from(row)
     if excluded_user_ids(row) != previous_exclusions:
         recompute_all_aggregates(session, row)
 

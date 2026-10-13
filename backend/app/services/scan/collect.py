@@ -3,15 +3,18 @@ torrents et calcul des statuts. Une fonction par source, dans l'ordre du scan.""
 
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client_configured
 from app.models.media import EmbyUser
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget
+from app.services.disk_footprint import FilePaths
 from app.services.events import scan_events
 from app.services.queue_issues import index_queue_issues
 from app.services.scan.library import _index_items
@@ -22,6 +25,7 @@ from app.services.scan.results import (
     build_series_result,
     build_untracked_results,
 )
+from app.services.seed_protection import SeedPolicy, seed_policy
 from app.services.seer import build_request_rows, fetch_request_index, seer_client
 from app.services.torrent_match import FetchedTorrents, MediaView, attach_torrents, fetch_torrents
 from app.services.watch_stats import (
@@ -49,11 +53,12 @@ async def _collect(
     radarr_targets: list[ArrTarget],
     sonarr_targets: list[ArrTarget],
     ignores: "IgnoreSet",
-) -> tuple[list[MediaBuildResult], FetchedTorrents, list[EmbyUser]]:
+) -> tuple[list[MediaBuildResult], FetchedTorrents, list[EmbyUser], list[str]]:
     """Instances Radarr/Sonarr : la principale d'abord, puis les
     supplémentaires (voir services/arr_instances.py). Chaque film/série suivi
     par une instance donne un média distinct. Les éléments ignorés sont
-    appliqués aux statuts ; l'appelant enregistre `ignores`."""
+    appliqués aux statuts ; l'appelant enregistre `ignores`. Dernier élément :
+    les sources facultatives illisibles (voir ScanRun.failed_sources)."""
     # Garanti par l'appelant (réglages complets) ; vérifié ici plutôt que par
     # assert, que `python -O` supprimerait.
     emby = media_server_client(settings)
@@ -92,13 +97,16 @@ async def _collect(
 
     await progress("qbittorrent")
     fetched = await fetch_torrents(settings)
-    _attach(settings, results, fetched, hash_to_index)
-    _apply_statuses(results, ignores)
+    # Rattachement (inodes) et espace libérable lisent le disque : hors de la
+    # boucle asyncio, l'interface reste utilisable pendant le scan.
+    await run_in_threadpool(_attach, settings, results, fetched, hash_to_index)
+    await run_in_threadpool(_apply_statuses, results, ignores, seed_policy(settings), fetched.files_by_hash())
 
     await progress("visionnage")
-    emby_users = await _apply_watch_stats(settings, emby, results)
-    await _apply_seer_requests(settings, results, progress)
-    return results, fetched, emby_users
+    emby_users, watch_ok = await _apply_watch_stats(settings, emby, results)
+    requests_ok = await _apply_seer_requests(settings, results, progress)
+    failed = [name for name, ok in (("watch", watch_ok), ("requests", requests_ok)) if not ok]
+    return results, fetched, emby_users, failed
 
 
 async def queue_issues(targets: list[ArrTarget], id_field: str) -> QueueIssues:
@@ -257,46 +265,65 @@ def _attach(
         result.torrents.extend(torrents_of_media)
 
 
-def _apply_statuses(results: list[MediaBuildResult], ignores: "IgnoreSet") -> None:
+def _apply_statuses(
+    results: list[MediaBuildResult], ignores: "IgnoreSet", policy: SeedPolicy, torrent_files: dict[str, FilePaths]
+) -> None:
     # import local : media_status importe ignores, qui importe ce package (cycle)
     from app.services.media_status import apply_statuses
 
+    now = datetime.now(UTC)
     for result in results:
         result.media.missing_emby_episodes = ",".join(result.missing_emby_episodes)
         # Mémorisés pour les analyses partielles, qui rattachent les torrents
         # sans redemander la liste à Sonarr/Radarr.
         result.media.root_path = result.root_path
         result.media.alt_titles = "\n".join(result.alt_titles)
-        apply_statuses(result.media, result.files, result.torrents, result.import_issues, ignores)
+        apply_statuses(
+            result.media,
+            result.files,
+            result.torrents,
+            result.import_issues,
+            ignores,
+            policy=policy,
+            torrent_files=torrent_files,
+            now=now,
+        )
 
 
-async def _apply_watch_stats(settings: Settings, emby: EmbyClient, results: list[MediaBuildResult]) -> list[EmbyUser]:
-    """Visionnage : purement informatif. Un échec (serveur trop ancien, droits
-    insuffisants) laisse les statistiques vides sans faire échouer le scan."""
+async def _apply_watch_stats(
+    settings: Settings, emby: EmbyClient, results: list[MediaBuildResult]
+) -> tuple[list[EmbyUser], bool]:
+    """Visionnage : un échec (serveur trop ancien, droits insuffisants) laisse
+    les statistiques vides sans faire échouer le scan. Renvoie aussi si la
+    lecture a réussi."""
+    ok = True
     try:
         emby_users = users_from_api(await emby.get_users())
         watch_data = await collect_watch_data(emby, emby_users)
     except (httpx.HTTPError, ValueError):
         logger.warning("Statistiques de visionnage illisibles", exc_info=True)
-        emby_users, watch_data = [], {}
+        emby_users, watch_data, ok = [], {}, False
     excluded = excluded_user_ids(settings)
     for result in results:
         result.watches = build_watch_rows(result.media, emby_users, watch_data)
         apply_aggregates(result.media, result.watches, excluded)
-    return emby_users
+    return emby_users, ok
 
 
-async def _apply_seer_requests(settings: Settings, results: list[MediaBuildResult], progress: Progress) -> None:
+async def _apply_seer_requests(settings: Settings, results: list[MediaBuildResult], progress: Progress) -> bool:
     """Demandes Seer (optionnel) : un Seer injoignable laisse les demandes
-    vides sans faire échouer le scan."""
+    vides sans faire échouer le scan. Faux seulement si la lecture a échoué
+    (Seer désactivé : rien à lire, donc rien de faussé)."""
     seer = seer_client(settings)
     if seer is None:
-        return
+        return True
     await progress("seer")
+    ok = True
     try:
         request_index = await fetch_request_index(seer)
     except (httpx.HTTPError, ValueError):
         logger.warning("Demandes du gestionnaire de demandes illisibles", exc_info=True)
-        request_index = {}
+        request_index, ok = {}, False
     for result in results:
         result.requests = build_request_rows(result.media, request_index)
+    return ok

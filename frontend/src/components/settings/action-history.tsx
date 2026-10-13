@@ -19,7 +19,9 @@ function HistoryRow({ entry }: { entry: ActionLogEntry }) {
 
   return (
     <li className="py-2">
-      <div className="flex items-center gap-3 text-sm">
+      {/* Passe à la ligne plutôt que de déborder : sur une colonne étroite, la
+          carte coupait le résultat et le titre tombait à zéro de large. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <button
           type="button"
           disabled={!hasDetails}
@@ -36,7 +38,7 @@ function HistoryRow({ entry }: { entry: ActionLogEntry }) {
         <Badge variant="outline" className="shrink-0">
           {t(`history.actions.${entry.action}`)}
         </Badge>
-        <span className="min-w-0 flex-1 truncate" title={entry.media_title}>
+        <span className="min-w-40 flex-1 truncate" title={entry.media_title}>
           {entry.media_id !== null ? (
             <Link to={`/media/${entry.media_id}`} className="hover:underline">
               {entry.media_title}

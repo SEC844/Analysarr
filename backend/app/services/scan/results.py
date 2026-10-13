@@ -90,6 +90,16 @@ class LibraryContext:
     episode_files_for: Any = None
 
 
+# Statuts de série publiés par Sonarr (`SeriesStatusType`) ; toute autre
+# valeur est ignorée plutôt que stockée telle quelle.
+SERIES_STATUSES = frozenset({"continuing", "ended", "upcoming", "deleted"})
+
+
+def series_status(series: dict[str, Any]) -> str | None:
+    value = series.get("status")
+    return value if value in SERIES_STATUSES else None
+
+
 def _alt_titles(title: str, candidates: list[str | None]) -> list[str]:
     """Titres alternatifs utiles au rattachement par nom : non vides et
     différents du titre principal."""
@@ -179,6 +189,7 @@ async def build_series_result(
         sonarr_id=series.get("id"),
         arr_instance_id=target.instance_id,
         tvdb_id=series.get("tvdbId"),
+        series_status=series_status(series),
     )
     result = MediaBuildResult(
         media=media,

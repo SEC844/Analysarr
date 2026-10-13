@@ -30,7 +30,7 @@ from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.services.action_log import MediaRef, record_action
 from app.services.scan.statuses import INFO_STATUSES, MEDIA_STATUSES, StatusEvaluation, duplicate_groups
 
-IGNORE_KINDS = ("torrent", "file", "status")
+IGNORE_KINDS = ("torrent", "file", "status", "cleanup")
 # Alertes qu'un utilisateur peut masquer : tout statut sauf les informations.
 MUTABLE_STATUSES = tuple(status for status in MEDIA_STATUSES if status not in INFO_STATUSES)
 # États d'un torrent qui déclenchent une alerte : seuls ceux-là s'ignorent.
@@ -48,9 +48,14 @@ def media_key(media: Media) -> str:
     analyses partielles (instance + id Sonarr/Radarr, ou item du serveur
     multimédia pour un média non suivi)."""
     arr_id = media.sonarr_id if media.media_type == MediaType.series else media.radarr_id
+    return media_key_of(media.media_type, arr_id, media.arr_instance_id, media.emby_item_id)
+
+
+def media_key_of(media_type: MediaType, arr_id: int | None, instance_id: int | None, emby_item_id: str | None) -> str:
+    """`media_key` à partir des seuls champs utiles (lecture colonne par colonne)."""
     if arr_id is None:
-        return f"{media.media_type.value}:library:{media.emby_item_id or ''}"
-    return f"{media.media_type.value}:arr:{media.arr_instance_id or 0}:{arr_id}"
+        return f"{media_type.value}:library:{emby_item_id or ''}"
+    return f"{media_type.value}:arr:{instance_id or 0}:{arr_id}"
 
 
 def torrent_state(torrent: Torrent) -> str | None:
@@ -128,8 +133,10 @@ class IgnoreSet:
                 ignores.torrents[rule.target] = rule
             elif rule.kind == "file":
                 ignores.files[rule.target] = rule
-            else:
+            elif rule.kind == "status":
                 ignores.statuses.setdefault(rule.media_key, []).append(rule)
+            # `cleanup` : lu par l'assistant de nettoyage, sans effet sur les
+            # statuts ni situation à suivre.
         return ignores
 
     # --- Application --------------------------------------------------------

@@ -23,6 +23,22 @@ MODULES = [
     "app.services.cascade_delete",
     "app.services.media_rescan",
     "app.services.partial_scan",
+    "app.services.library_history",
+    "app.services.scheduler",
+    "app.routers.library",
+    "app.services.seed_protection",
+    "app.routers.seed_protection",
+    "app.services.cleanup",
+    "app.services.cleanup_score",
+    "app.services.weekly_summary",
+    "app.services.automations",
+    "app.services.disk_footprint",
+    "app.routers.cleanup",
+    "app.services.realtime.supervisor",
+    "app.services.realtime.hub",
+    "app.routers.realtime",
+    "app.routers.webhooks",
+    "app.routers.events",
 ]
 
 

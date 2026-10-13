@@ -17,15 +17,18 @@ Dans les deux cas, le média n'est plus signalé « absent » et son
 téléchargement n'est jamais proposé au nettoyage : il est en cours de route.
 """
 
+import asyncio
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from sqlmodel import select
 
-from app.clients.arr import ArrClient
+from app.clients.arr import ArrClient, http_error_text
 from app.models.media import ImportIssue, MediaType
 from app.schemas.media import DeleteStepResult
 from app.services.arr_instances import arr_target_for
+from app.services.realtime.hub import hub
 
 if TYPE_CHECKING:
     from sqlmodel import Session
@@ -36,11 +39,15 @@ if TYPE_CHECKING:
 __all__ = [
     "BLOCKED_STATES",
     "IMPORT_KIND",
+    "OVERRIDABLE_REJECTIONS",
     "STALLED_KIND",
+    "ImportAttempt",
     "execute_import_retry",
     "index_queue_issues",
     "issue_rows_for",
-    "retry_import",
+    "prepare_import",
+    "triage_candidates",
+    "wait_for_command",
 ]
 
 IMPORT_KIND = "import"
@@ -155,6 +162,37 @@ def issue_rows_for(records: list[dict[str, Any]]) -> list[ImportIssue]:
     return rows
 
 
+# --- Relance d'un import bloqué -----------------------------------------------
+#
+# Reproduit l'« Import manuel » de Sonarr/Radarr, vérifié dans leur code
+# (`ManualImportService`) : les fichiers proposés par `GET /manualimport`
+# portent les refus de Sonarr/Radarr, et la commande `ManualImport` importe ce
+# qu'on lui envoie SANS repasser ces refus — cocher un fichier refusé dans leur
+# interface, c'est passer outre. Analysarr ne passe outre que les refus sans
+# risque ci-dessous ; les autres protègent quelque chose (un meilleur fichier
+# déjà en place, un échantillon avéré, un rattachement d'épisode douteux) et
+# restent à trancher dans Sonarr/Radarr.
+
+# Refus levés d'office : ils ne disent rien de mal du fichier. Le titre
+# d'épisode inconnu ne sert qu'au nommage, et l'échantillon « indéterminé »
+# signifie seulement que la durée n'a pas pu être lue (voir SAMPLE_SIZE_RATIO).
+OVERRIDABLE_REJECTIONS = (
+    "Episode has a TBA title and recently aired",
+    "Episode does not have a title and recently aired",
+    "Unable to determine if file is a sample",
+)
+_SAMPLE_INDETERMINATE = "Unable to determine if file is a sample"
+# Un échantillon pèse quelques % du fichier principal : un fichier au moins
+# moitié aussi gros que le plus gros du téléchargement n'en est pas un.
+SAMPLE_SIZE_RATIO = 0.5
+# Suivi de la commande ManualImport : assez pour un import ordinaire, assez
+# court pour rester sous le délai d'un proxy inverse (60 s par défaut).
+COMMAND_POLL_SECONDS = 1.0
+COMMAND_TIMEOUT_SECONDS = 25.0
+_FINISHED_COMMANDS = {"completed", "failed", "aborted", "cancelled", "orphaned"}
+_FORWARDED_FIELDS = ("quality", "languages", "releaseGroup", "downloadId", "folderName", "indexerFlags", "releaseType")
+
+
 def _import_file(candidate: dict[str, Any], is_series: bool) -> dict[str, Any] | None:
     """Traduit un candidat de `/api/v3/manualimport` en entrée de commande
     ManualImport. Renvoie None si Sonarr/Radarr n'a rattaché le fichier à
@@ -166,7 +204,7 @@ def _import_file(candidate: dict[str, Any], is_series: bool) -> dict[str, Any] |
     entry: dict[str, Any] = {"path": path}
     # Un champ à null fait échouer la commande côté Sonarr/Radarr (« Quality is
     # required ») : on n'envoie que ce que le serveur a lui-même renseigné.
-    for key in ("quality", "languages", "releaseGroup", "downloadId", "folderName", "indexerFlags"):
+    for key in _FORWARDED_FIELDS:
         value = candidate.get(key)
         if value not in (None, "", []):
             entry[key] = value
@@ -187,141 +225,252 @@ def _import_file(candidate: dict[str, Any], is_series: bool) -> dict[str, Any] |
     return entry
 
 
-def _blocking_rejections(candidate: dict[str, Any]) -> list[str]:
-    """Motifs de refus définitifs. Un refus temporaire (fichier encore en
+def _size(candidate: dict[str, Any]) -> int:
+    size = candidate.get("size")
+    return int(size) if isinstance(size, (int, float)) and not isinstance(size, bool) else 0
+
+
+def _is_overridable(reason: str, candidate: dict[str, Any], largest: int) -> bool:
+    if not reason.startswith(OVERRIDABLE_REJECTIONS):
+        return False
+    if reason.startswith(_SAMPLE_INDETERMINATE):
+        return largest > 0 and _size(candidate) >= largest * SAMPLE_SIZE_RATIO
+    return True
+
+
+def _rejections(candidate: dict[str, Any], largest: int) -> tuple[list[str], list[str]]:
+    """(refus bloquants, refus levés). Un refus temporaire (fichier encore en
     cours d'écriture) disparaît tout seul : il ne bloque pas la tentative."""
-    reasons: list[str] = []
+    blocking: list[str] = []
+    overridden: list[str] = []
     for rejection in candidate.get("rejections") or []:
-        kind = str(rejection.get("type") or "permanent").lower()
-        if kind == "permanent":
-            reason = str(rejection.get("reason") or "").strip()
-            if reason:
-                reasons.append(reason)
-    return reasons
+        if str(rejection.get("type") or "permanent").lower() != "permanent":
+            continue
+        reason = str(rejection.get("reason") or "").strip()
+        if not reason:
+            continue
+        (overridden if _is_overridable(reason, candidate, largest) else blocking).append(reason)
+    return blocking, overridden
 
 
-async def retry_import(
-    client: ArrClient, download_id: str | None, is_series: bool, output_path: str | None = None
-) -> tuple[int, list[str]]:
-    """Relance l'import d'un téléchargement. Renvoie (fichiers envoyés, motifs
-    de refus). `download_id` et `output_path` viennent tous deux de la file
-    d'attente de Sonarr/Radarr, jamais de l'utilisateur.
+@dataclass(slots=True)
+class ImportAttempt:
+    """Ce qu'une relance a pu préparer pour un téléchargement : fichiers à
+    importer, refus levés d'office, refus bloquants."""
 
-    Trois tentatives dans l'ordre : par téléchargement, puis par dossier de
-    sortie (le `downloadId` n'est plus connu dès que l'entrée quitte la file),
-    puis, si Sonarr/Radarr ne propose toujours rien, une relance de sa tâche
-    « traiter les téléchargements » — le geste que ferait l'utilisateur dans
-    l'interface de Sonarr/Radarr."""
+    files: list[dict[str, Any]] = field(default_factory=list)
+    overridden: list[str] = field(default_factory=list)
+    rejections: list[str] = field(default_factory=list)
+    # Aucun fichier proposé : la file a été relancée côté Sonarr/Radarr.
+    relaunched: bool = False
+
+
+def triage_candidates(candidates: list[dict[str, Any]], is_series: bool) -> ImportAttempt:
+    attempt = ImportAttempt()
+    largest = max((_size(candidate) for candidate in candidates), default=0)
+    for candidate in candidates:
+        blocking, overridden = _rejections(candidate, largest)
+        if blocking:
+            attempt.rejections.extend(blocking)
+            continue
+        entry = _import_file(candidate, is_series)
+        if entry is None:
+            attempt.rejections.append("fichier non rattaché à un média par Sonarr/Radarr")
+            continue
+        attempt.files.append(entry)
+        attempt.overridden.extend(overridden)
+    attempt.rejections = list(dict.fromkeys(attempt.rejections))
+    attempt.overridden = list(dict.fromkeys(attempt.overridden))
+    return attempt
+
+
+async def prepare_import(
+    client: ArrClient, download_id: str | None, is_series: bool, output_path: str | None, media_id: int | None
+) -> ImportAttempt:
+    """Fichiers d'un téléchargement prêts à importer. `download_id` et
+    `output_path` viennent de la file d'attente de Sonarr/Radarr, jamais de
+    l'utilisateur.
+
+    Par téléchargement d'abord, puis par dossier de sortie (Sonarr/Radarr ne
+    retrouve plus un `downloadId` qu'il ne suit plus, alors que le dossier
+    existe toujours), puis, s'il ne propose toujours rien, relance de sa tâche
+    « traiter les téléchargements » — le geste qu'on ferait dans son interface."""
     candidates: list[dict[str, Any]] = []
     if download_id:
-        found = await client.manual_import_candidates(download_id=download_id)
+        found = await client.manual_import_candidates(download_id=download_id, media_id=media_id)
         candidates = found if isinstance(found, list) else []
     if not candidates and output_path:
         found = await client.manual_import_candidates(folder=output_path)
         candidates = found if isinstance(found, list) else []
     if not candidates:
-        # Rien à importer manuellement : on demande au serveur de repasser sur
-        # sa file. Sans fichier proposé, c'est la seule action utile.
         await client.process_monitored_downloads()
-        return 0, ["aucun fichier proposé à l'import ; traitement de la file relancé côté Sonarr/Radarr"]
-
-    files: list[dict[str, Any]] = []
-    rejections: list[str] = []
-    for candidate in candidates:
-        blocking = _blocking_rejections(candidate)
-        if blocking:
-            rejections.extend(blocking)
-            continue
-        entry = _import_file(candidate, is_series)
-        if entry is None:
-            rejections.append("fichier non rattaché à un média par Sonarr/Radarr")
-            continue
-        files.append(entry)
-
-    if files:
-        await client.manual_import(files)
-    return len(files), list(dict.fromkeys(rejections))
+        return ImportAttempt(relaunched=True)
+    return triage_candidates(candidates, is_series)
 
 
-def _error_text(exc: httpx.HTTPError) -> str:
-    """Message d'erreur utile : le code HTTP ET ce que Sonarr/Radarr explique
-    dans le corps de la réponse (tronqué), plutôt qu'un « 400 Bad Request »
-    opaque. Aucune clé API n'y transite : elle voyage dans un en-tête."""
-    response = getattr(exc, "response", None)
-    if response is None:
-        return f"{type(exc).__name__} : {exc}"
-    body = " ".join((response.text or "").split())
-    return f"HTTP {response.status_code}{' — ' + body[:200] if body else ''}"
+async def wait_for_command(client: ArrClient, command_id: int | None) -> str | None:
+    """État final de la commande, ou None si elle tourne encore au bout du
+    délai (l'import continue alors chez Sonarr/Radarr)."""
+    if command_id is None:
+        return None
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + COMMAND_TIMEOUT_SECONDS
+    while True:
+        command = await client.get_command(command_id)
+        status = str(command.get("status") or "").lower() if isinstance(command, dict) else ""
+        if status in _FINISHED_COMMANDS:
+            return status
+        if loop.time() >= deadline:
+            return None
+        await asyncio.sleep(COMMAND_POLL_SECONDS)
 
 
-async def safe_retry_import(
-    client: ArrClient, download_id: str | None, is_series: bool, output_path: str | None = None
-) -> tuple[int, list[str], str | None]:
-    """Variante qui ne lève jamais : l'erreur réseau est renvoyée en texte."""
-    try:
-        imported, rejections = await retry_import(client, download_id, is_series, output_path)
-    except httpx.HTTPError as exc:
-        return 0, [], _error_text(exc)
-    return imported, rejections, None
+def _label(record: dict[str, Any], media: "Media") -> str:
+    return str(record.get("title") or "") or media.title
 
 
-async def execute_import_retry(session: "Session", media: "Media", settings: "Settings") -> tuple[list[Any], int]:
-    """Relance l'import de tous les téléchargements bloqués d'un média.
-    Renvoie (étapes, nombre de fichiers envoyés à l'import). Les statuts ne
-    sont pas recalculés ici : Sonarr/Radarr importe en tâche de fond, c'est le
-    prochain scan qui constate le résultat."""
-
-    issues = [
-        issue
-        for issue in session.exec(select(ImportIssue).where(ImportIssue.media_id == media.id)).all()
-        # Un téléchargement en souffrance n'a rien à importer : il n'est pas
-        # encore arrivé. Seuls les imports bloqués se relancent.
-        if issue.kind == IMPORT_KIND
-    ]
-    steps: list[DeleteStepResult] = []
-    if not issues:
-        return steps, 0
-
-    target = arr_target_for(session, settings, media)
-    if target is None:
-        steps.append(
-            DeleteStepResult(kind="import_retry", label=media.title, success=False, error="Instance introuvable.")
+def _attempt_step(label: str, attempt: ImportAttempt) -> DeleteStepResult | None:
+    """Étape d'échec d'un téléchargement qui n'a rien à envoyer, sinon None."""
+    if attempt.files:
+        return None
+    if attempt.relaunched:
+        error = (
+            "Sonarr/Radarr ne trouve aucun fichier pour ce téléchargement (dossier de sortie absent ou "
+            "inaccessible depuis Sonarr/Radarr) ; traitement de sa file d'attente relancé."
         )
-        return steps, 0
+    else:
+        reasons = " · ".join(attempt.rejections)
+        error = f"Refusé par Sonarr/Radarr, à trancher dans son import manuel : {reasons}" if reasons else ""
+    return DeleteStepResult(kind="import_retry", label=label, success=False, error=error[:_MAX_REASON] or None)
 
-    is_series = media.media_type == MediaType.series
-    client: ArrClient = target.sonarr() if is_series else target.radarr()
 
-    imported_total = 0
-    for issue in issues:
-        label = issue.title or media.title
-        if not issue.download_id and not issue.output_path:
+def _verified_step(
+    label: str, attempt: ImportAttempt, command_status: str | None, still_blocked: dict[str, Any] | None
+) -> DeleteStepResult:
+    """Résultat constaté APRÈS l'import : la commande ne signale pas l'échec
+    d'un fichier (ManualImportService.Execute), seule la file d'attente le dit."""
+    count = len(attempt.files)
+    overridden = f" (malgré : {' · '.join(attempt.overridden)})" if attempt.overridden else ""
+    if command_status is None:
+        return DeleteStepResult(
+            kind="import_retry",
+            label=f"{label} — import de {count} fichier(s) en cours chez Sonarr/Radarr{overridden}",
+            success=True,
+        )
+    if command_status != "completed":
+        return DeleteStepResult(
+            kind="import_retry", label=label, success=False, error=f"Commande d'import interrompue ({command_status})."
+        )
+    if still_blocked is not None:
+        reason = _reason(still_blocked) or "import toujours bloqué"
+        return DeleteStepResult(
+            kind="import_retry",
+            label=label,
+            success=False,
+            error=f"Sonarr/Radarr n'a pas pu tout importer : {reason}"[:_MAX_REASON],
+        )
+    return DeleteStepResult(
+        kind="import_retry", label=f"{label} — {count} fichier(s) importé(s){overridden}", success=True
+    )
+
+
+def _blocked_by_download(records: list[dict[str, Any]], key: str, arr_id: int) -> dict[str, dict[str, Any]]:
+    return {
+        str(record.get("downloadId") or record.get("id")): record
+        for record in index_queue_issues(records, key).get(arr_id, [])
+        if _kind(record) == IMPORT_KIND
+    }
+
+
+async def _prepare_all(
+    client: ArrClient, blocked: dict[str, dict[str, Any]], media: "Media", is_series: bool, arr_id: int
+) -> tuple[list[DeleteStepResult], dict[str, ImportAttempt]]:
+    """Fichiers à importer par téléchargement bloqué, et étapes d'échec de
+    ceux qui n'ont rien à envoyer."""
+    steps: list[DeleteStepResult] = []
+    sent: dict[str, ImportAttempt] = {}
+    for download, record in blocked.items():
+        download_id = str(record.get("downloadId") or "") or None
+        output_path = str(record.get("outputPath") or "") or None
+        if not download_id and not output_path:
             steps.append(
                 DeleteStepResult(
                     kind="import_retry",
-                    label=label,
+                    label=_label(record, media),
                     success=False,
                     error="Téléchargement inconnu de Sonarr/Radarr : import à relancer depuis leur interface.",
                 )
             )
             continue
-        imported, rejections, error = await safe_retry_import(
-            client, issue.download_id, is_series, issue.output_path
-        )
-        imported_total += imported
-        if error is not None:
-            steps.append(DeleteStepResult(kind="import_retry", label=label, success=False, error=error))
-        elif imported:
-            steps.append(
-                DeleteStepResult(kind="import_retry", label=f"{label} — {imported} fichier(s) importé(s)", success=True)
-            )
+        attempt = await prepare_import(client, download_id, is_series, output_path, None if is_series else arr_id)
+        failure = _attempt_step(_label(record, media), attempt)
+        if failure is not None:
+            steps.append(failure)
         else:
-            steps.append(
-                DeleteStepResult(
-                    kind="import_retry",
-                    label=label,
-                    success=False,
-                    error=" · ".join(rejections)[:_MAX_REASON] or "Aucun fichier importable.",
-                )
-            )
-    return steps, imported_total
+            sent[download] = attempt
+    return steps, sent
+
+
+async def _retry_live_imports(
+    client: ArrClient, media: "Media", is_series: bool, arr_id: int
+) -> tuple[list[DeleteStepResult], int]:
+    key = "seriesId" if is_series else "movieId"
+    blocked = _blocked_by_download(await client.get_media_queue(arr_id), key, arr_id)
+    if not blocked:
+        # Réglé entre-temps (import fait, téléchargement retiré) : la fiche
+        # n'attendait plus que la prochaine analyse.
+        label = f"{media.title} — plus aucun import bloqué"
+        return [DeleteStepResult(kind="import_retry", label=label, success=True)], 0
+
+    steps, sent = await _prepare_all(client, blocked, media, is_series, arr_id)
+    if not sent:
+        return steps, 0
+
+    # Une seule commande pour tout le média, comme l'import manuel de
+    # Sonarr/Radarr, puis une seule relecture de la file pour constater.
+    files = [file for attempt in sent.values() for file in attempt.files]
+    status = await wait_for_command(client, await client.manual_import(files))
+    after = _blocked_by_download(await client.get_media_queue(arr_id), key, arr_id) if status == "completed" else {}
+    for download, attempt in sent.items():
+        steps.append(_verified_step(_label(blocked[download], media), attempt, status, after.get(download)))
+    if status is None:
+        return steps, len(files)
+    if status != "completed":
+        return steps, 0
+    return steps, sum(len(attempt.files) for download, attempt in sent.items() if download not in after)
+
+
+async def execute_import_retry(session: "Session", media: "Media", settings: "Settings") -> tuple[list[Any], int]:
+    """Relance l'import de tous les téléchargements bloqués d'un média.
+    Renvoie (étapes, nombre de fichiers importés ou en cours d'import).
+
+    Seul l'identifiant du média vient de l'utilisateur. Le dernier scan dit
+    s'il y a quelque chose à relancer ; la file d'attente est ensuite RELUE en
+    direct (même rattachement strict par identifiant) : l'état relevé au scan
+    peut avoir changé, et relancer un import déjà fait ne produirait que des
+    erreurs. Après coup, une analyse du média est demandée au temps réel pour
+    que la fiche reflète le résultat sans attendre le prochain scan."""
+    has_issue = any(
+        issue.kind == IMPORT_KIND
+        for issue in session.exec(select(ImportIssue).where(ImportIssue.media_id == media.id)).all()
+    )
+    # Un téléchargement en souffrance n'a rien à importer : il n'est pas
+    # encore arrivé. Seuls les imports bloqués se relancent.
+    if not has_issue:
+        return [], 0
+
+    is_series = media.media_type == MediaType.series
+    target = arr_target_for(session, settings, media)
+    arr_id = media.sonarr_id if is_series else media.radarr_id
+    if target is None or not arr_id:
+        missing = DeleteStepResult(kind="import_retry", label=media.title, success=False, error="Instance introuvable.")
+        return [missing], 0
+    client: ArrClient = target.sonarr() if is_series else target.radarr()
+
+    try:
+        steps, imported = await _retry_live_imports(client, media, is_series, arr_id)
+    except httpx.HTTPError as exc:
+        return [DeleteStepResult(kind="import_retry", label=media.title, success=False, error=http_error_text(exc))], 0
+    if media.id is not None and any(step.success for step in steps):
+        hub.media_changed(media.id)
+    return steps, imported
