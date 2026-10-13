@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from starlette.concurrency import run_in_threadpool
 
+from app.access_log import install_access_log_filter
 from app.database import engine, init_db, request_path
 from app.models.settings import Settings
 from app.routers import app as app_router
@@ -94,6 +95,7 @@ _SECURITY_HEADERS = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    install_access_log_filter()
     init_db()
     with Session(engine) as session:
         settings = session.get(Settings, 1)
