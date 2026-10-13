@@ -3,14 +3,17 @@ reste du cache intact et recalcule des statuts justes."""
 
 import asyncio
 import os
+import time
 
 import httpx
 import pytest
 from sqlmodel import Session, select
 
 from app.database import engine
-from app.models.media import ImportIssue, Media, MediaFile, MediaType, MediaWatch, ScanRun, Torrent
+from app.models.media import ImportIssue, Media, MediaFile, MediaType, MediaWatch, ScanRun, ScanStatus, Torrent
 from app.models.settings import Settings
+from app.services import partial_scan
+from app.services.events import scan_events
 from app.services.partial_scan import run_service_scan
 
 # Inodes simulés : sous Windows, `st_dev` dépasse ce que SQLite accepte, et un
@@ -428,3 +431,72 @@ def test_an_unconfigured_service_fails_cleanly(fake_http, fake_inodes, settings,
     with Session(engine) as session:
         run = session.exec(select(ScanRun)).one()
         assert run.status.value == "failed" and "Radarr" in (run.error_message or "")
+
+
+@pytest.mark.parametrize("trigger, announced", [("manual", True), ("realtime", False)])
+def test_only_user_analyses_reach_the_scan_button(fake_http, fake_inodes, settings, tmp_path, trigger, announced):
+    """Une analyse du temps réel ne passe pas par le flux du bouton Scanner :
+    sa fin fermait le flux d'un scan lancé à la main qui attendait son tour,
+    et le bouton restait bloqué sur « Démarrage du scan... » pendant qu'elle
+    tournait. Réussite comme échec."""
+    seed_library(tmp_path)
+    fake_http["http://qbit"] = qbit_handler([])
+
+    async def run() -> list[dict]:
+        queue = scan_events.subscribe()
+        try:
+            await run_service_scan("torrents", trigger=trigger)
+            await run_service_scan("seer", trigger=trigger)  # Seer désactivé : échec
+            return [queue.get_nowait() for _ in range(queue.qsize())]
+        finally:
+            scan_events.unsubscribe(queue)
+
+    events = asyncio.run(run())
+
+    types = [event["type"] for event in events]
+    assert types == (["started", "progress", "progress", "completed", "started", "failed"] if announced else [])
+
+
+def test_the_scan_button_ignores_realtime_runs(admin_client):
+    with Session(engine) as session:
+        session.add(ScanRun(trigger="manual", scope="full", status=ScanStatus.completed))
+        session.add(ScanRun(trigger="realtime", scope="torrents", status=ScanStatus.running))
+        session.commit()
+
+    status = admin_client.get("/api/scan/status").json()
+
+    assert (status["trigger"], status["status"]) == ("manual", "completed")
+
+
+@pytest.mark.parametrize("scope, slow_step", [("torrents", "attach_torrents"), ("queue", "refresh_statuses")])
+def test_an_analysis_never_freezes_the_application(
+    fake_http, fake_inodes, settings, tmp_path, monkeypatch, scope, slow_step
+):
+    """Rattachement et statuts lisent le disque (lent sur un partage Unraid) :
+    faits dans la boucle asyncio, ils figeaient toute l'interface pendant
+    chaque analyse du temps réel — une requête de 30 ms en prenait 18 s."""
+    seed_library(tmp_path)
+    fake_http["http://qbit"] = qbit_handler([])
+    real = getattr(partial_scan, slow_step)
+
+    def slow(*args, **kwargs):
+        time.sleep(0.3)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(partial_scan, slow_step, slow)
+
+    async def run() -> int:
+        ticks = 0
+
+        async def ticker() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        task = asyncio.create_task(ticker())
+        await run_service_scan(scope)
+        task.cancel()
+        return ticks
+
+    assert asyncio.run(run()) >= 10

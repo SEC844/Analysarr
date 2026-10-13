@@ -36,6 +36,11 @@ class EventBroadcaster:
         return len(self._subscribers)
 
     async def publish(self, event: dict[str, Any]) -> None:
+        self.publish_nowait(event)
+
+    def publish_nowait(self, event: dict[str, Any]) -> None:
+        """Même chose depuis du code synchrone, à appeler DANS la boucle
+        asyncio (les files ne sont pas protégées contre les threads)."""
         for queue in list(self._subscribers):
             try:
                 queue.put_nowait(event)

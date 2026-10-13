@@ -1139,3 +1139,34 @@ def test_ombi_is_watched_through_its_totals(fake_http):
     fake_http["http://ombi"] = lambda request: httpx.Response(200, json=3 if "movie" in request.url.path else 5)
 
     assert asyncio.run(OmbiClient("http://ombi", "k").requests_fingerprint()) == (3, 5)
+
+
+def test_status_board_announces_only_visible_changes() -> None:
+    """Un état ou un message qui change est annoncé ; une vérification de plus
+    ne l'est pas (sinon chaque interrogation réveillerait les navigateurs)."""
+    calls: list[int] = []
+    status_board = StatusBoard(on_change=lambda: calls.append(1))
+    status_board.register("torrents", "torrents")
+
+    status_board.checked("torrents")
+    status_board.checked("torrents")
+    status_board.event("torrents")
+    assert len(calls) == 1
+
+    status_board.failed("torrents", "HTTP 500")
+    status_board.failed("torrents", "HTTP 500")
+    status_board.failed("torrents", "HTTP 502")
+    status_board.checked("torrents")
+    assert len(calls) == 4
+
+
+def test_status_change_reaches_the_browsers() -> None:
+    queue = live_events.subscribe()
+    try:
+        board.register("probe", "torrents")
+        board.failed("probe", "injoignable")
+        assert queue.get_nowait() == {"type": "realtime.status"}
+        assert queue.empty()
+    finally:
+        live_events.unsubscribe(queue)
+        board.forget("probe")

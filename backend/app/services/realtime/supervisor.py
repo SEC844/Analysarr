@@ -31,7 +31,7 @@ from app.models.settings import Settings
 from app.services.events import live_events
 from app.services.realtime import webhooks
 from app.services.realtime.hub import RealtimeHub, hub
-from app.services.realtime.status import StatusBoard, board
+from app.services.realtime.status import STATUS_EVENT, StatusBoard, board
 from app.services.realtime.watchers import (
     MEDIA_SERVER_INTERVAL,
     REQUESTS_INTERVAL,
@@ -151,7 +151,7 @@ class RealtimeSupervisor:
                     self._tasks[key] = (task, config)
             await self._reconcile_webhooks(snapshot, retry=retry_webhooks)
         if announce:
-            await live_events.publish({"type": "realtime.status"})
+            await live_events.publish(STATUS_EVENT)
 
     async def _reconcile_webhooks(self, snapshot: _Snapshot, *, retry: bool) -> None:
         """Chaque instance Sonarr/Radarr reçoit son webhook ; une instance

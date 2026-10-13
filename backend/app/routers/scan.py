@@ -58,8 +58,12 @@ async def start_scan(scope: str = Query("full", description=" | ".join(SCAN_SCOP
 
 @router.get("/status", response_model=ScanRunRead | None)
 def scan_status() -> ScanRunRead | None:
+    """Dernière analyse lancée à la main ou planifiée : celle que suit le bouton
+    Scanner. Les analyses du temps réel, silencieuses, n'y figurent pas."""
     with Session(engine) as session:
-        run = session.exec(select(ScanRun).order_by(col(ScanRun.started_at).desc())).first()
+        run = session.exec(
+            select(ScanRun).where(col(ScanRun.trigger) != "realtime").order_by(col(ScanRun.started_at).desc())
+        ).first()
         return _to_read(run) if run else None
 
 

@@ -97,8 +97,9 @@ async def _collect(
 
     await progress("qbittorrent")
     fetched = await fetch_torrents(settings)
-    _attach(settings, results, fetched, hash_to_index)
-    # Lit le disque (espace libérable) : hors de la boucle asyncio.
+    # Rattachement (inodes) et espace libérable lisent le disque : hors de la
+    # boucle asyncio, l'interface reste utilisable pendant le scan.
+    await run_in_threadpool(_attach, settings, results, fetched, hash_to_index)
     await run_in_threadpool(_apply_statuses, results, ignores, seed_policy(settings), fetched.files_by_hash())
 
     await progress("visionnage")

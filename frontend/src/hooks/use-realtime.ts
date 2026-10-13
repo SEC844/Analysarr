@@ -8,13 +8,14 @@ import type { WebhooksRead } from "@/types/realtime"
 export const REALTIME_QUERY_KEY = ["realtime"] as const
 const WEBHOOKS_KEY = [...REALTIME_QUERY_KEY, "webhooks"] as const
 
-/** État des sources : relu toutes les 15 s, et aussitôt qu'un événement
- * `realtime.status` arrive par le flux (voir live-events). */
+/** État des sources : relu dès qu'un événement `realtime.status` arrive par
+ * le flux (le serveur annonce chaque changement, voir live-events). La
+ * relecture périodique n'est qu'un filet de sécurité. */
 export function useRealtimeStatusQuery() {
   return useQuery({
     queryKey: [...REALTIME_QUERY_KEY, "status"],
     queryFn: getRealtimeStatus,
-    refetchInterval: 15_000,
+    refetchInterval: 2 * 60_000,
   })
 }
 

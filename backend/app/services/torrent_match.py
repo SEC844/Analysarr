@@ -8,6 +8,7 @@ média ») : inode d'abord, puis historique Sonarr/Radarr, puis chemin racine,
 puis héritage entre copies cross-seed, puis similarité de titre.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -142,6 +143,10 @@ class FetchedTorrents:
         return {row.hash.lower(): paths for row, paths in zip(self.rows, self.file_paths, strict=True) if row.hash}
 
 
+# Lectures simultanées du détail des torrents (trackers, fichiers).
+DETAIL_CONCURRENCY = 8
+
+
 async def fetch_torrents(settings: Settings) -> FetchedTorrents:
     """Lit tous les torrents du client configuré, avec leurs trackers et leurs
     fichiers. Une authentification refusée arrête l'analyse : continuer
@@ -149,14 +154,21 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
     try:
         async with torrent_client(settings) as client:
             torrents = await client.get_torrents()
-            details = [
-                (
-                    await optional_read(client.get_trackers, t["hash"], "Trackers"),
-                    await optional_read(client.get_files, t["hash"], "Fichiers"),
-                    await read_private_flag(client, t),
-                )
-                for t in torrents
-            ]
+            # Quelques lectures en parallèle plutôt qu'une à la fois : avec
+            # deux appels par torrent, plus d'un millier de torrents prenait
+            # une demi-minute, verrou d'analyse tenu tout du long. Borné pour
+            # ne pas submerger le client torrent.
+            limit = asyncio.Semaphore(DETAIL_CONCURRENCY)
+
+            async def detail(t: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool | None]:
+                async with limit:
+                    return (
+                        await optional_read(client.get_trackers, t["hash"], "Trackers"),
+                        await optional_read(client.get_files, t["hash"], "Fichiers"),
+                        await read_private_flag(client, t),
+                    )
+
+            details = await asyncio.gather(*(detail(t) for t in torrents))
     except TorrentAuthError as exc:
         raise RuntimeError(f"Authentification {torrent_client_name(settings)} refusée pendant le scan : {exc}") from exc
 

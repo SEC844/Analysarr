@@ -81,8 +81,9 @@ async def _run_scan_impl(trigger: str = "manual", scope: str = "full") -> None:
         return
 
     await scan_events.publish({"type": "progress", "run_id": run_id, "stage": "enregistrement"})
-    previously_flagged, counts, summary = _store_results(
-        run_id, settings, results, fetched_torrents, emby_users, ignores, failed_sources
+    # Remplacement de tout le cache : hors de la boucle asyncio.
+    previously_flagged, counts, summary = await run_in_threadpool(
+        _store_results, run_id, settings, results, fetched_torrents, emby_users, ignores, failed_sources
     )
 
     await scan_events.publish({"type": "completed", "run_id": run_id, **counts})
@@ -294,8 +295,15 @@ def _media_key(media: Media) -> tuple[str, str, int | None]:
 
 
 async def _fail_scan(
-    run_id: int, message: str, channels: list[ChannelTarget], settings: Settings | None = None
+    run_id: int,
+    message: str,
+    channels: list[ChannelTarget],
+    settings: Settings | None = None,
+    *,
+    announce: bool = True,
 ) -> None:
+    """`announce=False` : analyse du temps réel, absente du flux du bouton
+    Scanner (voir partial_scan.run_service_scan)."""
     notify(channels, "scan_failed", scan_failed_notification(notification_language(settings), message))
     with Session(engine) as session:
         run = session.get(ScanRun, run_id)
@@ -305,4 +313,5 @@ async def _fail_scan(
             run.finished_at = datetime.now(UTC)
             session.add(run)
             session.commit()
-    await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
+    if announce:
+        await scan_events.publish({"type": "failed", "run_id": run_id, "message": message})
