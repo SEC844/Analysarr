@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -314,6 +314,39 @@ describe("CleanupPage", () => {
     await user.click(screen.getByRole("button", { name: en.cleanup.settings.save }))
 
     await waitFor(() => expect(saveCleanupSettings).toHaveBeenCalledWith(PRUDENT))
+  })
+
+  it("shares the hundred points of the score between the criteria", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: en.cleanup.settings.title }))
+    const slider = (key: "disinterest" | "potential" | "age" | "series") =>
+      screen.getByLabelText(en.cleanup.breakdown.components[key])
+    const save = () => screen.getByRole("button", { name: en.cleanup.settings.save })
+
+    // Tous les points sont déjà répartis : le curseur ne va pas plus loin.
+    fireEvent.change(await screen.findByLabelText(en.cleanup.breakdown.components.age), { target: { value: "40" } })
+    expect(slider("age")).toHaveValue("15")
+    expect(screen.getByRole("button", { name: en.cleanup.settings.custom })).toHaveAttribute("aria-pressed", "true")
+
+    // Points libérés : le total doit retomber sur 100 avant d'enregistrer.
+    fireEvent.change(slider("series"), { target: { value: "0" } })
+    expect(screen.getByText("15 points left to share")).toBeInTheDocument()
+    expect(save()).toBeDisabled()
+
+    // Un autre critère ne prend que ce qui reste, sans rien retirer aux autres.
+    fireEvent.change(slider("disinterest"), { target: { value: "90" } })
+    expect(slider("disinterest")).toHaveValue("50")
+    expect(screen.getByText(en.cleanup.settings.budgetFull)).toBeInTheDocument()
+
+    await user.click(save())
+    await waitFor(() =>
+      expect(saveCleanupSettings).toHaveBeenCalledWith({
+        ...BALANCED,
+        preset: null,
+        weights: { disinterest: 50, potential: 35, age: 15, series: 0 },
+      }),
+    )
   })
 
   it("refuses out of bound settings", async () => {

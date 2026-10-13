@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest"
 
-import { componentDetail, mainReasonText, protectionText, scoreTone, selectionSize } from "@/lib/cleanup"
+import {
+  allocateWeight,
+  componentDetail,
+  mainReasonText,
+  protectionText,
+  scoreTone,
+  selectionSize,
+  weightsTotal,
+} from "@/lib/cleanup"
 import type { CleanupCandidate, ScoreComponent } from "@/types/cleanup"
 
 // Traduction factice : la clé et ses variables, pour vérifier le choix du texte.
@@ -120,5 +128,21 @@ describe("componentDetail", () => {
 describe("selectionSize", () => {
   it("adds up the space of the selection", () => {
     expect(selectionSize([{ reclaimable_bytes: 1024 }, { reclaimable_bytes: 1024 }])).toMatch(/^2\.0 /)
+  })
+})
+
+describe("allocateWeight", () => {
+  const full = { disinterest: 35, potential: 35, age: 15, series: 15 }
+
+  it("never goes past the hundred points and never takes points from the others", () => {
+    expect(allocateWeight(full, "age", 40)).toEqual(full)
+    const freed = allocateWeight(full, "series", 0)
+    expect(weightsTotal(freed)).toBe(85)
+    expect(allocateWeight(freed, "disinterest", 90)).toEqual({ ...freed, disinterest: 50 })
+  })
+
+  it("can always be lowered", () => {
+    expect(allocateWeight(full, "potential", 10)).toEqual({ ...full, potential: 10 })
+    expect(allocateWeight(full, "potential", -5)).toEqual({ ...full, potential: 0 })
   })
 })

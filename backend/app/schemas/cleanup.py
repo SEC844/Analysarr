@@ -11,8 +11,15 @@ UnreliableSource = Literal["watch", "requests"]
 UNRELIABLE_SOURCES: tuple[UnreliableSource, ...] = ("watch", "requests")
 
 
+WEIGHT_BUDGET = 100
+_WEIGHT_KEYS = ("disinterest", "potential", "age", "series")
+
+
 class CleanupWeights(BaseModel):
-    """Poids relatifs des sous-scores (au moins un non nul)."""
+    """Points des sous-scores : le score étant une note sur 100, les poids se
+    partagent toujours 100 points (au moins un non nul). Des poids d'un autre
+    total (réglages enregistrés avant ce partage, client ancien) sont ramenés à
+    100 en gardant leurs proportions : le classement ne change pas."""
 
     disinterest: int = Field(ge=0, le=100)
     potential: int = Field(ge=0, le=100)
@@ -20,9 +27,21 @@ class CleanupWeights(BaseModel):
     series: int = Field(ge=0, le=100)
 
     @model_validator(mode="after")
-    def _not_all_zero(self) -> "CleanupWeights":
-        if not (self.disinterest or self.potential or self.age or self.series):
+    def _share_the_budget(self) -> "CleanupWeights":
+        values = [getattr(self, key) for key in _WEIGHT_KEYS]
+        total = sum(values)
+        if not total:
             raise ValueError("Au moins un poids doit être supérieur à zéro.")
+        if total == WEIGHT_BUDGET:
+            return self
+        # Méthode du plus fort reste : parts entières qui font exactement 100.
+        exact = [WEIGHT_BUDGET * value / total for value in values]
+        shares = [int(share) for share in exact]
+        by_remainder = sorted(range(len(values)), key=lambda i: shares[i] - exact[i])
+        for index in by_remainder[: WEIGHT_BUDGET - sum(shares)]:
+            shares[index] += 1
+        for key, share in zip(_WEIGHT_KEYS, shares, strict=True):
+            setattr(self, key, share)
         return self
 
 

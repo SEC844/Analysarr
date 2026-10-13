@@ -200,6 +200,27 @@ def test_all_weights_at_zero_are_refused():
         CleanupWeights(disinterest=0, potential=0, age=0, series=0)
 
 
+def test_weights_always_share_one_hundred_points():
+    for preset in PRESETS.values():
+        weights = preset.weights
+        assert weights.disinterest + weights.potential + weights.age + weights.series == 100
+    # Réglages enregistrés avant le partage en points : ramenés à 100, mêmes proportions.
+    legacy = CleanupWeights(disinterest=50, potential=50, age=50, series=50)
+    assert legacy == CleanupWeights(disinterest=25, potential=25, age=25, series=25)
+    thirds = CleanupWeights(disinterest=1, potential=1, age=1, series=0)
+    assert (thirds.disinterest, thirds.potential, thirds.age, thirds.series) == (34, 33, 33, 0)
+
+
+def test_points_rescaled_from_old_settings_rank_the_same():
+    legacy = BALANCED.model_copy(update={"weights": CleanupWeights.model_construct(
+        disinterest=70, potential=70, age=30, series=30
+    )})
+    rescaled = CleanupSettings.model_validate(legacy.model_dump())
+    assert rescaled.weights == BALANCED.weights
+    media = facts(media_type="series", series_status="ended")
+    assert evaluate(media, legacy, NOW).score == evaluate(media, rescaled, NOW).score
+
+
 # --- Collecte depuis la base --------------------------------------------------------
 
 
@@ -454,6 +475,10 @@ def test_settings_are_validated_and_stored(admin_client, session, settings):
     assert admin_client.put("/api/cleanup/settings", json=custom).json()["settings"]["space_priority"] == 55
     for invalid in ({"disinterest_days": 10}, {"space_priority": 101}, {"recent_days": -1}):
         assert admin_client.put("/api/cleanup/settings", json=custom | invalid).status_code == 422
+    # Un client qui envoie un autre total garde ses proportions, stockées sur 100 points.
+    halves = custom | {"weights": {"disinterest": 30, "potential": 30, "age": 0, "series": 0}}
+    stored = admin_client.put("/api/cleanup/settings", json=halves).json()["settings"]["weights"]
+    assert stored == {"disinterest": 50, "potential": 50, "age": 0, "series": 0}
 
 
 def test_unreadable_settings_fall_back_to_the_balanced_preset(session, settings):

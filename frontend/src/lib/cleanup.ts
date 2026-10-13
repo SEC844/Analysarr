@@ -1,7 +1,7 @@
 import type { I18nContextValue, MessageKey } from "@/i18n/core"
 import { formatBytes, formatRelativeTime } from "@/lib/format"
 import { obligationText } from "@/lib/seed"
-import type { CleanupCandidate, Protection, ScoreComponent } from "@/types/cleanup"
+import type { CleanupCandidate, CleanupWeights, ComponentKey, Protection, ScoreComponent } from "@/types/cleanup"
 
 type Translate = I18nContextValue["t"]
 
@@ -93,4 +93,22 @@ export function selectionSize(selected: Iterable<{ reclaimable_bytes: number }>)
   let total = 0
   for (const item of selected) total += item.reclaimable_bytes
   return formatBytes(total)
+}
+
+/** Le score est une note sur 100 : les critères se partagent 100 points
+ * (même règle que schemas/cleanup.py::CleanupWeights). */
+export const WEIGHT_BUDGET = 100
+export const WEIGHT_KEYS: readonly ComponentKey[] = ["disinterest", "potential", "age", "series"]
+
+export function weightsTotal(weights: CleanupWeights): number {
+  return WEIGHT_KEYS.reduce((total, key) => total + weights[key], 0)
+}
+
+/** Nouvelle valeur d'un critère, plafonnée aux points encore libres : le total
+ * ne dépasse jamais 100, et pousser un curseur ne retire jamais de points aux
+ * autres (c'est à l'utilisateur de choisir lequel baisser). */
+export function allocateWeight(weights: CleanupWeights, key: ComponentKey, value: number): CleanupWeights {
+  const others = weightsTotal(weights) - weights[key]
+  const allowed = Math.min(Math.max(Math.round(value), 0), WEIGHT_BUDGET - others)
+  return { ...weights, [key]: Math.max(allowed, 0) }
 }
