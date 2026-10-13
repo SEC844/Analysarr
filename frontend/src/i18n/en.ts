@@ -1069,7 +1069,8 @@ export const en: Dictionary = {
         "Requests could not be read: pending requests protect nothing. Cleanup automations delete nothing.",
       advice: "Check the service, then run a full scan again.",
     },
-    title: "Cleanup assistant",
+    title: "Deletion assistant",
+    spaceSection: "Space and forecasts",
     description:
       "Media nobody watches any more, ranked by how sensible it is to delete them and by the space really freed. Nothing is deleted without your confirmation.",
     summary: { one: "{count} media suggested · {size} to free", other: "{count} media suggested · {size} to free" },
@@ -1122,6 +1123,8 @@ export const en: Dictionary = {
       failed: "Details unavailable.",
     },
     select: "Select {title}",
+    selectPage: "Select this page",
+    unselectPage: "Unselect this page",
     selection: { one: "{count} media selected · {size}", other: "{count} media selected · {size}" },
     selectionHint: "Exact total, unless a file is hardlinked between two media.",
     clearSelection: "Clear selection",

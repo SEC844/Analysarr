@@ -1078,7 +1078,8 @@ export const fr = {
         "Les demandes n'ont pas pu être lues : les demandes en cours ne protègent plus rien. Les automatisations de nettoyage ne suppriment rien.",
       advice: "Vérifiez le service puis relancez un scan complet.",
     },
-    title: "Assistant de nettoyage",
+    title: "Assistant de suppression",
+    spaceSection: "Espace et prévisions",
     description:
       "Les médias que plus personne ne regarde, classés par pertinence de suppression et par espace réellement libéré. Rien n'est supprimé sans votre confirmation.",
     summary: { one: "{count} média proposé · {size} libérables", other: "{count} médias proposés · {size} libérables" },
@@ -1131,6 +1132,8 @@ export const fr = {
       failed: "Détail indisponible.",
     },
     select: "Sélectionner {title}",
+    selectPage: "Sélectionner la page",
+    unselectPage: "Désélectionner la page",
     selection: { one: "{count} média sélectionné · {size}", other: "{count} médias sélectionnés · {size}" },
     selectionHint: "Total exact, sauf fichier hardlinké entre deux médias.",
     clearSelection: "Tout désélectionner",

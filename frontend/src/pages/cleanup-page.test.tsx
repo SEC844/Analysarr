@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { en } from "@/i18n/en"
@@ -101,10 +101,16 @@ function media(id: number): MediaDetail {
   } as unknown as MediaDetail
 }
 
-function renderPage() {
-  renderWithProviders(
-    <MemoryRouter>
+function LocationProbe() {
+  const { search } = useLocation()
+  return <output data-testid="location">{search}</output>
+}
+
+function renderPage(url = "/cleanup") {
+  return renderWithProviders(
+    <MemoryRouter initialEntries={[url]}>
       <CleanupPage />
+      <LocationProbe />
     </MemoryRouter>,
   )
 }
@@ -321,5 +327,59 @@ describe("CleanupPage", () => {
 
     expect(screen.getByRole("button", { name: en.cleanup.settings.save })).toBeDisabled()
     expect(screen.getByRole("alert")).toHaveTextContent(en.cleanup.settings.invalid)
+  })
+
+  it("keeps its filters in the address, and reads them back", async () => {
+    const user = userEvent.setup()
+    renderPage("/cleanup?type=series&sort=space&protected=1&page=2")
+
+    await screen.findByText("Forgotten")
+    expect(getCleanupCandidates).toHaveBeenLastCalledWith(
+      expect.objectContaining({ media_type: "series", sort: "space", include_protected: true, page: 2 }),
+    )
+
+    await user.click(screen.getByRole("switch", { name: en.cleanup.showProtected }))
+    // Un filtre changé ramène à la première page ; les valeurs par défaut sortent de l'adresse.
+    expect(screen.getByTestId("location")).toHaveTextContent("?type=series&sort=space")
+  })
+
+  it("switches to space and forecasts without losing the assistant filters", async () => {
+    const user = userEvent.setup()
+    renderPage("/cleanup?type=movie")
+    await screen.findByText("Forgotten")
+
+    await user.click(screen.getByRole("button", { name: en.cleanup.spaceSection }))
+
+    expect(await screen.findByRole("heading", { name: en.forecast.title })).toBeInTheDocument()
+    expect(screen.queryByText("Forgotten")).not.toBeInTheDocument()
+    expect(screen.getByTestId("location")).toHaveTextContent("?type=movie&section=space")
+
+    await user.click(screen.getByRole("button", { name: en.cleanup.title }))
+    expect(await screen.findByText("Forgotten")).toBeInTheDocument()
+    expect(screen.getByTestId("location")).toHaveTextContent("?type=movie")
+  })
+
+  it("keeps the selection when the user comes back from a media page", async () => {
+    const user = userEvent.setup()
+    const first = renderPage()
+    await user.click(await screen.findByRole("checkbox", { name: "Select Forgotten" }))
+    first.unmount()
+
+    renderPage()
+
+    expect(await screen.findByRole("checkbox", { name: "Select Forgotten" })).toBeChecked()
+    expect(screen.getByText("1 media selected · 4.0 GB")).toBeInTheDocument()
+  })
+
+  it("selects every deletable media of the page at once", async () => {
+    const user = userEvent.setup()
+    renderPage("/cleanup?protected=1")
+    await screen.findByText("Loved")
+
+    await user.click(screen.getByRole("button", { name: en.cleanup.selectPage }))
+
+    expect(screen.getByText("2 media selected · 6.0 GB")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: en.cleanup.unselectPage }))
+    expect(screen.queryByText(/media selected/)).not.toBeInTheDocument()
   })
 })

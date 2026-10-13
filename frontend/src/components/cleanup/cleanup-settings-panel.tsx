@@ -1,14 +1,14 @@
 import { useState } from "react"
-import { ChevronRight, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useCleanupSettingsQuery, useSaveCleanupSettingsMutation } from "@/hooks/use-cleanup"
 import { useI18n } from "@/i18n"
 import { componentName } from "@/lib/cleanup"
-import { cn } from "@/lib/utils"
 import type { CleanupPreset, CleanupSettings, CleanupSettingsRead, CleanupWeights } from "@/types/cleanup"
 
 const PRESETS: CleanupPreset[] = ["prudent", "balanced", "space_first"]
@@ -47,7 +47,7 @@ function Form({ data }: { data: CleanupSettingsRead }) {
   const change = (changes: Partial<CleanupSettings>) => setDraft((current) => ({ ...current, ...changes, preset: null }))
 
   return (
-    <div className="space-y-5 pt-3">
+    <div className="space-y-5">
       <p className="text-muted-foreground text-xs">{t("cleanup.settings.description")}</p>
       <div className="flex flex-wrap gap-2" role="group" aria-label={t("cleanup.settings.title")}>
         {PRESETS.map((preset) => (
@@ -151,25 +151,14 @@ function Form({ data }: { data: CleanupSettingsRead }) {
   )
 }
 
-/** Réglages du classement, repliés par défaut : la liste reste en tête. */
-export function CleanupSettingsPanel() {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+/** Réglages du classement, ouverts depuis la barre d'outils de l'assistant. */
+export function CleanupSettingsPanel({ id }: { id: string }) {
   const { data } = useCleanupSettingsQuery()
 
   return (
-    <div className="border-border rounded-lg border p-3">
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 text-left text-sm font-medium"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />
-        {t("cleanup.settings.title")}
-      </button>
+    <div id={id} className="border-border rounded-lg border p-4">
       {/* Remonté après enregistrement : le brouillon repart des valeurs du serveur. */}
-      {open && data && <Form key={JSON.stringify(data.settings)} data={data} />}
+      {data ? <Form key={JSON.stringify(data.settings)} data={data} /> : <Skeleton className="h-40 w-full" />}
     </div>
   )
 }
