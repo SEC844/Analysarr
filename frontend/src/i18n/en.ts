@@ -364,6 +364,14 @@ export const en: Dictionary = {
     hours: "h (container time)",
     hint: "A scan already running (manual or scheduled) is never interrupted or duplicated.",
   },
+  realtimeMode: {
+    title: "Real time",
+    description:
+      "Between two scans, Analysarr follows your services continuously: an import, a new torrent or a watched movie shows up within seconds.",
+    onHint: "The scheduled scan is then only a check: once a night is enough.",
+    offHint:
+      "Scans only: nothing is queried between two scans and Analysarr's webhooks are removed from Sonarr and Radarr. Pick a more frequent schedule below.",
+  },
   scanHistory: {
     realtime: "Real time",
     title: { manual: "Manual scans", scheduled: "Automatic scans" },
@@ -1182,12 +1190,26 @@ export const en: Dictionary = {
     webhooks: {
       title: "Real time",
       description:
-        "Analysarr creates a webhook in each instance by itself: imports, upgrades, additions and deletions show up within seconds. Nothing to set up on its side.",
+        "Changes made in {service} (imports, upgrades, deletions) show up in Analysarr without waiting for the next scan.",
+      enabled: "Create a webhook in {service}",
+      enabledHelp:
+        "Analysarr adds an \"Analysarr\" notification to each instance by itself: changes arrive instantly. Turn off to have it removed and leave {service}'s configuration untouched.",
+      disabledHelp:
+        "No webhook: Analysarr follows {service} read-only (history and queue, every 10 seconds), without changing anything on its side.",
+      realtimeOff: "Real time is off: {service} is only read again at the next scan.",
+      openSchedule: "Schedule settings",
       states: {
         connected: "connected",
         pending: "connecting…",
         error: "not connected",
         no_address: "waiting for Analysarr's address",
+        removing: "removing…",
+        disabled: "no webhook",
+      },
+      polling: {
+        active: "Read-only following active",
+        waiting: "Read-only following: starting…",
+        error: "Read-only following failing: {error}",
       },
       test: "Test",
       tested: "Test requested: {name} calls Analysarr.",

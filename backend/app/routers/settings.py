@@ -111,6 +111,7 @@ def _to_read(s: Settings | None, instances: list[ArrInstance]) -> SettingsRead:
             interval_minutes=s.scan_schedule_interval_minutes,
             mode="nightly" if s.scan_schedule_mode == "nightly" else "interval",
             nightly_hour=s.scan_nightly_hour,
+            realtime_enabled=s.realtime_enabled,
         ),
         arr_instances=[
             ArrInstanceRead(
@@ -156,6 +157,9 @@ def put_settings(payload: SettingsWrite, session: Session = Depends(get_session)
         row.scan_schedule_mode = payload.scan_schedule_mode
     if payload.scan_nightly_hour is not None:
         row.scan_nightly_hour = payload.scan_nightly_hour
+    # Suivi par le superviseur du temps réel dans les secondes qui suivent.
+    if payload.realtime_enabled is not None:
+        row.realtime_enabled = payload.realtime_enabled
     previous_exclusions = excluded_user_ids(row)
     row.excluded_emby_user_ids = json.dumps(sorted(set(payload.excluded_emby_user_ids)))
 

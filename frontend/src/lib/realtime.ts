@@ -1,9 +1,9 @@
 import type { RealtimeStatus, SourceStatus } from "@/types/realtime"
 
-/** Ce que montre l'en-tête : rien tant qu'aucun service n'est suivi ; une
- * pastille rouge dès qu'une source est en erreur. */
+/** Ce que montre l'en-tête : rien tant qu'aucun service n'est suivi (ou en
+ * mode scans uniquement) ; une pastille rouge dès qu'une source est en erreur. */
 export function realtimeSummary(status: RealtimeStatus | undefined): "off" | "ok" | "error" {
-  if (!status?.active) return "off"
+  if (!status?.enabled || !status.active) return "off"
   return status.sources.some((s) => s.state === "error") ? "error" : "ok"
 }
 
@@ -18,6 +18,7 @@ export function sourceSection(source: SourceStatus): string {
     case "requests":
       return "seer"
     case "webhook":
+    case "arr":
       return source.key.split(":")[1] === "radarr" ? "radarr" : "sonarr"
   }
 }

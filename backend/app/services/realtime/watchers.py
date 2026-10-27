@@ -1,6 +1,6 @@
-"""Guetteurs du temps réel : client torrent, serveur multimédia et
-gestionnaire de demandes, interrogés toutes les quelques secondes par leur
-voie la moins coûteuse.
+"""Guetteurs du temps réel : client torrent, serveur multimédia,
+gestionnaire de demandes et Sonarr/Radarr (lecture seule), interrogés
+toutes les quelques secondes par leur voie la moins coûteuse.
 
 Base commune (`Watcher`) : boucle d'interrogation, état publié dans le
 tableau des sources (`status.board`), backoff exponentiel en cas d'erreur
@@ -31,9 +31,11 @@ from app.clients.torrent_base import Fingerprint, TorrentAuthError
 from app.database import engine
 from app.models.media import EmbyUser
 from app.models.settings import Settings
+from app.services.arr_instances import ArrTarget
 from app.services.realtime.hub import RealtimeHub
 from app.services.realtime.status import StatusBoard
-from app.services.realtime.targets import media_for_hashes, media_for_items
+from app.services.realtime.targets import media_for_arr_ids, media_for_hashes, media_for_items
+from app.services.realtime.webhooks import recently_delivered
 from app.services.seer import seer_client
 from app.services.watch_stats import excluded_user_ids
 
@@ -70,12 +72,19 @@ class Watcher(ABC):
     async def run(self) -> None:
         self.board.register(self.key, self.kind)
         backoff = self.interval
+        last_error: str | None = None
         while True:
             try:
                 await self.session()
             except SOURCE_ERRORS as exc:
-                logger.warning("Temps réel %s : %s", self.key, describe(exc))
-                self.board.failed(self.key, describe(exc))
+                message = describe(exc)
+                # Une panne qui dure n'écrit qu'une ligne, pas une par essai ;
+                # une nouvelle panne après un retour à la normale en réécrit une.
+                status = self.board.get(self.key)
+                if message != last_error or (status is not None and status.state == "active"):
+                    logger.warning("Temps réel %s : %s", self.key, message)
+                    last_error = message
+                self.board.failed(self.key, message)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, MAX_BACKOFF)
             else:
@@ -313,3 +322,93 @@ class RequestsWatcher(Watcher):
                 self.hub.service_changed("seer")
             previous = current
             await asyncio.sleep(self.interval)
+
+
+# --- Sonarr / Radarr (lecture seule) -------------------------------------------------
+
+ARR_INTERVAL = 10.0
+HISTORY_PAGE = 20
+# Événements d'historique qui font exister un média dans Analysarr (fichier
+# importé). Pour un film ou une série encore inconnus, seuls ceux-là demandent
+# une analyse du service : un simple grab n'a encore rien à afficher.
+IMPORT_EVENTS = frozenset({"downloadFolderImported", "movieFolderImported", "seriesFolderImported"})
+_QUEUE_COUNTERS = ("totalCount", "errors", "warnings", "unknownErrors", "unknownWarnings")
+
+
+def arr_source_key(service: str, instance_id: int) -> str:
+    return f"arr:{service}:{instance_id}"
+
+
+def _record_id(record: dict[str, Any]) -> int | None:
+    value = record.get("id")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+class ArrWatcher(Watcher):
+    """Sonarr ou Radarr suivi SANS rien configurer chez lui : derniers
+    événements de son historique (grab, import, suppression, renommage d'un
+    fichier) et compteurs de sa file d'attente, toutes les `ARR_INTERVAL`.
+
+    Toujours actif, webhook ou pas : sans webhook (désactivé, adresse
+    d'Analysarr injoignable), c'est lui qui assure le temps réel ; avec, il
+    sert de filet de sécurité — un média que le webhook vient de signaler
+    n'est pas réanalysé une seconde fois (`webhooks.recently_delivered`).
+    Ce que l'historique ne dit pas (fiche ajoutée ou retirée sans fichier) est
+    vu par le webhook, sinon par le scan de nuit."""
+
+    kind = "arr"
+
+    def __init__(
+        self, settings: Settings, interval: float, hub: RealtimeHub, board: StatusBoard, target: ArrTarget
+    ) -> None:
+        super().__init__(settings, interval, hub, board)
+        self.target = target
+        self.instance_id = target.instance_id or 0
+        self.key = arr_source_key(target.kind, self.instance_id)
+
+    async def session(self) -> None:
+        client = self.target.sonarr() if self.target.kind == "sonarr" else self.target.radarr()
+        last_id: int | None = None
+        queue: tuple[Any, ...] | None = None
+        while True:
+            records = await client.get_recent_history(HISTORY_PAGE)
+            status = await client.get_queue_status()
+            current_queue = tuple(status.get(name) for name in _QUEUE_COUNTERS)
+            self.board.checked(self.key)
+            newest = max((rid for r in records if (rid := _record_id(r)) is not None), default=0)
+            if last_id is not None:
+                fresh = [r for r in records if (rid := _record_id(r)) is not None and rid > last_id]
+                await self.dispatch(fresh, overflow=len(fresh) >= HISTORY_PAGE)
+            if queue is not None and current_queue != queue:
+                # Import bloqué, téléchargement en souffrance : la file est relue.
+                self.board.event(self.key)
+                self.hub.service_changed("queue")
+            last_id = max(newest, last_id or 0)
+            queue = current_queue
+            await asyncio.sleep(self.interval)
+
+    async def dispatch(self, records: list[dict[str, Any]], *, overflow: bool) -> None:
+        if overflow:
+            # Plus d'événements qu'une page : la liste du service est relue.
+            self.board.event(self.key)
+            self.hub.service_changed(self.target.kind)
+            return
+        field = "seriesId" if self.target.kind == "sonarr" else "movieId"
+        imported: dict[int, bool] = {}
+        for record in records:
+            arr_id = record.get(field)
+            if not isinstance(arr_id, int) or isinstance(arr_id, bool) or arr_id <= 0:
+                continue
+            if recently_delivered(self.target.kind, self.instance_id, arr_id):
+                continue
+            imported[arr_id] = imported.get(arr_id, False) or record.get("eventType") in IMPORT_EVENTS
+        if not imported:
+            return
+        self.board.event(self.key)
+        known = await run_in_threadpool(media_for_arr_ids, self.target.kind, self.target.instance_id, list(imported))
+        for media_id in known.values():
+            self.hub.media_changed(media_id)
+        if any(was_imported for arr_id, was_imported in imported.items() if arr_id not in known):
+            # Nouveau film ou nouvelle série importés : seule l'analyse du
+            # service les ajoute.
+            self.hub.service_changed(self.target.kind)

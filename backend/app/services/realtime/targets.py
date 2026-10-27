@@ -36,6 +36,21 @@ def media_for_arr(service: str, instance_id: int | None, arr_id: int) -> int | N
         return session.exec(query).first()
 
 
+def media_for_arr_ids(service: str, instance_id: int | None, arr_ids: list[int]) -> dict[int, int]:
+    """Médias suivis par ces fiches Sonarr/Radarr : identifiant arr → média."""
+    if not arr_ids:
+        return {}
+    column = col(Media.sonarr_id) if service == "sonarr" else col(Media.radarr_id)
+    instance = col(Media.arr_instance_id)
+    with Session(engine) as session:
+        rows = session.exec(
+            select(column, Media.id).where(
+                column.in_(arr_ids), instance.is_(None) if instance_id is None else instance == instance_id
+            )
+        ).all()
+    return {arr_id: media_id for arr_id, media_id in rows if arr_id is not None and media_id is not None}
+
+
 def media_for_hashes(hashes: Iterable[str]) -> Resolved:
     wanted = {h.lower() for h in hashes if h}
     resolved = Resolved()

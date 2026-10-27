@@ -1,11 +1,13 @@
-"""Temps réel (la norme, sans réglage) : file d'événements, verrou partagé
-avec les scans, webhooks Sonarr/Radarr (branchement automatique et
-réception), guetteurs du client torrent, du serveur multimédia (dont les
-suppressions) et du gestionnaire de demandes, superviseur, scan de nuit."""
+"""Temps réel (actif par défaut, désactivable) : file d'événements, verrou
+partagé avec les scans, webhooks Sonarr/Radarr (branchement automatique,
+désactivable, et réception), guetteurs du client torrent, du serveur
+multimédia (dont les suppressions), du gestionnaire de demandes et de
+Sonarr/Radarr en lecture seule, superviseur, scan de nuit."""
 
 import asyncio
 import base64
 import json
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -20,6 +22,7 @@ from app.database import engine
 from app.models.arr_webhook import ArrWebhook
 from app.models.media import Media, MediaType, Torrent
 from app.services import scan as scan_package
+from app.services.arr_instances import arr_targets
 from app.services.events import RESYNC_EVENT, EventBroadcaster, live_events
 from app.services.realtime import hub as hub_module
 from app.services.realtime import supervisor as supervisor_module
@@ -28,6 +31,7 @@ from app.services.realtime.hub import RealtimeHub
 from app.services.realtime.status import StatusBoard, board
 from app.services.realtime.supervisor import RealtimeSupervisor
 from app.services.realtime.watchers import (
+    ArrWatcher,
     MediaServerWatcher,
     RequestsWatcher,
     SeenItems,
@@ -314,8 +318,10 @@ def _connect(admin_client, url="http://analysarr:1818", sup: RealtimeSupervisor 
 @pytest.fixture(autouse=True)
 def fresh_board():
     board.clear()
+    webhooks.forget_deliveries()
     yield
     board.clear()
+    webhooks.forget_deliveries()
 
 
 def test_every_instance_gets_its_webhook_automatically(admin_client, settings, fake_http):
@@ -873,28 +879,38 @@ def test_the_supervisor_follows_every_configured_service(session, settings, monk
             db.add(row)
             db.commit()
 
+    arr = ["arr:radarr:0", "arr:sonarr:0"]
+
     async def run():
         await supervisor.apply()  # pas démarré : rien
         assert supervisor.active_keys() == []
         await supervisor.start()
         await asyncio.sleep(0)
-        assert supervisor.active_keys() == ["media_server", "torrents"]
+        assert supervisor.active_keys() == [*arr, "media_server", "torrents"]
         await supervisor.apply()  # rien de changé : pas de redémarrage
         configure(seer_enabled=True, seer_url="http://seer", seer_api_key="k")
         await supervisor.apply()
         await asyncio.sleep(0)
-        assert supervisor.active_keys() == ["media_server", "requests", "torrents"]
+        assert supervisor.active_keys() == [*arr, "media_server", "requests", "torrents"]
         configure(qbittorrent_url="http://qbit2")
         await supervisor.apply()
         await asyncio.sleep(0)
         configure(qbittorrent_url=None)
         await supervisor.apply()
-        assert supervisor.active_keys() == ["media_server", "requests"]
+        assert supervisor.active_keys() == [*arr, "media_server", "requests"]
+        # Mode « scans uniquement » : plus rien n'est interrogé.
+        configure(realtime_enabled=False)
+        await supervisor.apply()
+        assert supervisor.active_keys() == []
+        configure(realtime_enabled=True)
+        await supervisor.apply()
+        await asyncio.sleep(0)
+        assert supervisor.active_keys() == [*arr, "media_server", "requests"]
         await supervisor.stop()
         assert supervisor.active_keys() == []
 
     asyncio.run(run())
-    assert sorted(started) == ["media_server", "requests", "torrents", "torrents"]
+    assert sorted(started).count("torrents") == 2
 
 
 def test_a_new_install_scans_once_a_night(session):
@@ -994,7 +1010,7 @@ def test_the_events_stream_opens_immediately(monkeypatch):
 def test_the_status_is_neutral_before_configuration(admin_client):
     status = admin_client.get("/api/realtime/status").json()
 
-    assert (status["active"], status["sources"]) == (False, [])
+    assert (status["enabled"], status["active"], status["sources"]) == (True, False, [])
 
 
 def test_end_to_end_a_finished_torrent_reaches_the_browser_within_seconds(session, settings, fake_http, monkeypatch):
@@ -1170,3 +1186,301 @@ def test_status_change_reaches_the_browsers() -> None:
     finally:
         live_events.unsubscribe(queue)
         board.forget("probe")
+
+
+# --- Démarrage, diagnostic et choix de l'utilisateur (issue #54) -------------------------
+
+
+def _webhooks(admin_client) -> dict:
+    return {w["service"]: w for w in admin_client.get("/api/realtime/webhooks").json()["webhooks"]}
+
+
+def _hanging_on_save(calls: list, *, reached: bool = False):
+    """Sonarr qui attend son propre test (un appel vers Analysarr) sans jamais
+    répondre à l'enregistrement."""
+    base = sonarr_server(calls)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/api/v3/notification":
+            if reached:
+                webhooks.note_received("sonarr", 0, None)
+            raise httpx.ReadTimeout("timed out", request=request)
+        return base(request)
+
+    return handler
+
+
+def test_startup_never_waits_for_sonarr_or_radarr(admin_client, settings, fake_http, monkeypatch):
+    """Bug réel (issue #54) : le démarrage attendait la création des webhooks,
+    que Sonarr/Radarr testent en appelant Analysarr — qui n'écoute qu'une fois
+    démarré. Résultat : démarrage bloqué jusqu'au délai, webhook en échec. Le
+    branchement se fait désormais après, en tâche de fond."""
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    admin_client.put("/api/realtime/address", json={"analysarr_url": "http://analysarr:1818"})
+    monkeypatch.setattr(supervisor_module, "CONFIG_CHECK_SECONDS", 0.05)
+
+    async def idle(self):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr("app.services.realtime.watchers.Watcher.run", idle)
+    sup = RealtimeSupervisor(RealtimeHub(), StatusBoard())
+
+    async def run() -> list:
+        await sup.start()
+        during_startup = [c for c in calls if "notification" in c[1]]
+        await asyncio.sleep(0.3)
+        await sup.stop()
+        return during_startup
+
+    assert asyncio.run(run()) == []
+    assert ("POST", "/api/v3/notification") in [c[:2] for c in calls]
+
+
+def test_a_webhook_sonarr_cannot_test_names_the_real_cause(admin_client, settings, fake_http):
+    fake_http["http://sonarr"] = _hanging_on_save([])
+
+    hook = _connect(admin_client)["sonarr"]
+
+    assert hook["state"] == "error"
+    assert hook["error"].startswith("Sonarr ne parvient pas à joindre Analysarr à http://analysarr:1818")
+    # Sonarr peut encore l'enregistrer après coup : son secret reste accepté,
+    # et le prochain essai le retrouvera par son adresse.
+    with Session(engine) as db:
+        row = db.exec(select(ArrWebhook)).one()
+        assert row.pending_secret_hash is not None and row.notification_id is None
+
+
+def test_a_webhook_that_reached_analysarr_but_timed_out_says_so(admin_client, settings, fake_http):
+    fake_http["http://sonarr"] = _hanging_on_save([], reached=True)
+
+    hook = _connect(admin_client)["sonarr"]
+
+    assert hook["error"].startswith("Sonarr joint bien Analysarr mais n'a pas confirmé le webhook à temps")
+
+
+def test_a_refused_test_points_at_the_address(admin_client, settings, fake_http):
+    fake_http["http://sonarr"] = sonarr_server([], refuse=True)
+
+    hook = _connect(admin_client)["sonarr"]
+
+    assert hook["error"].endswith("Vérifiez que http://analysarr:1818 est joignable depuis Sonarr.")
+
+
+def test_a_refused_webhook_is_retried_sooner_at_first_and_logged_once(admin_client, settings, fake_http, caplog):
+    fake_http["http://sonarr"] = sonarr_server([], refuse=True)
+    sup = RealtimeSupervisor(RealtimeHub(), board)
+
+    _connect(admin_client, sup=sup)
+    first = sup._retry_at["webhook:sonarr:0"] - time.monotonic()
+    reconcile(sup, retry=True)
+    second = sup._retry_at["webhook:sonarr:0"] - time.monotonic()
+
+    assert (round(first), round(second)) == (60, 300)
+    logged = [r for r in caplog.records if "webhook:sonarr:0 non branché" in r.getMessage()]
+    assert len(logged) == 1
+
+
+def test_disabling_webhooks_removes_them_and_never_recreates_them(admin_client, settings, fake_http):
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    _connect(admin_client)
+
+    response = admin_client.put("/api/realtime/webhooks/enabled", json={"enabled": False})
+    assert response.status_code == 200 and response.json()["enabled"] is False
+    assert {w["service"]: w["state"] for w in response.json()["webhooks"]}["sonarr"] == "removing"
+    reconcile()
+
+    assert ("DELETE", "/api/v3/notification/42", None) in calls
+    assert _webhooks(admin_client)["sonarr"]["state"] == "disabled"
+    with Session(engine) as db:
+        assert db.exec(select(ArrWebhook)).all() == []
+    calls.clear()
+    reconcile()
+    assert [c for c in calls if c[0] in ("POST", "PUT", "DELETE")] == []
+
+    admin_client.put("/api/realtime/webhooks/enabled", json={"enabled": True})
+    reconcile()
+    assert _webhooks(admin_client)["sonarr"]["state"] == "connected"
+
+
+def test_a_failed_removal_stays_listed_with_its_reason(admin_client, settings, fake_http):
+    fake_http["http://sonarr"] = sonarr_server([])
+    _connect(admin_client)
+    del fake_http["http://sonarr"]
+
+    admin_client.put("/api/realtime/webhooks/enabled", json={"enabled": False})
+    reconcile()
+
+    hook = _webhooks(admin_client)["sonarr"]
+    assert hook["state"] == "error" and hook["error"].startswith("Retrait impossible : Sonarr injoignable")
+    with Session(engine) as db:
+        assert len(db.exec(select(ArrWebhook)).all()) == 1
+
+
+def test_events_are_ignored_once_webhooks_are_disabled(client, session, settings, hooked, signals):
+    settings.arr_webhooks_enabled = False
+    session.add(settings)
+    session.commit()
+
+    response = deliver(client, hooked, {"eventType": "Download", "series": {"id": 5}})
+
+    assert response.status_code == 204 and signals == []
+
+
+def test_a_webhook_removed_by_hand_in_sonarr_is_reconnected(admin_client, settings, fake_http):
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    _connect(admin_client)
+    base = sonarr_server(calls)
+
+    def removed(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/api/v3/notification/42":
+            return httpx.Response(404)
+        return base(request)
+
+    fake_http["http://sonarr"] = removed
+    sup = reconcile()  # vérification : absent chez Sonarr
+    reconcile(sup)
+
+    assert [c[:2] for c in calls if c[0] == "POST"] == [("POST", "/api/v3/notification")] * 2
+    assert _webhooks(admin_client)["sonarr"]["state"] == "connected"
+
+
+def test_scan_only_mode_hides_realtime_and_withdraws_webhooks(admin_client, settings, fake_http):
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    _connect(admin_client)
+    assert admin_client.get("/api/settings").json()["schedule"]["realtime_enabled"] is True
+
+    payload = {
+        "sonarr_url": "http://sonarr",
+        "radarr_url": "http://radarr",
+        "scan_schedule_enabled": True,
+        "scan_schedule_interval_minutes": 60,
+        "realtime_enabled": False,
+    }
+    try:
+        assert admin_client.put("/api/settings", json=payload).status_code == 200
+        assert admin_client.get("/api/settings").json()["schedule"]["realtime_enabled"] is False
+        reconcile()
+
+        assert ("DELETE", "/api/v3/notification/42", None) in calls
+        status = admin_client.get("/api/realtime/status").json()
+        assert (status["enabled"], status["active"], status["sources"]) == (False, False, [])
+        read = admin_client.get("/api/realtime/webhooks").json()
+        assert read["realtime_enabled"] is False and read["webhooks"][0]["polling"] is None
+        # Un client plus ancien (sans le champ) ne le remet pas en marche.
+        del payload["realtime_enabled"]
+        admin_client.put("/api/settings", json=payload)
+        assert admin_client.get("/api/settings").json()["schedule"]["realtime_enabled"] is False
+    finally:
+        if scheduler.get_job("periodic_scan") is not None:
+            scheduler.remove_job("periodic_scan")
+
+
+# --- Sonarr / Radarr en lecture seule ----------------------------------------------------
+
+
+@pytest.fixture
+def series(session) -> Media:
+    media = Media(media_type=MediaType.series, title="Série", sonarr_id=5)
+    session.add(media)
+    session.commit()
+    session.refresh(media)
+    return media
+
+
+def _arr_watcher(session, settings, monkeypatch, interval: float = 1) -> tuple[ArrWatcher, list]:
+    received: list = []
+    hub = RealtimeHub()
+    monkeypatch.setattr(hub, "media_changed", lambda media_id, watch_only=False: received.append(media_id))
+    monkeypatch.setattr(hub, "service_changed", received.append)
+    target = arr_targets(session, settings, "sonarr")[0]
+    return ArrWatcher(settings, interval, hub, StatusBoard(), target), received
+
+
+def test_sonarr_history_signals_its_media_without_any_webhook(session, settings, series, monkeypatch):
+    watcher, received = _arr_watcher(session, settings, monkeypatch)
+    records = [
+        {"id": 10, "seriesId": 5, "eventType": "downloadFolderImported"},
+        # Série inconnue, simple grab : rien à afficher encore.
+        {"id": 11, "seriesId": 9, "eventType": "grabbed"},
+    ]
+
+    asyncio.run(watcher.dispatch(records, overflow=False))
+    assert received == [series.id]
+
+    # Série inconnue importée : seule l'analyse de Sonarr l'ajoute.
+    asyncio.run(watcher.dispatch([{"id": 12, "seriesId": 9, "eventType": "downloadFolderImported"}], overflow=False))
+    assert received[-1] == "sonarr"
+
+    # Plus d'événements qu'une page : la liste est relue.
+    received.clear()
+    asyncio.run(watcher.dispatch([], overflow=True))
+    assert received == ["sonarr"]
+
+
+def test_a_media_the_webhook_just_signalled_is_not_analysed_twice(session, settings, series, monkeypatch):
+    watcher, received = _arr_watcher(session, settings, monkeypatch)
+    webhooks.note_received("sonarr", 0, 5)
+
+    asyncio.run(watcher.dispatch([{"id": 13, "seriesId": 5, "eventType": "episodeFileDeleted"}], overflow=False))
+
+    assert received == []
+
+
+def test_the_arr_watcher_reads_only_new_history_and_queue_changes(session, settings, series, fake_http, monkeypatch):
+    pages = [
+        ([{"id": 3, "seriesId": 5, "eventType": "grabbed"}], {"totalCount": 0, "errors": False}),
+        (
+            [{"id": 4, "seriesId": 5, "eventType": "grabbed"}, {"id": 3, "seriesId": 5, "eventType": "grabbed"}],
+            {"totalCount": 1, "errors": True},
+        ),
+    ]
+    step = {"index": 0}
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        records, queue = pages[min(step["index"], len(pages) - 1)]
+        if request.url.path == "/api/v3/history":
+            return httpx.Response(200, json={"page": 1, "records": records})
+        if request.url.path == "/api/v3/queue/status":
+            step["index"] += 1
+            return httpx.Response(200, json=queue)
+        return httpx.Response(404)
+
+    fake_http["http://sonarr"] = handler
+    watcher, received = _arr_watcher(session, settings, monkeypatch, interval=0.01)
+
+    async def run():
+        task = asyncio.create_task(watcher.run())
+        await asyncio.sleep(0.15)
+        task.cancel()
+
+    asyncio.run(run())
+
+    # Le premier passage sert de référence ; ensuite un seul nouvel événement.
+    assert received == [series.id, "queue"]
+    assert all(r.method == "GET" for r in calls)  # lecture seule
+    history = next(r for r in calls if r.url.path == "/api/v3/history")
+    assert history.url.params["sortDirection"] == "descending"
+
+
+def test_a_lasting_outage_is_logged_once(settings, monkeypatch, caplog):
+    status_board = StatusBoard()
+    watcher = TorrentWatcher(settings, 0.01, RealtimeHub(), status_board)
+
+    async def failing_session():
+        raise httpx.ConnectError("refusé")
+
+    monkeypatch.setattr(watcher, "session", failing_session)
+
+    async def run():
+        task = asyncio.create_task(watcher.run())
+        await asyncio.sleep(0.1)
+        task.cancel()
+
+    asyncio.run(run())
+    assert len([r for r in caplog.records if r.getMessage().startswith("Temps réel torrents")]) == 1

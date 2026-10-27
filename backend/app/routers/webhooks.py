@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.database import engine
 from app.models.arr_webhook import ArrWebhook
+from app.models.settings import Settings
 from app.services.rate_limit import retry_after
 from app.services.realtime.hub import hub
 from app.services.realtime.status import board
@@ -29,6 +30,7 @@ from app.services.realtime.webhooks import (
     RESCAN_EVENTS,
     TEST_EVENT,
     find_row,
+    note_received,
     parse_event,
     presented_secret,
     secret_matches,
@@ -46,12 +48,16 @@ RATE_LIMIT = 300
 _UNAUTHORIZED = HTTPException(401, "Webhook non autorisé.")
 
 
-def _find(service: str, instance_id: int) -> ArrWebhook | None:
+def _find(service: str, instance_id: int) -> tuple[ArrWebhook | None, bool]:
+    """Ligne du webhook, et s'il doit encore agir : temps réel et webhooks
+    activés (un webhook désactivé dont le retrait a échoué n'est plus suivi)."""
     with Session(engine) as session:
         row = find_row(session, service, instance_id)
         if row is not None:
             session.expunge(row)
-        return row
+        settings = session.get(Settings, 1)
+        active = settings is not None and settings.realtime_enabled and settings.arr_webhooks_enabled
+        return row, active
 
 
 async def _read_body(request: Request) -> bytes:
@@ -77,7 +83,7 @@ async def receive_webhook(service: str, instance_id: int, request: Request) -> R
         raise HTTPException(429, "Trop de requêtes.", headers={"Retry-After": str(wait)})
 
     secret = presented_secret(request.headers.get("authorization"))
-    row = await run_in_threadpool(_find, service, instance_id)
+    row, active = await run_in_threadpool(_find, service, instance_id)
     if row is None or secret is None or not secret_matches(row, secret):
         raise _UNAUTHORIZED
 
@@ -88,6 +94,9 @@ async def receive_webhook(service: str, instance_id: int, request: Request) -> R
     if event is None:
         raise HTTPException(400, "Charge illisible.")
 
+    if not active:
+        return Response(status_code=204)
+    note_received(service, instance_id, event.arr_id)
     board.event(source_key(service, instance_id))
     if event.event_type == TEST_EVENT or event.event_type not in RESCAN_EVENTS:
         return Response(status_code=204)

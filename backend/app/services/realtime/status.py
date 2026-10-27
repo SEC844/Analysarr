@@ -22,7 +22,7 @@ _MAX_ERROR = 300
 @dataclass(frozen=True)
 class SourceStatus:
     key: str
-    # webhook | torrents | media_server
+    # webhook | arr | torrents | media_server | requests
     kind: str
     state: SourceState = "waiting"
     last_event_at: datetime | None = None

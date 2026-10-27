@@ -198,6 +198,10 @@ _SETTINGS_NEW_COLUMNS = [
     ("scan_schedule_mode", "VARCHAR NOT NULL DEFAULT 'interval'"),
     ("scan_nightly_hour", "INTEGER NOT NULL DEFAULT 4"),
     ("realtime_default_applied", "BOOLEAN NOT NULL DEFAULT 0"),
+    # Temps réel et webhooks déjà actifs sur une installation existante : on
+    # garde ce qui tournait.
+    ("realtime_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("arr_webhooks_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
 ]
 
 # Webhooks Sonarr/Radarr (configuration, jamais recréée).

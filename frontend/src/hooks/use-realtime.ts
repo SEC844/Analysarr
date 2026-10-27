@@ -1,7 +1,14 @@
 import { useEffect, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { getRealtimeStatus, getWebhooks, retryWebhook, saveAnalysarrAddress, testWebhook } from "@/lib/api"
+import {
+  getRealtimeStatus,
+  getWebhooks,
+  retryWebhook,
+  saveAnalysarrAddress,
+  setWebhooksEnabled,
+  testWebhook,
+} from "@/lib/api"
 import { detectedAddress } from "@/lib/realtime"
 import type { WebhooksRead } from "@/types/realtime"
 
@@ -20,13 +27,14 @@ export function useRealtimeStatusQuery() {
 }
 
 /** Webhooks Sonarr/Radarr : relus toutes les 5 s tant que l'un d'eux est en
- * cours de branchement (le superviseur agit dans les secondes qui suivent). */
+ * cours de branchement ou de retrait (le superviseur agit dans les secondes
+ * qui suivent). */
 export function useWebhooksQuery() {
   return useQuery({
     queryKey: WEBHOOKS_KEY,
     queryFn: getWebhooks,
     refetchInterval: (query) =>
-      query.state.data?.webhooks.some((w) => w.state === "pending") ? 5_000 : false,
+      query.state.data?.webhooks.some((w) => w.state === "pending" || w.state === "removing") ? 5_000 : false,
   })
 }
 
@@ -57,6 +65,11 @@ export function useRetryWebhookMutation() {
     mutationFn: ({ service, instanceId }: WebhookTarget) => retryWebhook(service, instanceId),
     onSuccess: store,
   })
+}
+
+export function useWebhooksEnabledMutation() {
+  const store = useStoreWebhooks()
+  return useMutation({ mutationFn: setWebhooksEnabled, onSuccess: store })
 }
 
 export function useTestWebhookMutation() {

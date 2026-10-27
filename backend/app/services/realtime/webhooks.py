@@ -20,13 +20,22 @@ Sécurité de la route publique `/api/webhooks/{service}/{instance}` :
 
 Rebranchement : Sonarr/Radarr teste le nouveau secret pendant l'enregistrement
 (vérifié dans `ProviderControllerBase.CreateProvider`) ; l'ancien reste
-accepté tant que l'opération n'a pas abouti."""
+accepté tant que l'opération n'a pas abouti. Ce test est un appel de LEUR
+conteneur vers Analysarr : tant qu'Analysarr n'écoute pas (démarrage) ou que
+l'adresse ne mène pas jusqu'à lui, l'enregistrement reste suspendu jusqu'à
+leur propre délai. D'où un branchement toujours en tâche de fond, jamais
+pendant le démarrage, et un message qui nomme la vraie cause.
+
+Désactivables (`Settings.arr_webhooks_enabled`) : Analysarr retire alors ses
+webhooks de chez eux, et le suivi en lecture seule (`watchers.ArrWatcher`)
+reste seul."""
 
 import base64
 import hashlib
 import hmac
 import logging
 import secrets
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -94,6 +103,18 @@ RESCAN_EVENTS = frozenset(
 )
 TEST_EVENT = "Test"
 
+# Enregistrement d'une notification : Sonarr/Radarr attend la réponse de son
+# propre test (un appel vers Analysarr) avant de répondre.
+SAVE_TIMEOUT = 60.0
+# Un média signalé par webhook n'est pas réanalysé une seconde fois quand le
+# suivi en lecture seule retrouve le même événement dans l'historique.
+DELIVERY_MEMORY_SECONDS = 600.0
+
+# En mémoire, modifiés dans la boucle asyncio uniquement : dernier appel reçu
+# de chaque instance, et de chaque média signalé.
+_received_at: dict[tuple[str, int], float] = {}
+_delivered_at: dict[tuple[str, int, int], float] = {}
+
 
 class WebhookError(RuntimeError):
     """Branchement, test ou débranchement refusé : message à afficher tel quel."""
@@ -122,6 +143,27 @@ def webhook_url(base_url: str, service: str, instance_id: int) -> str:
 
 def _digest(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def note_received(service: str, instance_id: int, arr_id: int | None) -> None:
+    """Appel authentifié reçu de cette instance (test compris) : il prouve
+    qu'elle joint Analysarr, et le média signalé est retenu."""
+    now = time.monotonic()
+    _received_at[(service, instance_id)] = now
+    if arr_id is not None:
+        _delivered_at[(service, instance_id, arr_id)] = now
+        for key in [k for k, at in _delivered_at.items() if now - at > DELIVERY_MEMORY_SECONDS]:
+            del _delivered_at[key]
+
+
+def recently_delivered(service: str, instance_id: int, arr_id: int) -> bool:
+    at = _delivered_at.get((service, instance_id, arr_id))
+    return at is not None and time.monotonic() - at <= DELIVERY_MEMORY_SECONDS
+
+
+def forget_deliveries() -> None:
+    _received_at.clear()
+    _delivered_at.clear()
 
 
 # --- Réception ------------------------------------------------------------------
@@ -251,12 +293,14 @@ def wanted_webhooks(session: Session, settings: Settings | None) -> list[WantedW
 
 def forget_orphans(session: Session, wanted: list[WantedWebhook]) -> None:
     """Lignes d'instances qui n'existent plus (retirées dans les réglages, où
-    le webhook a déjà été débranché chez elles)."""
+    le webhook a déjà été débranché chez elles). Lu toutes les 5 s : n'écrit
+    que s'il y a quelque chose à retirer."""
     keep = {(w.target.kind, w.instance_id) for w in wanted}
-    for row in session.exec(select(ArrWebhook)).all():
-        if (row.service, row.instance_id) not in keep:
-            session.delete(row)
-    session.commit()
+    orphans = [row for row in session.exec(select(ArrWebhook)).all() if (row.service, row.instance_id) not in keep]
+    for row in orphans:
+        session.delete(row)
+    if orphans:
+        session.commit()
 
 
 def find_row(session: Session, service: str, instance_id: int) -> ArrWebhook | None:
@@ -283,10 +327,22 @@ async def register(session: Session, target: ArrTarget, base_url: str, instance_
     try:
         template = _template(await client.get_notification_schema())
         existing_id = known_id or _existing_id(await client.get_notifications(), url)
-        saved = await client.save_notification(_body(template, target.kind, url, secret, existing_id))
     except (httpx.HTTPError, WebhookError) as exc:
         _abandon(session, row, created)
-        raise WebhookError(_failure(target, exc)) from exc
+        raise WebhookError(_failure(target, exc, base_url)) from exc
+    asked_at = time.monotonic()
+    try:
+        body = _body(template, target.kind, url, secret, existing_id)
+        saved = await client.save_notification(body, timeout=SAVE_TIMEOUT)
+    except httpx.TimeoutException as exc:
+        # Sonarr/Radarr peut encore l'enregistrer après coup : le nouveau
+        # secret reste accepté, et le prochain essai retrouve ce webhook par
+        # son adresse au lieu d'en créer un second.
+        reached = _received_at.get((target.kind, instance_id), -1.0) >= asked_at
+        raise WebhookError(_timeout_failure(target, base_url, reached=reached)) from exc
+    except httpx.HTTPError as exc:
+        _abandon(session, row, created)
+        raise WebhookError(_failure(target, exc, base_url)) from exc
     row.notification_id = saved.get("id") if isinstance(saved.get("id"), int) else existing_id
     row.secret_hash, row.pending_secret_hash, row.url = _digest(secret), None, url
     row.target_signature = target_signature(target)
@@ -296,13 +352,28 @@ async def register(session: Session, target: ArrTarget, base_url: str, instance_
     return row
 
 
-def _failure(target: ArrTarget, exc: Exception) -> str:
+def _failure(target: ArrTarget, exc: Exception, base_url: str) -> str:
     """Injoignable (réseau) ou refusé (réponse d'erreur, test du webhook
     raté) : deux causes, deux remèdes différents."""
     if isinstance(exc, httpx.HTTPError) and not isinstance(exc, httpx.HTTPStatusError):
         return f"{target.name} injoignable : {http_error_text(exc)}"
     detail = http_error_text(exc) if isinstance(exc, httpx.HTTPError) else str(exc)
-    return f"{target.name} a refusé le webhook : {detail}"
+    message = f"{target.name} a refusé le webhook : {detail}"
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 400:
+        # Leur test du webhook a échoué : presque toujours l'adresse.
+        message += f" Vérifiez que {base_url} est joignable depuis {target.name}."
+    return message
+
+
+def _timeout_failure(target: ArrTarget, base_url: str, *, reached: bool) -> str:
+    """Sonarr/Radarr a répondu aux lectures mais pas à l'enregistrement : il
+    attendait son propre test, c'est-à-dire un appel vers Analysarr."""
+    if reached:
+        return f"{target.name} joint bien Analysarr mais n'a pas confirmé le webhook à temps : nouvel essai bientôt."
+    return (
+        f"{target.name} ne parvient pas à joindre Analysarr à {base_url} : son test du webhook n'aboutit pas. "
+        f"Indiquez une adresse joignable depuis le conteneur de {target.name}."
+    )
 
 
 def _existing_id(notifications: list[dict[str, Any]], url: str) -> int | None:
@@ -321,6 +392,20 @@ def _abandon(session: Session, row: ArrWebhook, created: bool) -> None:
         row.pending_secret_hash = None
         session.add(row)
     session.commit()
+
+
+async def still_registered(target: ArrTarget, row: ArrWebhook) -> bool:
+    """Le webhook existe-t-il toujours chez Sonarr/Radarr (retiré à la main
+    dans leur interface) ? Seul un 404 dit non ; une erreur réseau remonte."""
+    if row.notification_id is None:
+        return False
+    try:
+        await _client(target).get_notification(row.notification_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return False
+        raise
+    return True
 
 
 async def send_test(target: ArrTarget, row: ArrWebhook) -> None:
