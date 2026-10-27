@@ -103,9 +103,14 @@ class Settings(SQLModel, table=True):
     # Assistant de nettoyage (schemas/cleanup.py::CleanupSettings, JSON validé
     # à la lecture : valeur illisible = préréglage « Équilibré »).
     cleanup_settings: str = "{}"
-    # Temps réel (services/realtime/) : la norme, sans réglage — chaque
-    # service configuré est suivi d'office. Les webhooks Sonarr/Radarr vivent
-    # dans la table ArrWebhook (un par instance), créés automatiquement.
+    # Temps réel (services/realtime/) : la norme — chaque service configuré
+    # est suivi d'office. Désactivé (Réglages → Planification), Analysarr
+    # n'interroge plus rien entre deux scans et retire ses webhooks.
+    realtime_enabled: bool = True
+    # Webhooks Sonarr/Radarr (table ArrWebhook, un par instance) créés
+    # automatiquement. Désactivés, Analysarr les retire de chez eux et suit
+    # Sonarr/Radarr en lecture seule (historique et file d'attente).
+    arr_webhooks_enabled: bool = True
     # Adresse d'Analysarr vue depuis Sonarr/Radarr (webhooks) : détectée depuis
     # le navigateur à la première visite, modifiable dans Réglages → Application.
     analysarr_url: str = ""

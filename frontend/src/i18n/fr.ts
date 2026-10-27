@@ -365,6 +365,14 @@ export const fr = {
     hours: "h (heure du conteneur)",
     hint: "Un scan déjà en cours (manuel ou planifié) n'est jamais interrompu ni dupliqué.",
   },
+  realtimeMode: {
+    title: "Temps réel",
+    description:
+      "Entre deux scans, Analysarr suit vos services en continu : un import, un torrent ajouté ou un film regardé apparaissent en quelques secondes.",
+    onHint: "Le scan planifié ne sert plus que de vérification : une fois par nuit suffit.",
+    offHint:
+      "Scans uniquement : rien n'est interrogé entre deux scans et les webhooks d'Analysarr sont retirés de Sonarr et Radarr. Choisissez une planification plus fréquente ci-dessous.",
+  },
   scanHistory: {
     realtime: "Temps réel",
     title: { manual: "Analyses lancées à la main", scheduled: "Analyses automatiques" },
@@ -1191,12 +1199,26 @@ export const fr = {
     webhooks: {
       title: "Temps réel",
       description:
-        "Analysarr crée lui-même un webhook dans chaque instance : imports, mises à niveau, ajouts et suppressions apparaissent en quelques secondes. Rien à configurer chez elle.",
+        "Les changements faits dans {service} (imports, mises à niveau, suppressions) apparaissent dans Analysarr sans attendre le prochain scan.",
+      enabled: "Créer un webhook dans {service}",
+      enabledHelp:
+        "Analysarr ajoute lui-même une notification « Analysarr » dans chaque instance : les changements arrivent instantanément. Désactivez pour qu'il la retire et ne touche plus à la configuration de {service}.",
+      disabledHelp:
+        "Aucun webhook : Analysarr suit {service} en lecture seule (historique et file d'attente, toutes les 10 secondes), sans rien modifier chez lui.",
+      realtimeOff: "Temps réel désactivé : {service} n'est relu qu'au prochain scan.",
+      openSchedule: "Réglages de planification",
       states: {
         connected: "branché",
         pending: "branchement en cours…",
         error: "non branché",
         no_address: "en attente de l'adresse d'Analysarr",
+        removing: "retrait en cours…",
+        disabled: "sans webhook",
+      },
+      polling: {
+        active: "Suivi en lecture seule actif",
+        waiting: "Suivi en lecture seule : démarrage…",
+        error: "Suivi en lecture seule en erreur : {error}",
       },
       test: "Tester",
       tested: "Test demandé : {name} appelle Analysarr.",

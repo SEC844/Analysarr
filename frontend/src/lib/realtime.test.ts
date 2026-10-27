@@ -16,12 +16,14 @@ function source(overrides: Partial<SourceStatus>): SourceStatus {
 }
 
 function status(sources: SourceStatus[]): RealtimeStatus {
-  return { active: sources.length > 0, address_set: true, sources }
+  return { enabled: true, active: sources.length > 0, address_set: true, sources }
 }
 
 describe("realtimeSummary", () => {
   it("stays off until a service is followed, then flags a failing source", () => {
     expect(realtimeSummary(undefined)).toBe("off")
+    // Scans uniquement : rien dans l'en-tête, même avec une source listée.
+    expect(realtimeSummary({ ...status([source({})]), enabled: false })).toBe("off")
     expect(realtimeSummary(status([]))).toBe("off")
     expect(realtimeSummary(status([source({})]))).toBe("ok")
     expect(realtimeSummary(status([source({}), source({ key: "media_server", kind: "media_server", state: "error" })]))).toBe(
@@ -37,6 +39,7 @@ describe("sourceSection", () => {
     expect(sourceSection(source({ kind: "requests" }))).toBe("seer")
     expect(sourceSection(source({ kind: "webhook", key: "webhook:radarr:2" }))).toBe("radarr")
     expect(sourceSection(source({ kind: "webhook", key: "webhook:sonarr:0" }))).toBe("sonarr")
+    expect(sourceSection(source({ kind: "arr", key: "arr:radarr:0" }))).toBe("radarr")
   })
 })
 

@@ -1,8 +1,11 @@
 """État du temps réel et webhooks Sonarr/Radarr (voir services/realtime/).
-Le temps réel est la norme, sans réglage : ces routes servent l'indicateur
-de l'en-tête, l'état des webhooks dans les cartes Sonarr/Radarr et l'adresse
-d'Analysarr (Réglages → Application). Routes authentifiées ; la réception
-des webhooks est à part (routers/webhooks.py)."""
+Le temps réel est actif par défaut (interrupteur dans Réglages →
+Planification, enregistré avec les réglages) : ces routes servent
+l'indicateur de l'en-tête, l'état des webhooks dans les cartes Sonarr/Radarr
+(et leur interrupteur) et l'adresse d'Analysarr (Réglages → Application).
+Routes authentifiées ; la réception des webhooks est à part
+(routers/webhooks.py). Aucune n'attend Sonarr/Radarr, sauf « Réessayer »,
+geste explicite."""
 
 from dataclasses import asdict
 
@@ -11,6 +14,7 @@ from sqlmodel import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.database import engine, get_session
+from app.models.arr_webhook import ArrWebhook
 from app.models.settings import Settings
 from app.schemas.realtime import (
     AddressWrite,
@@ -18,6 +22,7 @@ from app.schemas.realtime import (
     RealtimeStatusRead,
     SourceStatusRead,
     WebhookRead,
+    WebhooksEnabledWrite,
     WebhooksRead,
     WebhookState,
 )
@@ -25,6 +30,7 @@ from app.services.arr_instances import ArrTarget, arr_target_by_id
 from app.services.realtime import webhooks
 from app.services.realtime.status import board
 from app.services.realtime.supervisor import supervisor
+from app.services.realtime.watchers import arr_source_key
 
 router = APIRouter()
 
@@ -36,25 +42,29 @@ def _settings_or_400(session: Session) -> Settings:
     return settings
 
 
-def _webhook_state(wanted: webhooks.WantedWebhook, connected: bool, base_url: str) -> tuple[WebhookState, str | None]:
-    if connected:
-        return "connected", None
-    if not base_url:
-        return "no_address", None
+def _webhook_state(
+    wanted: webhooks.WantedWebhook, row: ArrWebhook | None, settings: Settings
+) -> tuple[WebhookState, str | None]:
     status = board.get(wanted.key)
-    if status is not None and status.state == "error":
-        return "error", status.error
-    return "pending", None
+    error = status.error if status is not None and status.state == "error" else None
+    if not (settings.realtime_enabled and settings.arr_webhooks_enabled):
+        if error:
+            return "error", error  # retrait refusé
+        return ("removing", None) if row is not None else ("disabled", None)
+    if webhooks.is_connected(row, wanted.target, settings.analysarr_url, wanted.instance_id):
+        return "connected", None
+    if not settings.analysarr_url:
+        return "no_address", None
+    return ("error", error) if error else ("pending", None)
 
 
 def _read(session: Session) -> WebhooksRead:
     settings = _settings_or_400(session)
-    base_url = settings.analysarr_url
     hooks = []
     for wanted in webhooks.wanted_webhooks(session, settings):
         row = webhooks.find_row(session, wanted.target.kind, wanted.instance_id)
-        connected = webhooks.is_connected(row, wanted.target, base_url, wanted.instance_id)
-        state, error = _webhook_state(wanted, connected, base_url)
+        state, error = _webhook_state(wanted, row, settings)
+        polling = board.get(arr_source_key(wanted.target.kind, wanted.instance_id))
         hooks.append(
             WebhookRead(
                 service="sonarr" if wanted.target.kind == "sonarr" else "radarr",
@@ -62,10 +72,17 @@ def _read(session: Session) -> WebhooksRead:
                 name=wanted.target.name,
                 state=state,
                 error=error,
-                url=row.url if row is not None and connected else None,
+                url=row.url if row is not None and state == "connected" else None,
+                polling=polling.state if polling is not None else None,
+                polling_error=polling.error if polling is not None else None,
             )
         )
-    return WebhooksRead(analysarr_url=base_url, webhooks=hooks)
+    return WebhooksRead(
+        analysarr_url=settings.analysarr_url,
+        realtime_enabled=settings.realtime_enabled,
+        enabled=settings.arr_webhooks_enabled,
+        webhooks=hooks,
+    )
 
 
 def _read_fresh() -> WebhooksRead:
@@ -98,9 +115,27 @@ def _save_address(payload: AddressWrite) -> bool:
 @router.put("/address", response_model=WebhooksRead)
 async def update_address(payload: AddressWrite) -> WebhooksRead:
     """Une nouvelle adresse rebranche tous les webhooks (mis à jour chez
-    Sonarr/Radarr, jamais dupliqués)."""
+    Sonarr/Radarr, jamais dupliqués), en tâche de fond."""
     if await run_in_threadpool(_save_address, payload):
-        await supervisor.apply(retry_webhooks=True)
+        supervisor.request_webhooks(retry=True)
+    return await run_in_threadpool(_read_fresh)
+
+
+def _save_webhooks_enabled(enabled: bool) -> None:
+    with Session(engine) as session:
+        settings = _settings_or_400(session)
+        settings.arr_webhooks_enabled = enabled
+        session.add(settings)
+        session.commit()
+
+
+@router.put("/webhooks/enabled", response_model=WebhooksRead)
+async def set_webhooks_enabled(payload: WebhooksEnabledWrite) -> WebhooksRead:
+    """Autorise (ou retire) la création automatique des webhooks chez
+    Sonarr/Radarr. Désactivés, ceux d'Analysarr sont retirés de chez eux en
+    tâche de fond ; le suivi en lecture seule continue."""
+    await run_in_threadpool(_save_webhooks_enabled, payload.enabled)
+    supervisor.request_webhooks(retry=True)
     return await run_in_threadpool(_read_fresh)
 
 
@@ -109,8 +144,10 @@ def _status() -> RealtimeStatusRead:
     configuration."""
     with Session(engine) as session:
         settings = session.get(Settings, 1)
-    sources = [SourceStatusRead(**asdict(status)) for status in board.snapshot()]
+    enabled = settings is None or settings.realtime_enabled
+    sources = [SourceStatusRead(**asdict(status)) for status in board.snapshot()] if enabled else []
     return RealtimeStatusRead(
+        enabled=enabled,
         active=bool(sources),
         address_set=bool(settings and settings.analysarr_url),
         sources=sources,
@@ -136,11 +173,15 @@ def _target(session: Session, service: ArrService, instance_id: int) -> ArrTarge
 async def retry_webhook(
     service: ArrService, instance_id: int, session: Session = Depends(get_session)
 ) -> WebhooksRead:
-    """Réessaie tout de suite (sans attendre le prochain essai automatique)."""
+    """Réessaie tout de suite (sans attendre le prochain essai automatique) :
+    branchement, ou retrait si les webhooks sont désactivés. Attend le
+    résultat : c'est un geste explicite."""
     _target(session, service, instance_id)
-    if not _settings_or_400(session).analysarr_url:
+    settings = _settings_or_400(session)
+    if settings.realtime_enabled and settings.arr_webhooks_enabled and not settings.analysarr_url:
         raise HTTPException(409, "Adresse d'Analysarr inconnue : Réglages → Application.")
-    await supervisor.apply(retry_webhooks=True)
+    await supervisor.reconcile_webhooks(retry=True)
+    session.expire_all()
     return _read(session)
 
 

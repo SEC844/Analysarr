@@ -368,6 +368,14 @@ export function saveAnalysarrAddress(url: string, detected = false): Promise<Web
   })
 }
 
+// Autorise (ou retire) la création automatique des webhooks chez Sonarr/Radarr.
+export function setWebhooksEnabled(enabled: boolean): Promise<WebhooksRead> {
+  return request<WebhooksRead>("/api/realtime/webhooks/enabled", {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  })
+}
+
 function webhookPath(service: string, instanceId: number): string {
   return `/api/realtime/webhooks/${encodeURIComponent(service)}/${instanceId}`
 }

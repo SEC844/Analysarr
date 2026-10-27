@@ -23,6 +23,7 @@ import { IgnoredSection } from "@/components/settings/ignored-section"
 import { SeedProtectionSection } from "@/components/settings/seed-protection-section"
 import { TrashSection } from "@/components/settings/trash-section"
 import { SideNavLayout } from "@/components/layout/side-nav"
+import { RealtimeModeCard } from "@/components/settings/realtime-mode-card"
 import { ScheduleCard } from "@/components/settings/schedule-card"
 import { SeerCard } from "@/components/settings/seer-card"
 import { WidgetSection } from "@/components/settings/widget-section"
@@ -329,6 +330,10 @@ function SettingsForm({ existing }: { existing: SettingsRead }) {
 
         {section === "schedule" && (
           <div className="space-y-6">
+            <RealtimeModeCard
+              enabled={form.realtime_enabled}
+              onEnabledChange={(v) => set("realtime_enabled", v)}
+            />
             <ScheduleCard
               enabled={form.scan_schedule_enabled}
               onEnabledChange={(v) => set("scan_schedule_enabled", v)}

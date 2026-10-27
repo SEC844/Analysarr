@@ -69,14 +69,14 @@ class ArrClient:
     async def get_notification(self, notification_id: int) -> dict[str, Any]:
         return await self._get(f"/api/v3/notification/{notification_id}")
 
-    async def save_notification(self, body: dict[str, Any]) -> dict[str, Any]:
+    async def save_notification(self, body: dict[str, Any], *, timeout: float = 30.0) -> dict[str, Any]:
         """Crée (sans `id`) ou met à jour la notification. Sonarr/Radarr la
         TESTE avant de l'enregistrer : l'adresse doit déjà répondre."""
         async with self._client() as client:
             if body.get("id"):
-                resp = await client.put(f"/api/v3/notification/{body['id']}", json=body)
+                resp = await client.put(f"/api/v3/notification/{body['id']}", json=body, timeout=timeout)
             else:
-                resp = await client.post("/api/v3/notification", json=body)
+                resp = await client.post("/api/v3/notification", json=body, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
 
@@ -85,6 +85,23 @@ class ArrClient:
 
     async def delete_notification(self, notification_id: int) -> None:
         await self._delete(f"/api/v3/notification/{notification_id}")
+
+    # --- Suivi en lecture seule (temps réel sans webhook) ------------------------
+
+    async def get_recent_history(self, page_size: int) -> list[dict[str, Any]]:
+        """Derniers événements (grab, import, suppression, renommage), du plus
+        récent au plus ancien. Chaque ligne a un `id` croissant."""
+        data = await self._get(
+            "/api/v3/history",
+            {"page": 1, "pageSize": page_size, "sortKey": "date", "sortDirection": "descending"},
+        )
+        records = data.get("records") if isinstance(data, dict) else None
+        return [r for r in records or [] if isinstance(r, dict)]
+
+    async def get_queue_status(self) -> dict[str, Any]:
+        """Compteurs de la file d'attente (erreurs, avertissements), sans son contenu."""
+        data = await self._get("/api/v3/queue/status")
+        return data if isinstance(data, dict) else {}
 
     async def get_root_folders(self) -> list[dict[str, Any]]:
         """Dossiers racine déclarés dans Sonarr/Radarr. Un ajout ne peut viser

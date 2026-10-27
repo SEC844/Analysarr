@@ -51,6 +51,8 @@ export interface ScheduleRead {
   /** `nightly` : une fois par nuit à `nightly_hour` heures (heure du conteneur). */
   mode: ScheduleMode
   nightly_hour: number
+  /** Temps réel entre deux scans (sinon : scans uniquement). */
+  realtime_enabled: boolean
 }
 
 export interface WidgetKeyRead {
@@ -122,6 +124,7 @@ export interface SettingsWrite {
   scan_schedule_interval_minutes: number | null
   scan_schedule_mode: ScheduleMode
   scan_nightly_hour: number
+  realtime_enabled: boolean
   arr_instances: ArrInstanceForm[]
   excluded_emby_user_ids: string[]
 }
@@ -181,6 +184,7 @@ export function emptySettingsWrite(): SettingsWrite {
     scan_schedule_interval_minutes: null,
     scan_schedule_mode: "nightly",
     scan_nightly_hour: 4,
+    realtime_enabled: true,
     arr_instances: [],
     excluded_emby_user_ids: [],
   }
@@ -213,6 +217,7 @@ export function settingsReadToForm(s: SettingsRead): SettingsWrite {
     scan_schedule_interval_minutes: s.schedule.interval_minutes,
     scan_schedule_mode: s.schedule.mode,
     scan_nightly_hour: s.schedule.nightly_hour,
+    realtime_enabled: s.schedule.realtime_enabled,
     arr_instances: s.arr_instances.map((i) => ({
       key: `saved-${i.id}`,
       id: i.id,

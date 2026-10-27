@@ -48,6 +48,8 @@ class ScheduleRead(BaseModel):
     # `nightly` : une fois par nuit à `nightly_hour` heures (heure du conteneur).
     mode: ScheduleMode = "interval"
     nightly_hour: int = 4
+    # Temps réel entre deux scans (sinon : scans uniquement).
+    realtime_enabled: bool = True
 
 
 class WatchRead(BaseModel):
@@ -129,6 +131,8 @@ class SettingsWrite(BaseModel):
     # Absents = inchangés (un client plus ancien ne remet jamais le mode à zéro).
     scan_schedule_mode: ScheduleMode | None = None
     scan_nightly_hour: int | None = Field(default=None, ge=0, le=23)
+    # Absent (client plus ancien) : inchangé.
+    realtime_enabled: bool | None = None
 
     # Instances Sonarr/Radarr supplémentaires : la liste envoyée remplace la
     # liste enregistrée ; absente (None) = inchangée.

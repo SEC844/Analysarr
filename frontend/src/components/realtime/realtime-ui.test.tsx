@@ -8,7 +8,14 @@ import { ArrWebhooksCard } from "@/components/realtime/arr-webhooks-card"
 import { RealtimeIndicator } from "@/components/realtime/realtime-indicator"
 import { useDetectAnalysarrAddress } from "@/hooks/use-realtime"
 import { en } from "@/i18n/en"
-import { getRealtimeStatus, getWebhooks, retryWebhook, saveAnalysarrAddress, testWebhook } from "@/lib/api"
+import {
+  getRealtimeStatus,
+  getWebhooks,
+  retryWebhook,
+  saveAnalysarrAddress,
+  setWebhooksEnabled,
+  testWebhook,
+} from "@/lib/api"
 import { createWrapper, renderWithProviders } from "@/test/render"
 import type { RealtimeStatus, WebhooksRead } from "@/types/realtime"
 
@@ -19,19 +26,24 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   getWebhooks: vi.fn(),
   retryWebhook: vi.fn(),
   saveAnalysarrAddress: vi.fn(),
+  setWebhooksEnabled: vi.fn(),
   testWebhook: vi.fn(),
 }))
 
+const HOOK = { error: null, url: null, polling: "active", polling_error: null } as const
+
 const WEBHOOKS: WebhooksRead = {
   analysarr_url: "http://analysarr:1818",
+  realtime_enabled: true,
+  enabled: true,
   webhooks: [
-    { service: "sonarr", instance_id: 0, name: "Sonarr", state: "connected", error: null, url: "http://a/w" },
-    { service: "sonarr", instance_id: 2, name: "Sonarr 4K", state: "error", error: "Sonarr 4K injoignable", url: null },
-    { service: "radarr", instance_id: 0, name: "Radarr", state: "pending", error: null, url: null },
+    { ...HOOK, service: "sonarr", instance_id: 0, name: "Sonarr", state: "connected", url: "http://a/w" },
+    { ...HOOK, service: "sonarr", instance_id: 2, name: "Sonarr 4K", state: "error", error: "Sonarr 4K injoignable" },
+    { ...HOOK, service: "radarr", instance_id: 0, name: "Radarr", state: "pending" },
   ],
 }
 
-const STATUS: RealtimeStatus = { active: true, address_set: true, sources: [] }
+const STATUS: RealtimeStatus = { enabled: true, active: true, address_set: true, sources: [] }
 
 function inRouter(ui: React.ReactElement) {
   return renderWithProviders(<MemoryRouter>{ui}</MemoryRouter>)
@@ -62,13 +74,55 @@ describe("realtime UI", () => {
 
   it("points to the address when it is missing", async () => {
     vi.mocked(getWebhooks).mockResolvedValue({
+      ...WEBHOOKS,
       analysarr_url: "",
-      webhooks: [{ service: "radarr", instance_id: 0, name: "Radarr", state: "no_address", error: null, url: null }],
+      webhooks: [{ ...HOOK, service: "radarr", instance_id: 0, name: "Radarr", state: "no_address" }],
     })
     inRouter(<ArrWebhooksCard service="radarr" />)
 
     const link = await screen.findByRole("link", { name: en.realtime.webhooks.openAddress })
     expect(link).toHaveAttribute("href", "/settings?section=application")
+  })
+
+  it("lets the user refuse webhooks and shows the read-only following instead", async () => {
+    const user = userEvent.setup()
+    const disabled: WebhooksRead = {
+      ...WEBHOOKS,
+      enabled: false,
+      webhooks: [{ ...HOOK, service: "sonarr", instance_id: 0, name: "Sonarr", state: "disabled" }],
+    }
+    vi.mocked(getWebhooks).mockResolvedValue({ ...WEBHOOKS, webhooks: WEBHOOKS.webhooks.slice(0, 1) })
+    vi.mocked(setWebhooksEnabled).mockResolvedValue(disabled)
+    inRouter(<ArrWebhooksCard service="sonarr" />)
+
+    const toggle = await screen.findByRole("switch", { name: "Create a webhook in Sonarr" })
+    expect(toggle).toBeChecked()
+    // Webhook branché : le suivi en lecture seule reste discret.
+    expect(screen.queryByText(en.realtime.webhooks.polling.active)).not.toBeInTheDocument()
+
+    await user.click(toggle)
+
+    await waitFor(() => expect(setWebhooksEnabled).toHaveBeenCalledWith(false, expect.anything()))
+    expect(await screen.findByText(`· ${en.realtime.webhooks.states.disabled}`)).toBeInTheDocument()
+    expect(screen.getByText(en.realtime.webhooks.polling.active)).toBeInTheDocument()
+    expect(screen.getByRole("switch", { name: "Create a webhook in Sonarr" })).not.toBeChecked()
+  })
+
+  it("points to the schedule when real time is off", async () => {
+    vi.mocked(getWebhooks).mockResolvedValue({ ...WEBHOOKS, realtime_enabled: false })
+    inRouter(<ArrWebhooksCard service="sonarr" />)
+
+    const link = await screen.findByRole("link", { name: en.realtime.webhooks.openSchedule })
+    expect(link).toHaveAttribute("href", "/settings?section=schedule")
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument()
+  })
+
+  it("shows nothing in the header in scans-only mode", async () => {
+    vi.mocked(getRealtimeStatus).mockResolvedValue({ ...STATUS, enabled: false, active: false })
+    const { container } = inRouter(<RealtimeIndicator />)
+
+    await waitFor(() => expect(getRealtimeStatus).toHaveBeenCalled())
+    expect(container).toBeEmptyDOMElement()
   })
 
   it("saves a corrected address", async () => {
