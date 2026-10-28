@@ -15,7 +15,14 @@ from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import MediaDeleteSelection
 from app.services.cascade_delete import execute_delete
 from app.services.media_delete import execute_media_delete
-from app.services.trash import TRASH_DIR_NAME, purge_expired, restore_action
+from app.services.trash import (
+    CONCEALED_SUFFIX,
+    TRASH_DIR_NAME,
+    conceal_existing,
+    purge_expired,
+    restore_action,
+    trashed_paths,
+)
 
 
 def enable_trash(session, settings, tmp_path):
@@ -476,3 +483,98 @@ def test_a_file_still_linked_outside_the_trash_frees_nothing(
     listed = admin_client.get("/api/trash").json()
     assert listed[0]["items"][0]["size"] == 1000  # la taille du fichier reste affichée
     assert listed[0]["size"] == 0  # mais rien ne sera libéré
+
+
+VIDEO_EXTENSIONS = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".iso")
+
+
+def trash_files(tmp_path):
+    return [
+        os.path.join(directory, name)
+        for directory, _dirs, names in os.walk(tmp_path / TRASH_DIR_NAME)
+        for name in names
+    ]
+
+
+def test_nothing_in_the_trash_looks_like_a_video_to_cross_seed(session, settings, tmp_path, monkeypatch):
+    """Bug réel : cross-seed (dataDirs) retrouvait une série supprimée dans la
+    corbeille et injectait de nouveaux torrents vers elle. Chaque fichier mis
+    de côté porte une extension non vidéo : cross-seed ne l'indexe ni ne le
+    recherche (includeNonVideos désactivé, son défaut). La restauration rend
+    les noms d'origine."""
+    enable_trash(session, settings, tmp_path)
+    client = FakeTorrentClient()
+    patch_client(monkeypatch, client)
+    media, row = add_movie(session, tmp_path)
+    pack = tmp_path / "Serie.S01.1080p"
+    pack.mkdir()
+    (pack / "Serie.S01E01.mkv").write_bytes(b"e1")
+    (pack / "Serie.S01E02.mkv").write_bytes(b"e2")
+    (pack / "Serie.S01.nfo").write_bytes(b"nfo")
+    torrent = Torrent(
+        media_id=media.id,
+        hash="def456",
+        name=pack.name,
+        save_path=str(tmp_path),
+        content_path=str(pack),
+        size=4,
+        is_hardlinked=False,
+        repairable=False,
+    )
+    session.add(torrent)
+    session.commit()
+    inode = os.stat(pack / "Serie.S01E01.mkv").st_ino
+
+    asyncio.run(
+        execute_media_delete(
+            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+        )
+    )
+
+    hidden = trash_files(tmp_path)
+    assert len(hidden) == 4
+    assert all(path.endswith(CONCEALED_SUFFIX) for path in hidden)
+    assert not any(path.lower().endswith(VIDEO_EXTENSIONS) for path in hidden)
+    items = session.exec(select(TrashItem)).all()
+    assert all(os.path.lexists(path) for item in items for path in trashed_paths(item))
+
+    action = session.exec(select(TrashAction)).one()
+    steps, complete = asyncio.run(restore_action(session, settings, action))
+
+    assert complete, steps
+    assert Path(row.path).read_bytes() == b"contenu"
+    assert sorted(os.listdir(pack)) == ["Serie.S01.nfo", "Serie.S01E01.mkv", "Serie.S01E02.mkv"]
+    assert os.stat(pack / "Serie.S01E01.mkv").st_ino == inode
+
+
+def test_what_the_trash_held_before_is_hidden_at_startup(session, settings, tmp_path):
+    trash = tmp_path / TRASH_DIR_NAME
+    folder = trash / "20261027-122230-Serie.S05"
+    folder.mkdir(parents=True)
+    (folder / "Serie.S05E01.mkv").write_bytes(b"e1")
+    single = trash / "20261027-122230-Film.mkv"
+    single.write_bytes(b"film")
+    action = TrashAction(action="delete_selection", media_title="Serie", media_type="series")
+    session.add(action)
+    session.commit()
+    session.add(TrashItem(action_id=action.id, kind="library_file", original_path="/a", trashed_path=str(single)))
+    session.add(
+        TrashItem(
+            action_id=action.id,
+            kind="torrent",
+            original_path="/b",
+            trashed_path=str(folder),
+            torrent_payload=json.dumps({"paths": ["/b"], "trashed_paths": [str(folder)]}),
+        )
+    )
+    session.commit()
+
+    conceal_existing()
+    conceal_existing()  # sans effet la seconde fois
+
+    session.expire_all()
+    files = session.exec(select(TrashItem).where(TrashItem.kind == "library_file")).one()
+    assert files.trashed_path == str(single) + CONCEALED_SUFFIX and os.path.exists(files.trashed_path)
+    assert sorted(os.listdir(folder)) == ["Serie.S05E01.mkv" + CONCEALED_SUFFIX]
+    pack = session.exec(select(TrashItem).where(TrashItem.kind == "torrent")).one()
+    assert trashed_paths(pack) == [str(folder)]
