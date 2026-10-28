@@ -33,6 +33,7 @@ import json
 import logging
 import os
 import shutil
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -41,6 +42,7 @@ from sqlmodel import Session, col, select
 
 from app.clients.torrent import torrent_client, torrent_client_configured
 from app.clients.torrent_base import TorrentAuthError, TorrentClient, magnet_for
+from app.database import engine
 from app.models.ids import row_id
 from app.models.media import Media, Torrent
 from app.models.settings import Settings
@@ -91,7 +93,96 @@ def _move_into(path: str, trash_dir: str) -> str:
     os.makedirs(trash_dir, exist_ok=True)
     destination = _unique_destination(trash_dir, os.path.basename(path.rstrip("/\\")))
     os.replace(path, destination)
-    return destination
+    return conceal(destination)
+
+
+# --- Hors de portée de cross-seed ---------------------------------------------
+#
+# Bug réel : cross-seed parcourt ses `dataDirs` (bibliothèque, téléchargements)
+# sans exclure les dossiers cachés. Il trouvait les épisodes d'une série
+# supprimée dans `.analysarr-trash`, les recherchait sur les trackers et
+# injectait de nouveaux torrents hardlinkés vers la corbeille — la série
+# revenait, et la purge ne libérait plus rien. Vérifié dans son code
+# (`dataFiles.ts`, `preFilter.ts::filterByContent`) : un fichier sans
+# extension vidéo n'est jamais une racine de recherche, et toute recherche dont
+# plus de `fuzzySizeThreshold` (2 %) des octets ne sont pas de la vidéo est
+# écartée (`includeNonVideos` désactivé, son défaut), flux RSS compris. Chaque
+# fichier mis de côté porte donc une extension de plus, retirée à la
+# restauration ; renommer ne touche ni l'inode ni les hardlinks.
+CONCEALED_SUFFIX = ".analysarr-trash"
+
+
+def _rename_files(path: str, rename: Callable[[str], str], *, strict: bool) -> str:
+    """Renomme chaque fichier de `path` (lui-même, ou tout ce que contient le
+    dossier) et renvoie le nouveau chemin de l'élément. `strict` : la première
+    erreur est remontée, sinon le fichier garde son nom (journalisé)."""
+    if os.path.isdir(path) and not os.path.islink(path):
+        for directory, _dirs, names in os.walk(path):
+            for name in names:
+                _rename_one(os.path.join(directory, name), rename, strict=strict)
+        return path
+    return _rename_one(path, rename, strict=strict)
+
+
+def _rename_one(path: str, rename: Callable[[str], str], *, strict: bool) -> str:
+    name = os.path.basename(path)
+    target = os.path.join(os.path.dirname(path), rename(name))
+    if target == path:
+        return path
+    try:
+        if os.path.lexists(target):
+            raise FileExistsError(f"Un élément occupe déjà {target}.")
+        os.rename(path, target)
+    except OSError:
+        if strict:
+            raise
+        logger.warning("Impossible de renommer %s dans la corbeille", path, exc_info=True)
+        return path
+    return target
+
+
+def _concealed(name: str) -> str:
+    return name if name.endswith(CONCEALED_SUFFIX) else name + CONCEALED_SUFFIX
+
+
+def _revealed(name: str) -> str:
+    return name[: -len(CONCEALED_SUFFIX)] if name.endswith(CONCEALED_SUFFIX) else name
+
+
+def conceal(path: str) -> str:
+    """Rend un élément de corbeille invisible pour cross-seed. Au mieux : un
+    fichier qui refuse d'être renommé reste en corbeille, simplement visible."""
+    return _rename_files(path, _concealed, strict=False)
+
+
+def reveal(path: str) -> str:
+    """Rend leurs noms aux fichiers d'un élément. La moindre erreur remonte :
+    une restauration ne rend jamais un fichier sous un autre nom."""
+    return _rename_files(path, _revealed, strict=True)
+
+
+def conceal_existing() -> None:
+    """Au démarrage : met hors de portée ce que la corbeille contenait avant
+    cette protection. Sans effet sur un élément déjà traité."""
+    with Session(engine) as session:
+        for item in session.exec(select(TrashItem)).all():
+            if item.kind == "torrent":
+                payload = payload_of(item)
+                moved = [conceal(path) for path in payload.get("trashed_paths") or [] if os.path.lexists(path)]
+                if moved == (payload.get("trashed_paths") or []):
+                    continue
+                payload["trashed_paths"] = moved
+                item.torrent_payload = json.dumps(payload)
+                item.trashed_path = moved[0] if moved else None
+            elif item.trashed_path and os.path.lexists(item.trashed_path):
+                hidden = conceal(item.trashed_path)
+                if hidden == item.trashed_path:
+                    continue
+                item.trashed_path = hidden
+            else:
+                continue
+            session.add(item)
+        session.commit()
 
 
 def _trash_dir_for(settings: Settings | None, path: str) -> str:
@@ -149,7 +240,18 @@ def _restore_path(trashed_path: str, original_path: str) -> None:
     if os.path.lexists(original_path):
         raise FileExistsError(f"Un élément occupe déjà {original_path}.")
     os.makedirs(os.path.dirname(original_path), exist_ok=True)
-    os.replace(trashed_path, original_path)
+    # Un fichier seul retrouve son nom par le déplacement lui-même ; un dossier
+    # rend d'abord leurs noms à ses fichiers, et les recache si le déplacement
+    # échoue (il reste en corbeille, toujours hors de portée de cross-seed).
+    is_dir = os.path.isdir(trashed_path) and not os.path.islink(trashed_path)
+    try:
+        if is_dir:
+            reveal(trashed_path)
+        os.replace(trashed_path, original_path)
+    except OSError:
+        if is_dir:
+            conceal(trashed_path)
+        raise
 
 
 def _remove(path: str) -> None:

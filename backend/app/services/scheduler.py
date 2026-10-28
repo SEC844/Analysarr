@@ -9,7 +9,7 @@ from app.models.settings import Settings
 from app.services.library_history import record_missing_snapshot, record_snapshot
 from app.services.notifications import event_has_subscriber
 from app.services.scan import is_scan_running, run_scan
-from app.services.trash import purge_expired
+from app.services.trash import conceal_existing, purge_expired
 from app.services.updates import notify_update_available
 from app.services.weekly_summary import send_weekly_summary
 
@@ -18,6 +18,7 @@ _UPDATE_JOB_ID = "update_watch"
 _UPDATE_INTERVAL_HOURS = 3
 _TRASH_JOB_ID = "trash_purge"
 _TRASH_INTERVAL_HOURS = 6
+_TRASH_CONCEAL_JOB_ID = "trash_conceal_startup"
 _WEEKLY_JOB_ID = "weekly_summary"
 # Résumé hebdomadaire : le lundi matin, heure du conteneur.
 WEEKLY_SUMMARY_DAY = "mon"
@@ -87,6 +88,10 @@ def configure_trash_purge() -> None:
     voir routers/trash.py). Sans effet quand la corbeille est vide."""
     if scheduler.get_job(_TRASH_JOB_ID) is None:
         scheduler.add_job(_run_trash_purge, "interval", hours=_TRASH_INTERVAL_HOURS, id=_TRASH_JOB_ID)
+    # Une fois au démarrage, dans un thread (disque) : ce que la corbeille
+    # contenait avant de se cacher de cross-seed (services/trash.py::conceal).
+    if scheduler.get_job(_TRASH_CONCEAL_JOB_ID) is None:
+        scheduler.add_job(conceal_existing, id=_TRASH_CONCEAL_JOB_ID)
 
 
 def configure_scan_schedule(
