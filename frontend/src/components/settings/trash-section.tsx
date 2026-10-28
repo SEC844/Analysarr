@@ -133,7 +133,7 @@ function ActionRow({ action }: { action: TrashAction }) {
 export function TrashSection() {
   const { t } = useI18n()
   const { data: settings, isLoading } = useTrashSettingsQuery()
-  const { data: actions } = useTrashQuery()
+  const { data: actions, isLoading: actionsLoading } = useTrashQuery()
   const saveMutation = useSaveTrashSettingsMutation()
   const emptyMutation = useEmptyTrashMutation()
   const [days, setDays] = useState<string | null>(null)
@@ -246,7 +246,11 @@ export function TrashSection() {
           </div>
         </CardHeader>
         <CardContent>
-          {actions && actions.length > 0 ? (
+          {/* Jamais « vide » pendant le chargement : la liste mesure chaque
+              fichier sur le disque et peut prendre quelques secondes. */}
+          {actionsLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : actions && actions.length > 0 ? (
             <ul className="divide-border divide-y text-sm">
               {actions.map((action) => (
                 <ActionRow key={action.id} action={action} />

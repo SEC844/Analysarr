@@ -583,9 +583,18 @@ def purge_action(session: Session, action: TrashAction) -> None:
 def purge_expired(session: Session, settings: Settings | None) -> int:
     limit = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=retention_days(settings))
     expired = session.exec(select(TrashAction).where(TrashAction.created_at < limit)).all()
+    purged = 0
     for action in expired:
-        purge_action(session, action)
-    return len(expired)
+        # Un élément qui refuse (droits, disque) ne bloque jamais la purge des
+        # autres : l'action reste dans la corbeille et sera retentée.
+        try:
+            purge_action(session, action)
+        except OSError:
+            session.rollback()
+            logger.warning("Purge impossible pour « %s », retentée plus tard", action.media_title, exc_info=True)
+            continue
+        purged += 1
+    return purged
 
 
 # --- Restauration -------------------------------------------------------------

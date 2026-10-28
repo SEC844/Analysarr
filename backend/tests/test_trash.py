@@ -13,6 +13,8 @@ from sqlmodel import select
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import MediaDeleteSelection
+from app.services import scheduler
+from app.services import trash as trash_service
 from app.services.cascade_delete import execute_delete
 from app.services.media_delete import execute_media_delete
 from app.services.trash import (
@@ -284,6 +286,58 @@ def test_retention_purges_whole_actions(session, settings, tmp_path):
 
     assert purge_expired(session, settings) == 1
     assert os.path.exists(kept) and not os.path.exists(expired)
+    assert len(session.exec(select(TrashAction)).all()) == 1
+
+
+def add_expired_action(session, path, title="Titre", age=3):
+    path.write_bytes(b"x")
+    created = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=age)
+    action = TrashAction(media_title=title, created_at=created)
+    session.add(action)
+    session.commit()
+    session.add(TrashItem(action_id=action.id, original_path="/a", trashed_path=str(path)))
+    session.commit()
+    return action
+
+
+def test_a_refusing_item_never_blocks_the_rest_of_the_purge(session, settings, tmp_path, monkeypatch):
+    settings.trash_retention_days = 1
+    blocked, freed = tmp_path / "bloque.mkv", tmp_path / "libre.mkv"
+    add_expired_action(session, blocked, "Bloqué")
+    add_expired_action(session, freed, "Libre")
+    real_remove = trash_service._remove
+
+    def refuse_one(path):
+        if path == str(blocked):
+            raise PermissionError(13, "Permission denied", path)
+        real_remove(path)
+
+    monkeypatch.setattr(trash_service, "_remove", refuse_one)
+
+    assert purge_expired(session, settings) == 1
+    assert os.path.exists(blocked) and not os.path.exists(freed)
+    remaining = session.exec(select(TrashAction)).all()
+    assert [action.media_title for action in remaining] == ["Bloqué"]
+
+
+def test_retention_applies_as_soon_as_the_container_starts(session, settings, tmp_path):
+    # Bug réel : purge toutes les 6 h comptées depuis le démarrage, jamais
+    # atteinte sur un conteneur mis à jour plus souvent — une rétention d'un
+    # jour gardait la suppression plus d'une journée de trop.
+    settings.trash_retention_days = 1
+    session.add(settings)
+    session.commit()
+    expired = tmp_path / "vieux.mkv"
+    add_expired_action(session, expired, age=2)
+    recent = tmp_path / "recent.mkv"
+    add_expired_action(session, recent, age=0)
+
+    scheduler._trash_startup()
+
+    # Masquée puis purgée, dans cet ordre : rien ne reste sur le disque.
+    assert not os.path.exists(expired) and not os.path.exists(str(expired) + CONCEALED_SUFFIX)
+    assert os.path.exists(str(recent) + CONCEALED_SUFFIX)
+    session.expire_all()
     assert len(session.exec(select(TrashAction)).all()) == 1
 
 
