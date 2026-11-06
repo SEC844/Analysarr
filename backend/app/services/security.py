@@ -18,6 +18,16 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
+# Empreinte bcrypt d'un mot de passe que personne n'a : vérifiée quand le
+# nom d'utilisateur est inconnu, pour que la réponse prenne le même temps
+# qu'avec un nom existant (sinon le temps de réponse révèle les noms valides).
+_DUMMY_HASH = bcrypt.hashpw(b"analysarr-utilisateur-inconnu", bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_dummy_password(password: str) -> None:
+    verify_password(password, _DUMMY_HASH)
+
+
 def verify_password(password: str, password_hash: str) -> bool:
     try:
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))

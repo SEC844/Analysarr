@@ -99,3 +99,22 @@ def test_companions_of_a_single_episode_leave_the_double_episode_subtitles(tmp_p
     (tmp_path / "Show - S01E01.fr.srt").write_bytes(b"x")
 
     assert companions(str(single)) == [str(tmp_path / "Show - S01E01.fr.srt")]
+
+
+# 8. Connexion : un nom inconnu répond après une vérification bcrypt, comme un
+#    nom connu — le temps de réponse ne révèle plus les noms valides.
+def test_login_timing_no_longer_reveals_existing_usernames(client):
+    import time
+
+    from tests.conftest import ADMIN
+
+    assert client.post("/api/auth/setup", json=ADMIN).status_code == 201
+
+    def timed(username):
+        start = time.perf_counter()
+        client.post("/api/auth/login", json={"username": username, "password": "mauvais-mdp"})
+        return time.perf_counter() - start
+
+    unknown = min(timed("inconnu") for _ in range(3))
+    known = min(timed(ADMIN["username"]) for _ in range(3))
+    assert known < unknown * 3
