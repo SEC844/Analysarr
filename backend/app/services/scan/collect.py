@@ -7,10 +7,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from sqlmodel import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.clients.emby import EmbyClient, media_server_client
 from app.clients.torrent import torrent_client_configured
+from app.database import engine
 from app.models.media import EmbyUser
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget
@@ -27,7 +29,14 @@ from app.services.scan.results import (
 )
 from app.services.seed_protection import SeedPolicy, seed_policy
 from app.services.seer import build_request_rows, fetch_request_index, seer_client
-from app.services.torrent_match import FetchedTorrents, MediaView, attach_torrents, fetch_torrents
+from app.services.torrent_match import (
+    FetchedTorrents,
+    KnownTorrent,
+    MediaView,
+    attach_torrents,
+    fetch_torrents,
+    known_torrents,
+)
 from app.services.watch_stats import (
     apply_aggregates,
     build_watch_rows,
@@ -96,7 +105,9 @@ async def _collect(
     hash_to_index = await _history_hashes(results, movie_entries, series_entries)
 
     await progress("qbittorrent")
-    fetched = await fetch_torrents(settings)
+    # Tout est relu (états des trackers à jour) ; le cache ne sert que de repli
+    # pour un torrent dont les fichiers ou les trackers sont illisibles.
+    fetched = await fetch_torrents(settings, await run_in_threadpool(_known_torrents))
     # Rattachement (inodes) et espace libérable lisent le disque : hors de la
     # boucle asyncio, l'interface reste utilisable pendant le scan.
     await run_in_threadpool(_attach, settings, results, fetched, hash_to_index)
@@ -327,3 +338,9 @@ async def _apply_seer_requests(settings: Settings, results: list[MediaBuildResul
     for result in results:
         result.requests = build_request_rows(result.media, request_index)
     return ok
+
+
+def _known_torrents() -> dict[str, KnownTorrent]:
+    """Torrents du cache actuel (dans un thread : lecture de la base)."""
+    with Session(engine) as session:
+        return known_torrents(session)

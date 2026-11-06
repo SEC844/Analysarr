@@ -73,6 +73,7 @@ from app.services.torrent_match import (
     MediaView,
     attach_torrents,
     fetch_torrents,
+    known_torrents,
     persist_files,
     torrents_from_cache,
 )
@@ -121,7 +122,10 @@ async def _refresh_torrents(session: Session, settings: Settings, medias: list[M
     n'est pas redemandé : le rattachement déjà établi pour un hash connu est
     réutilisé, ce qui donne le même résultat qu'un scan complet sans un appel
     par média."""
-    fetched = await fetch_torrents(settings)
+    # Seuls les torrents nouveaux ou modifiés depuis la dernière lecture sont
+    # détaillés (trackers, fichiers) : les autres reprennent le cache.
+    known = await run_in_threadpool(known_torrents, session)
+    fetched = await fetch_torrents(settings, known, reuse_unchanged=True)
     # Inodes lus sur le disque et réécriture de tous les torrents : hors de la
     # boucle asyncio, sinon toute l'interface attend la fin de l'analyse.
     return await run_in_threadpool(_store_torrents, session, settings, medias, fetched)
