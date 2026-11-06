@@ -61,3 +61,27 @@ def test_a_stale_selection_is_refused_never_silently_ignored(admin_client, sessi
     # Marquée : l'interface recharge la fiche au lieu de rester sur l'erreur.
     assert gone.json()["stale_selection"] is True and other.json()["stale_selection"] is True
     assert episode.exists()
+
+
+# 6. Le scan complet remplace le cache en une seule transaction : une écriture
+#    qui échoue laisse l'ancien cache intact au lieu d'une bibliothèque vide.
+def test_a_failed_cache_replacement_keeps_the_previous_library(session, settings):
+    from sqlalchemy.exc import IntegrityError
+    from sqlmodel import select
+
+    from app.services.scan.orchestrator import _replace_cache
+    from app.services.scan.results import MediaBuildResult
+
+    session.add(Media(media_type=MediaType.movie, title="Ancien", radarr_id=1))
+    session.commit()
+    broken = MediaBuildResult(
+        media=Media(media_type=MediaType.movie, title="Nouveau", radarr_id=2),
+        files=[MediaFile(path=None, size=1)],  # chemin obligatoire : l'écriture échoue
+    )
+
+    try:
+        _replace_cache(session, [broken], [])
+    except IntegrityError:
+        session.rollback()
+
+    assert [m.title for m in session.exec(select(Media)).all()] == ["Ancien"]
