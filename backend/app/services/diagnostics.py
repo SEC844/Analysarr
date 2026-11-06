@@ -105,7 +105,21 @@ async def run_diagnostics(settings: Settings) -> DiagnosticsResult:
             path = source.get("Path")
             emby_checks.append(PathCheck(label=m.get("Name", "?"), path=path, resolved=stat_inode(path) is not None))
 
-    return DiagnosticsResult(qbittorrent=_build_diag(qbit_checks), emby=_build_diag(emby_checks))
+    return DiagnosticsResult(
+        qbittorrent=_build_diag(qbit_checks),
+        emby=_build_diag(emby_checks),
+        separate_mounts=separate_mounts(settings.emby_library_path, settings.qbittorrent_download_path),
+    )
+
+
+def separate_mounts(library: str | None, downloads: str | None) -> bool:
+    """Deux systèmes de fichiers distincts (illisible : on ne conclut rien)."""
+    if not (library and downloads):
+        return False
+    try:
+        return os.stat(library).st_dev != os.stat(downloads).st_dev
+    except OSError:
+        return False
 
 
 async def list_unmatched_torrents(session: Session, settings: Settings) -> list[UnmatchedTorrent]:

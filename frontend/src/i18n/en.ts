@@ -346,6 +346,8 @@ export const en: Dictionary = {
     commonPrefix:
       "All unresolved paths share the folder {path} — this folder does not seem to be mounted in the Analysarr container (check that it is added to the docker-compose / Unraid template, like the other download folders).",
     emptyPath: "(empty path)",
+    separateMounts:
+      "The library and the downloads are on two different file systems: no hardlink is possible between them, and the trash sets torrent data aside in a {trash} folder next to them. If a tool like qbit_manage cleans orphaned files, exclude {rule}.",
     embyMovies: "{server} (movies)",
   },
   schedule: {

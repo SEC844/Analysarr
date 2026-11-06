@@ -25,6 +25,10 @@ class PathDiagnostics(BaseModel):
 class DiagnosticsResult(BaseModel):
     qbittorrent: PathDiagnostics
     emby: PathDiagnostics
+    # Bibliothèque et téléchargements sur deux systèmes de fichiers distincts :
+    # aucun hardlink possible entre eux, et la corbeille met les données des
+    # torrents de côté dans un `.analysarr-trash` voisin des téléchargements.
+    separate_mounts: bool = False
 
 
 class UnmatchedTorrent(BaseModel):

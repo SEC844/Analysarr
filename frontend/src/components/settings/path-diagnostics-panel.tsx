@@ -54,7 +54,7 @@ function DiagnosticsBlock({ title, diag }: { title: string; diag: PathDiagnostic
 }
 
 export function PathDiagnosticsPanel() {
-  const { t } = useI18n()
+  const { t, rich } = useI18n()
   const diagnostics = useMutation({ mutationFn: getPathDiagnostics })
 
   return (
@@ -77,6 +77,17 @@ export function PathDiagnosticsPanel() {
 
         {diagnostics.data && (
           <div className="space-y-4">
+            {diagnostics.data.separate_mounts && (
+              <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {rich("diagnostics.separateMounts", {
+                    trash: <code>.analysarr-trash</code>,
+                    rule: <code>**/.analysarr-trash/**</code>,
+                  })}
+                </span>
+              </p>
+            )}
             <DiagnosticsBlock title="qBittorrent" diag={diagnostics.data.qbittorrent} />
             <DiagnosticsBlock title={t("diagnostics.embyMovies")} diag={diagnostics.data.emby} />
           </div>

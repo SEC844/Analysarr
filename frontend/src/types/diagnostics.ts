@@ -14,4 +14,6 @@ export interface PathDiagnostics {
 export interface DiagnosticsResult {
   qbittorrent: PathDiagnostics
   emby: PathDiagnostics
+  /** Bibliothèque et téléchargements sur deux systèmes de fichiers distincts. */
+  separate_mounts: boolean
 }

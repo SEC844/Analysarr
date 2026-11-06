@@ -172,3 +172,57 @@ def test_the_tags_column_is_added_without_recreating_the_cache(tmp_path, monkeyp
     with engine.connect() as connection:
         assert connection.execute(text("SELECT hash, category FROM torrent")).one() == ("aaa", "films")
     engine.dispose()
+
+
+# 5. La vérification avant suppression regarde les corbeilles que
+#    `move_to_trash` utilisera vraiment : celle de la bibliothèque d'abord,
+#    toujours, puis celle voisine d'un élément situé sur un autre disque.
+def test_trash_checks_follow_the_real_destination(settings, tmp_path, monkeypatch):
+    import os as real_os
+    from types import SimpleNamespace
+
+    from app.services import trash as trash_service
+
+    library = tmp_path / "media"
+    downloads = tmp_path / "torrents" / "Film"
+    library.mkdir()
+    downloads.mkdir(parents=True)
+    torrent_file = downloads / "Film.mkv"
+    torrent_file.write_bytes(b"x")
+    settings.emby_library_path = str(library)
+    real_stat = real_os.stat
+
+    def other_disk(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if str(path) == str(downloads):
+            return SimpleNamespace(st_dev=result.st_dev + 1, st_mode=result.st_mode)
+        return result
+
+    monkeypatch.setattr(trash_service.os, "stat", other_disk)
+    library_trash = str(library / trash_service.TRASH_DIR_NAME)
+    monkeypatch.setattr(trash_service, "creatable_dir", lambda path: path != library_trash)
+
+    # Autre disque : la corbeille de la bibliothèque est tout de même essayée
+    # en premier (seul EXDEV fait passer à la voisine) ; elle doit être vérifiée.
+    assert library_trash in trash_service.staging_blockers(settings, str(torrent_file))
+
+
+def test_the_path_diagnostic_spots_separate_file_systems(tmp_path, monkeypatch):
+    import os as real_os
+    from types import SimpleNamespace
+
+    from app.services import diagnostics
+
+    library, downloads = tmp_path / "media", tmp_path / "torrents"
+    library.mkdir()
+    downloads.mkdir()
+    assert diagnostics.separate_mounts(str(library), str(downloads)) is False
+    assert diagnostics.separate_mounts(str(library), str(tmp_path / "absent")) is False
+
+    real_stat = real_os.stat
+    monkeypatch.setattr(
+        diagnostics.os,
+        "stat",
+        lambda path: SimpleNamespace(st_dev=2) if str(path) == str(downloads) else real_stat(path),
+    )
+    assert diagnostics.separate_mounts(str(library), str(downloads)) is True

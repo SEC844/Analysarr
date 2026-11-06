@@ -347,6 +347,8 @@ export const fr = {
     commonPrefix:
       "Tous les chemins non résolus partagent le dossier {path} — ce dossier ne semble pas monté dans le conteneur Analysarr (vérifiez qu'il est bien ajouté au docker-compose / template Unraid, comme pour les autres dossiers de téléchargement).",
     emptyPath: "(chemin vide)",
+    separateMounts:
+      "La bibliothèque et les téléchargements sont sur deux systèmes de fichiers différents : aucun hardlink n'est possible entre eux, et la corbeille met les données des torrents de côté dans un dossier {trash} à côté d'eux. Si un outil comme qbit_manage nettoie les fichiers orphelins, excluez {rule}.",
     embyMovies: "{server} (films)",
   },
   schedule: {
