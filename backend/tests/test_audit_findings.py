@@ -58,4 +58,6 @@ def test_a_stale_selection_is_refused_never_silently_ignored(admin_client, sessi
 
     assert gone.status_code == 409 and other.status_code == 409
     assert "rechargez" in gone.json()["detail"]
+    # Marquée : l'interface recharge la fiche au lieu de rester sur l'erreur.
+    assert gone.json()["stale_selection"] is True and other.json()["stale_selection"] is True
     assert episode.exists()

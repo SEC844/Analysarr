@@ -29,6 +29,7 @@ import { usePreferences } from "@/hooks/use-app"
 import { useDeleteFootprintQuery, useDeleteSelectionExecuteMutation, useMediaWatchQuery } from "@/hooks/use-media"
 import { useTrashSettingsQuery } from "@/hooks/use-trash"
 import { useI18n } from "@/i18n"
+import { isStaleSelection } from "@/lib/api"
 import { diskBytes, fileKey, indexFootprint, reclaimedBytes, torrentKey } from "@/lib/footprint"
 import { formatBytes } from "@/lib/format"
 import { obligationText } from "@/lib/seed"
@@ -301,7 +302,16 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
           }
           setResult(data)
         },
-        onError: (err) => toast.error(err instanceof Error ? err.message : t("deleteSelection.failed")),
+        onError: (err) => {
+          if (isStaleSelection(err)) {
+            // La fiche est relue (voir useDeleteSelectionExecuteMutation) : la
+            // sélection repart de zéro, sur ce qui existe vraiment.
+            setSelected(new Set())
+            toast.error(err.message, { description: t("deleteSelection.reloaded") })
+            return
+          }
+          toast.error(err instanceof Error ? err.message : t("deleteSelection.failed"))
+        },
       },
     )
   }

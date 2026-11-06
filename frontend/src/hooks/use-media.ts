@@ -9,6 +9,7 @@ import {
   getDeleteFootprint,
   getMedia,
   getMediaWatch,
+  isStaleSelection,
   hardlinkRepairExecute,
   hardlinkRepairPreview,
   linkMediaToArr,
@@ -85,6 +86,10 @@ export function useDeleteSelectionExecuteMutation() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["media"] })
       queryClient.invalidateQueries({ queryKey: ["media", "detail", id] })
+    },
+    onError: (error) => {
+      // Sélection périmée : la fiche et son empreinte disque sont relues.
+      if (isStaleSelection(error)) queryClient.invalidateQueries({ queryKey: ["media"] })
     },
   })
 }

@@ -184,9 +184,11 @@ async def _capture(tx: DeletionTransaction, media: Media, target: ArrTarget) -> 
         await tx.capture_arr("sonarr", media.arr_instance_id, lambda: target.sonarr().get_series_by_id(series_id))
 
 
-class StaleSelectionError(Exception):
+class StaleSelectionError(RuntimeError):
     """La sélection désigne un média, un torrent ou un fichier qui n'existe
-    plus tel quel (réanalyse, scan complet) : rien n'est supprimé."""
+    plus tel quel (réanalyse, scan complet) : rien n'est supprimé. HTTP 409
+    avec `stale_selection` (main.py) : l'interface recharge la fiche. Hérite de
+    RuntimeError : une automatisation la traite comme une étape en échec."""
 
 
 def selection_of(media: Media, torrents: Sequence[Torrent], files: Sequence[MediaFile]) -> MediaDeleteSelection:

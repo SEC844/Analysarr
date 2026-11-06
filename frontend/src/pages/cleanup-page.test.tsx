@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { en } from "@/i18n/en"
 import {
+  ApiError,
   deleteSelectionExecute,
   getCleanupCandidate,
   getCleanupOtherLinks,
@@ -291,6 +292,24 @@ describe("CleanupPage", () => {
       media_key: "series:arr:0:12",
       remove_from_arr: true,
     })
+  })
+
+  it("explains an outdated list instead of a bare failure", async () => {
+    vi.mocked(deleteSelectionExecute).mockRejectedValue(
+      new ApiError("Un élément sélectionné n'existe plus", 409, {
+        detail: "Un élément sélectionné n'existe plus",
+        stale_selection: true,
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole("checkbox", { name: "Select Forgotten" }))
+    await user.click(screen.getByRole("button", { name: en.cleanup.deleteSelection }))
+    const dialog = await screen.findByRole("dialog")
+
+    await user.click(within(dialog).getByRole("button", { name: en.common.confirmDelete }))
+
+    expect(await within(dialog).findByText(en.cleanup.delete.stale)).toBeInTheDocument()
   })
 
   it("leaves aside a media that became protected before its turn", async () => {

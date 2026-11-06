@@ -1161,6 +1161,7 @@ export const fr = {
       done: "Supprimé",
       skipped: "Laissé de côté : devenu protégé",
       failed: "Échec : rien n'a été supprimé",
+      stale: "Ce média a changé depuis l'ouverture de la liste (analyse entre-temps) : la liste est relue, relancez la suppression.",
       finished: "{done} média(s) supprimé(s) sur {total}.",
     },
     settings: {
@@ -1280,5 +1281,6 @@ export const fr = {
     cancelledIncomplete:
       "Suppression annulée, mais certains éléments sont restés dans la corbeille : restaurez-les depuis Réglages → Corbeille.",
     failed: "Échec de la suppression.",
+    reloaded: "Rien n'a été supprimé. La fiche vient d'être rechargée : vérifiez la sélection puis confirmez de nouveau.",
   },
 }

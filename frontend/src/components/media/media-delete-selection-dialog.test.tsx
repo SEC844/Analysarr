@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { en } from "@/i18n/en"
-import { deleteSelectionExecute, getDeleteFootprint, getMediaWatch, getTrashSettings } from "@/lib/api"
+import { ApiError, deleteSelectionExecute, getDeleteFootprint, getMediaWatch, getTrashSettings } from "@/lib/api"
 import { footerCloseButton } from "@/test/dialog"
 import { renderWithProviders } from "@/test/render"
 import type { MediaDetail, MediaFileRead, TorrentRead } from "@/types/media"
@@ -296,5 +296,26 @@ describe("MediaDeleteSelectionDialog", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Radarr injoignable"))
     expect(screen.getByText(en.deleteSelection.title)).toBeInTheDocument()
     expect(screen.getByText(counter(3))).toBeInTheDocument() // la sélection est conservée
+  })
+
+  it("reloads the page and clears the selection when it became outdated", async () => {
+    vi.mocked(deleteSelectionExecute).mockRejectedValue(
+      new ApiError("Un élément sélectionné n'existe plus", 409, {
+        detail: "Un élément sélectionné n'existe plus",
+        stale_selection: true,
+      }),
+    )
+    const user = await openDialog()
+    await selectTorrentsAndOldFile(user)
+
+    await user.click(getConfirm())
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Un élément sélectionné n'existe plus", {
+        description: en.deleteSelection.reloaded,
+      }),
+    )
+    expect(screen.getByText(en.deleteSelection.title)).toBeInTheDocument()
+    expect(screen.getByText(counter(0))).toBeInTheDocument() // à refaire sur la fiche relue
   })
 })

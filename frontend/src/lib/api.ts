@@ -80,6 +80,13 @@ export class ApiError extends Error {
   }
 }
 
+/** 409 d'une suppression dont la sélection est périmée (réanalyse entre
+ * l'ouverture et la confirmation) : la fiche doit être relue. */
+export function isStaleSelection(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false
+  return (error.body as { stale_selection?: unknown } | null)?.stale_selection === true
+}
+
 export function isTwoFactorRequired(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false
   return (error.body as { two_factor_required?: unknown } | null)?.two_factor_required === true

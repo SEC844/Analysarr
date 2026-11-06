@@ -15,7 +15,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { usePreferences } from "@/hooks/use-app"
 import { useI18n } from "@/i18n"
-import { deleteSelectionExecute, getCleanupCandidate, getMedia } from "@/lib/api"
+import { deleteSelectionExecute, getCleanupCandidate, getMedia, isStaleSelection } from "@/lib/api"
 import { selectionSize } from "@/lib/cleanup"
 import { formatBytes } from "@/lib/format"
 import type { CleanupCandidate } from "@/types/cleanup"
@@ -69,6 +69,8 @@ export function CleanupDeleteDialog({
   const queryClient = useQueryClient()
   const [removeFromArr, setRemoveFromArr] = useState(prefs.delete_remove_from_arr_default)
   const [outcomes, setOutcomes] = useState<Record<number, Outcome> | null>(null)
+  // Raison d'un échec, affichée sous le média concerné.
+  const [errors, setErrors] = useState<Record<number, string>>({})
   // Liste figée au lancement : les médias supprimés quittent la sélection
   // pendant l'exécution, le récapitulatif doit pourtant tous les montrer.
   const [batch, setBatch] = useState<CleanupCandidate[] | null>(null)
@@ -80,6 +82,7 @@ export function CleanupDeleteDialog({
     if (running) return
     setOutcomes(null)
     setBatch(null)
+    setErrors({})
     onClose()
   }
 
@@ -94,8 +97,16 @@ export function CleanupDeleteDialog({
       setOutcomes({ ...state })
       try {
         state[candidate.media_id] = await deleteWholeMedia(candidate, removeFromArr)
-      } catch {
+      } catch (err) {
         state[candidate.media_id] = "failed"
+        // Liste périmée (scan entre-temps) : elle est relue à la fin, il
+        // suffit de relancer la suppression sur la liste à jour.
+        const reason = isStaleSelection(err)
+          ? t("cleanup.delete.stale")
+          : err instanceof Error
+            ? err.message
+            : t("cleanup.delete.failed")
+        setErrors((prev) => ({ ...prev, [candidate.media_id]: reason }))
       }
       setOutcomes({ ...state })
     }
@@ -120,7 +131,7 @@ export function CleanupDeleteDialog({
             const outcome = outcomes?.[candidate.media_id]
             const Icon = outcome ? ICONS[outcome] : null
             return (
-              <li key={candidate.media_id} className="flex items-center gap-2 py-1">
+              <li key={candidate.media_id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1">
                 {Icon && (
                   <Icon
                     className={
@@ -145,6 +156,9 @@ export function CleanupDeleteDialog({
                   <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
                     {formatBytes(candidate.reclaimable_bytes)}
                   </span>
+                )}
+                {errors[candidate.media_id] && (
+                  <p className="text-destructive basis-full pl-6 text-xs break-words">{errors[candidate.media_id]}</p>
                 )}
               </li>
             )

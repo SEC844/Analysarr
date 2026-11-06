@@ -1151,6 +1151,7 @@ export const en: Dictionary = {
       done: "Deleted",
       skipped: "Left aside: became protected",
       failed: "Failed: nothing was deleted",
+      stale: "This media changed since the list was opened (an analysis ran meanwhile): the list is reloaded, run the deletion again.",
       finished: "{done} media deleted out of {total}.",
     },
     settings: {
@@ -1267,5 +1268,6 @@ export const en: Dictionary = {
     cancelled: "Deletion cancelled: a step failed, nothing was deleted.",
     cancelledIncomplete: "Deletion cancelled, but some items stayed in the trash: restore them from Settings → Trash.",
     failed: "Deletion failed.",
+    reloaded: "Nothing was deleted. The page has just been reloaded: check the selection, then confirm again.",
   },
 }

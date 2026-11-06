@@ -50,7 +50,6 @@ from app.services.hardlink_repair import build_repair_preview, execute_repair
 from app.services.ignore_rules import MediaIgnores, media_ignores, torrent_is_ignorable
 from app.services.ignores import duplicate_file_ids, media_key
 from app.services.media_delete import (
-    StaleSelectionError,
     build_delete_footprint,
     execute_media_delete,
     reclaimed_bytes,
@@ -397,10 +396,7 @@ async def delete_selection(
     if payload.media_key is None:
         raise HTTPException(400, "Identité du média manquante : rechargez la page.")
     media, settings = _media_and_settings(media_id, session)
-    try:
-        torrents, files = resolve_selection(session, media, payload)
-    except StaleSelectionError as exc:
-        raise HTTPException(409, str(exc)) from exc
+    torrents, files = resolve_selection(session, media, payload)
     ref = MediaRef.of(media)
     # Empreinte calculée AVANT la suppression : les inodes ne sont plus
     # lisibles ensuite.
