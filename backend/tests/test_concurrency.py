@@ -96,3 +96,50 @@ def test_a_burst_of_authenticated_requests_never_freezes_the_app(live_server):
     health = httpx.get(f"{live_server}/api/health", timeout=HEALTH_WITHIN)
     assert health.status_code == 200
     assert time.monotonic() - started < HEALTH_WITHIN
+
+
+# Boucle asyncio : une route ne doit jamais la tenir plus que ce seuil.
+LOOP_BLOCKED_AT_MOST = 0.2
+SLOW_DISK = 0.6
+
+
+async def _health_latencies(base_url: str, cookies: httpx.Cookies, slow_path: str) -> tuple[int, list[float]]:
+    async with httpx.AsyncClient(base_url=base_url, cookies=cookies, timeout=30) as client:
+        slow = asyncio.create_task(client.get(slow_path))
+        await asyncio.sleep(0.1)  # la requête lente est en cours
+        latencies = []
+        while not slow.done():
+            started = time.monotonic()
+            assert (await client.get("/api/health")).status_code == 200
+            latencies.append(time.monotonic() - started)
+            await asyncio.sleep(0.02)
+        return (await slow).status_code, latencies
+
+
+def test_a_slow_disk_never_blocks_the_event_loop(live_server, session, settings, monkeypatch):
+    """Constat 3 de l'audit : l'empreinte disque (ouverture du dialogue
+    « Supprimer ») lisait chaque fichier DANS la boucle asyncio. Sur un
+    partage lent, toute l'application attendait, /api/health compris."""
+    from app.models.media import Media, MediaFile, MediaType
+    from app.services import disk_footprint
+
+    media = Media(media_type=MediaType.movie, title="Film", radarr_id=1)
+    session.add(media)
+    session.commit()
+    session.add(MediaFile(media_id=media.id, path="/data/media/Film/Film.mkv", size=1))
+    session.commit()
+    original = disk_footprint.FootprintBuilder.unit_for
+
+    def slow_unit_for(self, path, size):
+        time.sleep(SLOW_DISK)  # partage réseau qui tarde à répondre
+        return original(self, path, size)
+
+    monkeypatch.setattr(disk_footprint.FootprintBuilder, "unit_for", slow_unit_for)
+    cookies = _session_cookies(live_server)
+
+    status, latencies = asyncio.run(
+        _health_latencies(live_server, cookies, f"/api/media/{media.id}/delete-selection/footprint")
+    )
+
+    assert status == 200 and latencies
+    assert max(latencies) < LOOP_BLOCKED_AT_MOST, latencies

@@ -193,7 +193,7 @@ async def _delete_whole_media(
     files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
     selection = selection_of(media, torrents, files)
     selection.remove_from_arr = "manquant_arr" not in media.statuses.split(",")
-    footprint = await build_delete_footprint(session, media, settings)
+    footprint = await build_delete_footprint(media, settings)
     freed = reclaimed_bytes(footprint, [row_id(t) for t in torrents], [row_id(f) for f in files])
     result = await execute_media_delete(session, media, settings, selection)
     steps = [

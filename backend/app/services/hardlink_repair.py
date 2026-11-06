@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 import httpx
 from sqlmodel import Session, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.torrent import TorrentAuthError, TorrentClient, torrent_client
 from app.models.ids import row_id
@@ -95,7 +96,10 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
         protected_inodes = await _protected_inodes(qbit, protected_torrents)
         for t in orphan_torrents:
             torrent_files = await resolve_torrent_files(qbit, t)
-            items += _repair_items(media, t, torrent_files, by_episode, current_single, protected_inodes)
+            # Fichiers et inodes lus sur le disque : hors de la boucle asyncio.
+            items += await run_in_threadpool(
+                _repair_items, media, t, torrent_files, by_episode, current_single, protected_inodes
+            )
 
     # La même taille ne prouve pas le même contenu : chaque paire est
     # comparée (empreinte de quelques blocs, lue hors de la boucle asyncio)
@@ -122,13 +126,13 @@ async def _protected_inodes(qbit: TorrentClient, protected_torrents: Sequence[To
     serait alors reconnu comme protégé, les autres seraient à tort traités
     comme non protégés (direction `torrent_to_library` choisie par erreur, qui
     romprait un hardlink pourtant déjà fonctionnel pour ces épisodes-là)."""
-    inodes: set[tuple[int, int]] = set()
-    for t in protected_torrents:
-        for path, _size in await resolve_torrent_files(qbit, t):
-            inode = stat_inode(path)
-            if inode is not None:
-                inodes.add(inode)
-    return inodes
+    paths = [path for t in protected_torrents for path, _size in await resolve_torrent_files(qbit, t)]
+    return await run_in_threadpool(_inodes_of, paths)
+
+
+def _inodes_of(paths: list[str]) -> set[tuple[int, int]]:
+    """Inodes lus sur le disque : jamais dans la boucle asyncio."""
+    return {inode for path in paths if (inode := stat_inode(path)) is not None}
 
 
 def _repair_items(

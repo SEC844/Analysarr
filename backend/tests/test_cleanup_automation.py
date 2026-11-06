@@ -206,7 +206,7 @@ def deletions(monkeypatch):
     l'automatisation lui demande."""
     calls: list[tuple[int, MediaDeleteSelection]] = []
 
-    async def footprint(session, media, settings):
+    async def footprint(media, settings):
         return MediaDeleteFootprint(units=[], torrents=[], files=[])
 
     async def execute(session, media, settings, selection):

@@ -384,7 +384,7 @@ async def delete_execute(media_id: int, session: Session = Depends(get_session))
 @router.get("/{media_id}/delete-selection/footprint", response_model=MediaDeleteFootprint)
 async def delete_selection_footprint(media_id: int, session: Session = Depends(get_session)) -> MediaDeleteFootprint:
     media, settings = _media_and_settings(media_id, session)
-    return await build_delete_footprint(session, media, settings)
+    return await build_delete_footprint(media, settings)
 
 
 @router.post("/{media_id}/delete-selection", response_model=MediaDeleteSelectionResult)
@@ -402,7 +402,7 @@ async def delete_selection(
     ref = MediaRef.of(media)
     # Empreinte calculée AVANT la suppression : les inodes ne sont plus
     # lisibles ensuite.
-    footprint = await build_delete_footprint(session, media, settings)
+    footprint = await build_delete_footprint(media, settings)
     freed = reclaimed_bytes(footprint, [row_id(t) for t in torrents], [row_id(f) for f in files])
     result = await execute_media_delete(session, media, settings, payload)
     _log_and_notify(session, settings, "delete_selection", ref, result.steps, freed)

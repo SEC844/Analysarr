@@ -10,8 +10,10 @@ from collections.abc import Sequence
 
 import httpx
 from sqlmodel import Session, col, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_configured
+from app.database import run_in_session
 from app.models.ids import row_id
 from app.models.media import Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
@@ -23,7 +25,7 @@ from app.schemas.media import (
 )
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
-from app.services.disk_footprint import FootprintBuilder, freed_bytes
+from app.services.disk_footprint import FootprintBuilder, freed_bytes, torrent_paths
 from app.services.hardlink import resolve_torrent_files
 from app.services.ignores import media_key
 from app.services.media_status import refresh_media_statuses
@@ -32,7 +34,7 @@ from app.services.path_guard import ensure_paths_available
 logger = logging.getLogger(__name__)
 
 
-async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
+async def build_delete_footprint(media: Media, settings: Settings) -> MediaDeleteFootprint:
     """Résout en direct l'inode de chaque fichier physique de chaque élément
     supprimable (fichiers de bibliothèque, CHAQUE fichier de chaque torrent
     — pas seulement l'inode représentatif stocké au scan, insuffisant pour
@@ -40,12 +42,12 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
 
     Un chemin introuvable ou non résolu (dossier, qBittorrent injoignable)
     devient une unité à part, de la taille connue en base : estimation
-    prudente plutôt que de faire disparaître l'élément du calcul."""
-    files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
-    torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
+    prudente plutôt que de faire disparaître l'élément du calcul.
 
-    builder = FootprintBuilder()
-    file_items = [builder.item(row_id(f), [(f.path, f.size)], f.size, f.path) for f in files]
+    Base et disque hors de la boucle asyncio (chaque ouverture du dialogue
+    « Supprimer » relit tous les fichiers : lent sur un partage Unraid), le
+    client torrent dans la boucle."""
+    files, torrents = await run_in_session(_footprint_rows, row_id(media))
 
     torrent_files: dict[int, list[tuple[str, int | None]]] = {}
     if torrents and torrent_client_configured(settings):
@@ -58,8 +60,29 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
             logger.warning("Fichiers des torrents illisibles pour l'empreinte disque", exc_info=True)
             torrent_files.clear()
 
+    return await run_in_threadpool(_assemble_footprint, files, torrents, torrent_files)
+
+
+def _footprint_rows(session: Session, media_id: int) -> tuple[list[MediaFile], list[Torrent]]:
+    files = list(session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all())
+    torrents = list(session.exec(select(Torrent).where(Torrent.media_id == media_id)).all())
+    return files, torrents
+
+
+def _assemble_footprint(
+    files: list[MediaFile], torrents: list[Torrent], torrent_files: dict[int, list[tuple[str, int | None]]]
+) -> MediaDeleteFootprint:
+    """Inodes lus sur le disque : jamais dans la boucle asyncio."""
+    builder = FootprintBuilder()
+    file_items = [builder.item(row_id(f), [(f.path, f.size)], f.size, f.path) for f in files]
     torrent_items = [
-        builder.item(row_id(t), torrent_files.get(row_id(t)) or await resolve_torrent_files(None, t), t.size, t.hash)
+        builder.item(
+            row_id(t),
+            # Repli sur `content_path` (client injoignable), comme resolve_torrent_files.
+            torrent_paths(t.save_path, t.content_path, t.size, torrent_files.get(row_id(t), [])),
+            t.size,
+            t.hash,
+        )
         for t in torrents
     ]
     return MediaDeleteFootprint(units=builder.units, torrents=torrent_items, files=file_items)
