@@ -8,6 +8,12 @@ tableau des sources (`status.board`), backoff exponentiel en cas d'erreur
 SIGNALER à la file (`hub`) : il ne lit ni n'écrit jamais le cache média
 lui-même, en dehors de la correspondance identifiant → média.
 
+Reconnexion : l'état de référence (empreintes, dernier événement vu,
+compteurs, date de la dernière lecture) est gardé d'une session à l'autre.
+Bug réel : chaque session repartait d'une page blanche, et tout ce qui avait
+changé pendant une coupure (client torrent ou Sonarr redémarré) n'était vu
+qu'au scan de nuit.
+
 Garde-fou commun : au-delà de `MASS_THRESHOLD` médias touchés d'un coup
 (bibliothèque réanalysée par le serveur, client torrent redémarré), une seule
 analyse du service remplace des centaines d'analyses individuelles."""
@@ -121,18 +127,23 @@ class TorrentWatcher(Watcher):
     key = "torrents"
     kind = "torrents"
 
+    def __init__(self, settings: Settings, interval: float, hub: RealtimeHub, board: StatusBoard) -> None:
+        super().__init__(settings, interval, hub, board)
+        # Gardées d'une session à l'autre : la première lecture après une
+        # coupure est comparée à la dernière d'avant.
+        self.previous: dict[str, Fingerprint] | None = None
+
     async def session(self) -> None:
         async with torrent_client(self.settings) as client:
-            previous: dict[str, Fingerprint] | None = None
             while True:
                 current = await client.fingerprints()
                 self.board.checked(self.key)
-                if previous is not None:
-                    changes = diff_fingerprints(previous, current)
+                if self.previous is not None:
+                    changes = diff_fingerprints(self.previous, current)
                     if changes:
                         self.board.event(self.key)
                         await self.dispatch(changes, current)
-                previous = current
+                self.previous = current
                 await asyncio.sleep(self.interval)
 
     async def dispatch(self, changes: TorrentChanges, current: dict[str, Fingerprint]) -> None:
@@ -217,23 +228,28 @@ class MediaServerWatcher(Watcher):
         self.seen = SeenItems(OVERLAP.total_seconds())
         self.counts: tuple[int, int, int] | None = None
         self.counts_supported = True
+        # Gardés d'une session à l'autre : après une coupure, la lecture
+        # « changé depuis » reprend là où la dernière réussie s'était arrêtée,
+        # et les compteurs comparés sont ceux d'avant la coupure.
+        self.since: datetime | None = None
+        self.watch_since: datetime | None = None
 
     async def session(self) -> None:
         emby = media_server_client(self.settings)
         if emby is None:
             raise RuntimeError("Serveur multimédia non configuré.")
-        since = datetime.now(UTC) - OVERLAP
         tick = 0
-        self.counts = None
         while True:
             started = datetime.now(UTC)
+            since = self.since or started - OVERLAP
             await self.poll_counts(emby)
             await self.poll_library(emby, since)
+            self.since = started - OVERLAP
             if tick % WATCH_EVERY == 0:
-                await self.poll_watch(emby, since)
+                await self.poll_watch(emby, self.watch_since or since)
+                self.watch_since = started - OVERLAP
             self.board.checked(self.key)
             self.seen.prune(time.monotonic())
-            since = started - OVERLAP
             tick += 1
             await asyncio.sleep(self.interval)
 
@@ -309,18 +325,22 @@ class RequestsWatcher(Watcher):
     key = "requests"
     kind = "requests"
 
+    def __init__(self, settings: Settings, interval: float, hub: RealtimeHub, board: StatusBoard) -> None:
+        super().__init__(settings, interval, hub, board)
+        # Gardée d'une session à l'autre (voir l'en-tête du module).
+        self.previous: tuple[Any, ...] | None = None
+
     async def session(self) -> None:
         client = seer_client(self.settings)
         if client is None:
             raise RuntimeError("Gestionnaire de demandes non configuré.")
-        previous: tuple[Any, ...] | None = None
         while True:
             current = await client.requests_fingerprint()
             self.board.checked(self.key)
-            if previous is not None and current != previous:
+            if self.previous is not None and current != self.previous:
                 self.board.event(self.key)
                 self.hub.service_changed("seer")
-            previous = current
+            self.previous = current
             await asyncio.sleep(self.interval)
 
 
@@ -365,26 +385,30 @@ class ArrWatcher(Watcher):
         self.target = target
         self.instance_id = target.instance_id or 0
         self.key = arr_source_key(target.kind, self.instance_id)
+        # Gardés d'une session à l'autre : après une coupure, les événements
+        # survenus entre-temps sont repris (au-delà d'une page, le service est
+        # relu en entier).
+        self.last_id: int | None = None
+        self.queue: tuple[Any, ...] | None = None
 
     async def session(self) -> None:
         client = self.target.sonarr() if self.target.kind == "sonarr" else self.target.radarr()
-        last_id: int | None = None
-        queue: tuple[Any, ...] | None = None
         while True:
             records = await client.get_recent_history(HISTORY_PAGE)
             status = await client.get_queue_status()
             current_queue = tuple(status.get(name) for name in _QUEUE_COUNTERS)
             self.board.checked(self.key)
             newest = max((rid for r in records if (rid := _record_id(r)) is not None), default=0)
+            last_id = self.last_id
             if last_id is not None:
                 fresh = [r for r in records if (rid := _record_id(r)) is not None and rid > last_id]
                 await self.dispatch(fresh, overflow=len(fresh) >= HISTORY_PAGE)
-            if queue is not None and current_queue != queue:
+            if self.queue is not None and current_queue != self.queue:
                 # Import bloqué, téléchargement en souffrance : la file est relue.
                 self.board.event(self.key)
                 self.hub.service_changed("queue")
-            last_id = max(newest, last_id or 0)
-            queue = current_queue
+            self.last_id = max(newest, last_id or 0)
+            self.queue = current_queue
             await asyncio.sleep(self.interval)
 
     async def dispatch(self, records: list[dict[str, Any]], *, overflow: bool) -> None:
