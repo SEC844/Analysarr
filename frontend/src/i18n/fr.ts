@@ -922,8 +922,8 @@ export const fr = {
     crossSeedSearch: "Chercher un cross-seed",
     byEpisode: "Par épisode",
     bySeason: "Par saison",
-    wholeSeries: "Série intégrale",
-    crossSeedTriggered: "Recherche cross-seed déclenchée ({count}).",
+    crossSeedTriggered:
+      "Recherche demandée à cross-seed ({count}) : il cherche en arrière-plan, ses journaux diront s'il a trouvé quelque chose.",
     crossSeedErrors: "{count} échec(s) — {detail}",
     crossSeedMoreErrors: " (+{count} autre(s) type(s) d'erreur)",
     crossSeedFailed: "Échec de la recherche cross-seed.",

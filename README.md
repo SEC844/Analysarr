@@ -57,7 +57,7 @@ Analysarr shows, for every movie and series, its state across your whole stack �
 - Retry a blocked import (nothing is deleted: the file already on disk is simply handed back to Sonarr/Radarr).
 - Remove a media that has nothing left on disk from Sonarr/Radarr.
 - **Ignore what you chose on purpose**: the ⋯ menu ignores a torrent, keeps a file on purpose (a dubbed and a subtitled version side by side) or hides an alert of a media — for instance a home video no Radarr will ever know. Ignored items are never cleaned up, repaired or touched by automations, and each one is **reported again automatically as soon as its situation changes**. Hidden alerts stay visible, struck through; everything is listed in Settings → Ignored items.
-- Targeted cross-seed search per episode, season or whole series.
+- Targeted cross-seed search per episode or season (single episodes included). Analysarr asks cross-seed to search; whether something is found shows in cross-seed's own logs.
 
 **Decision support**
 - Watch activity per user (`3/10` watched it, progress on hover), last played date, date added, favourites and each account's last activity.

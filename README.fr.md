@@ -57,7 +57,7 @@ Analysarr affiche, pour chaque film et chaque série, son état dans toute votre
 - Relance d'un import bloqué (rien n'est supprimé : le fichier déjà sur le disque est simplement redonné à Sonarr/Radarr).
 - Retrait d'un média dont il ne reste rien sur le disque, de Sonarr/Radarr.
 - **Ignorer ce qui est voulu** : le menu ⋯ ignore un torrent, garde volontairement un fichier (une VF et une VOSTFR côte à côte) ou masque une alerte d'un média — par exemple une vidéo de famille qu'aucun Radarr ne connaîtra. Un élément ignoré n'est jamais nettoyé, réparé ni touché par une automatisation, et il est **de nouveau signalé automatiquement dès que sa situation change**. Les alertes masquées restent visibles, barrées ; tout est listé dans Réglages → Éléments ignorés.
-- Recherche cross-seed ciblée par épisode, saison ou série intégrale.
+- Recherche cross-seed ciblée par épisode ou par saison (épisodes seuls compris). Analysarr demande la recherche à cross-seed ; ce qu'il trouve apparaît dans ses propres journaux.
 
 **Aide à la décision**
 - Visionnage par utilisateur (`3/10` l'ont vu, progression au survol), dernière lecture, date d'ajout, favoris et dernière activité de chaque compte.

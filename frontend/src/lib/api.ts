@@ -505,7 +505,7 @@ export function deleteSelectionExecute(id: number, selection: MediaDeleteSelecti
   })
 }
 
-export type CrossSeedSearchScope = "episode" | "season" | "series"
+export type CrossSeedSearchScope = "episode" | "season"
 
 export function crossSeedSearch(id: number, scope: CrossSeedSearchScope = "episode"): Promise<CrossSeedSearchResult> {
   return request<CrossSeedSearchResult>(`/api/media/${id}/cross-seed-search?scope=${scope}`, { method: "POST" })
