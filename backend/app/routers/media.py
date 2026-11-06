@@ -68,7 +68,9 @@ router = APIRouter()
 
 
 def _is_cross_seed(torrent: Torrent) -> bool:
-    haystacks = (torrent.category, torrent.save_path, torrent.content_path)
+    # Étiquette comprise : cross-seed peut marquer ses torrents par une
+    # étiquette `cross-seed` (qBittorrent) plutôt que par une catégorie.
+    haystacks = (torrent.category, torrent.tags, torrent.save_path, torrent.content_path)
     return any(h and "cross-seed" in h.lower() for h in haystacks)
 
 

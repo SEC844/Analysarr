@@ -159,6 +159,8 @@ export const en: Dictionary = {
       "Covers the files Analysarr deletes itself and the torrents it removes from the client (their data is set aside, never erased). When Sonarr or Radarr deletes a file on our behalf, their own recycling bin applies.",
     ratioHelp:
       "On restore: files return to their location with their hardlinks, the torrent goes back to the client with its data (no re-download), and the media is recreated in Sonarr/Radarr. Only the torrent sharing stats (ratio, uploaded) start over: no torrent client allows restoring them.",
+    crossSeedHelp:
+      "Trashed files get a non-video extension, so cross-seed does not find them. If its {option} option is on, add {rule} to its {blockList}, otherwise it might bring back what you deleted.",
     contentTitle: "Trash content",
     contentDescription:
       "{size} will be freed on permanent deletion. A file still hardlinked elsewhere frees nothing until its last link is gone, so it counts as zero.",

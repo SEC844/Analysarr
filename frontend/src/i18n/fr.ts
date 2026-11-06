@@ -159,6 +159,8 @@ export const fr = {
       "Concerne les fichiers qu'Analysarr supprime lui-même et les torrents qu'il retire du client (leurs données sont mises de côté, jamais effacées). Quand Sonarr ou Radarr supprime un fichier à notre demande, c'est leur propre corbeille qui s'applique.",
     ratioHelp:
       "À la restauration : les fichiers retrouvent leur emplacement et leurs hardlinks, le torrent est remis dans le client avec ses données (aucun retéléchargement), et le média est recréé dans Sonarr/Radarr. Seules les statistiques de partage du torrent (ratio, quantité envoyée) repartent de zéro : aucun client torrent ne permet de les restaurer.",
+    crossSeedHelp:
+      "Les fichiers mis de côté portent une extension non vidéo : cross-seed ne les retrouve pas. Si son option {option} est activée, ajoutez {rule} à son {blockList}, sinon il pourrait reprendre ce que vous avez supprimé.",
     contentTitle: "Contenu de la corbeille",
     contentDescription:
       "{size} seront libérés à la suppression définitive. Un fichier encore hardlinké ailleurs ne libère rien tant que son dernier lien existe : il compte donc pour zéro.",

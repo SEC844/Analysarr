@@ -16,6 +16,7 @@ import {
   useTrashQuery,
   useTrashSettingsQuery,
 } from "@/hooks/use-trash"
+import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n } from "@/i18n"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -131,8 +132,9 @@ function ActionRow({ action }: { action: TrashAction }) {
 }
 
 export function TrashSection() {
-  const { t } = useI18n()
+  const { t, rich } = useI18n()
   const { data: settings, isLoading } = useTrashSettingsQuery()
+  const { data: appSettings } = useSettingsQuery()
   const { data: actions, isLoading: actionsLoading } = useTrashQuery()
   const saveMutation = useSaveTrashSettingsMutation()
   const emptyMutation = useEmptyTrashMutation()
@@ -202,6 +204,16 @@ export function TrashSection() {
 
           <p className="text-muted-foreground text-xs">{t("trash.scopeHelp")}</p>
           <p className="text-muted-foreground text-xs">{t("trash.ratioHelp")}</p>
+          {/* cross-seed désactivé : aucune trace dans l'interface. */}
+          {appSettings?.cross_seed.enabled && (
+            <p className="text-muted-foreground text-xs">
+              {rich("trash.crossSeedHelp", {
+                option: <code>includeNonVideos: true</code>,
+                rule: <code>"folder:.analysarr-trash"</code>,
+                blockList: <code>blockList</code>,
+              })}
+            </p>
+          )}
         </CardContent>
       </Card>
 

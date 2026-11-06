@@ -210,6 +210,13 @@ _ARR_WEBHOOK_NEW_COLUMNS = [
 ]
 
 
+# Torrents : colonne ajoutée sans recréer le cache (sinon toute la
+# bibliothèque disparaîtrait jusqu'au scan suivant).
+_TORRENT_NEW_COLUMNS = [
+    ("tags", "VARCHAR"),
+]
+
+
 # Même principe pour le compte administrateur (`user`), jamais recréé.
 _USER_NEW_COLUMNS = [
     ("totp_secret", "VARCHAR"),
@@ -323,6 +330,7 @@ def init_db() -> None:
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
     _ensure_columns("user", _USER_NEW_COLUMNS)
     _ensure_columns("arrwebhook", _ARR_WEBHOOK_NEW_COLUMNS)
+    _ensure_columns("torrent", _TORRENT_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
     _migrate_legacy_notifications()
     _apply_realtime_default()

@@ -132,3 +132,43 @@ def test_no_source_file_has_an_invalid_escape_sequence():
         with warnings.catch_warnings():
             warnings.simplefilter("error", SyntaxWarning)
             compile(path.read_text(encoding="utf-8"), str(path), "exec")
+
+
+# 19. Badge « cross-seed » : l'étiquette du torrent compte aussi, pas seulement
+#     sa catégorie ou son dossier.
+def test_a_torrent_tagged_cross_seed_gets_the_badge(admin_client, session):
+    media = Media(media_type=MediaType.movie, title="Film", radarr_id=1)
+    session.add(media)
+    session.commit()
+    session.add(Torrent(media_id=media.id, hash="aaa", name="Film", category="films", tags="cross-seed, ygg"))
+    session.add(Torrent(media_id=media.id, hash="bbb", name="Film", category="films", tags="ygg"))
+    session.commit()
+
+    torrents = admin_client.get(f"/api/media/{media.id}").json()["torrents"]
+
+    assert {t["hash"]: t["is_cross_seed"] for t in torrents} == {"aaa": True, "bbb": False}
+
+
+def test_the_tags_column_is_added_without_recreating_the_cache(tmp_path, monkeypatch):
+    """Base existante : la colonne est ajoutée, les torrents en cache restent."""
+    import sqlite3
+
+    from sqlalchemy import create_engine, inspect, text
+
+    from app import database
+
+    path = tmp_path / "analysarr.db"
+    legacy = sqlite3.connect(path)
+    legacy.execute("CREATE TABLE torrent (id INTEGER PRIMARY KEY, hash VARCHAR, category VARCHAR)")
+    legacy.execute("INSERT INTO torrent VALUES (1, 'aaa', 'films')")
+    legacy.commit()
+    legacy.close()
+    engine = create_engine(f"sqlite:///{path}")
+    monkeypatch.setattr(database, "engine", engine)
+
+    database._ensure_columns("torrent", database._TORRENT_NEW_COLUMNS)
+
+    assert "tags" in {c["name"] for c in inspect(engine).get_columns("torrent")}
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT hash, category FROM torrent")).one() == ("aaa", "films")
+    engine.dispose()

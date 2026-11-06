@@ -107,6 +107,7 @@ class TransmissionClient(TorrentClient):
             "save_path": save_path,
             "content_path": content_path_for(save_path, paths),
             "category": labels[0] if labels else None,
+            "tags": ", ".join(labels[1:]) or None,
             "size": torrent.get("totalSize"),
             "ratio": torrent.get("uploadRatio"),
             "num_seeds": torrent.get("peersSendingToUs"),

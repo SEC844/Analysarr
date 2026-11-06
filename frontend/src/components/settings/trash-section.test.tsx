@@ -3,20 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { TrashSection } from "@/components/settings/trash-section"
 import { en } from "@/i18n/en"
-import { getTrash, getTrashSettings } from "@/lib/api"
+import { getSettings, getTrash, getTrashSettings } from "@/lib/api"
 import { renderWithProviders } from "@/test/render"
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: vi.fn(),
   getTrash: vi.fn(),
   getTrashSettings: vi.fn(),
 }))
+
+function crossSeed(enabled: boolean) {
+  vi.mocked(getSettings).mockResolvedValue({ cross_seed: { enabled } } as Awaited<ReturnType<typeof getSettings>>)
+}
 
 describe("TrashSection", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(getTrashSettings).mockResolvedValue({ enabled: true, retention_days: 1, min_days: 1, max_days: 90 })
+    crossSeed(false)
   })
 
   it("never claims the trash is empty while its content is still loading", async () => {
@@ -34,5 +40,21 @@ describe("TrashSection", () => {
     renderWithProviders(<TrashSection />)
 
     expect(await screen.findByText(en.trash.empty0)).toBeInTheDocument()
+  })
+
+  it("tells cross-seed users how to keep the trash out of reach", async () => {
+    crossSeed(true)
+    vi.mocked(getTrash).mockResolvedValue([])
+    renderWithProviders(<TrashSection />)
+
+    expect(await screen.findByText('"folder:.analysarr-trash"')).toBeInTheDocument()
+  })
+
+  it("never mentions cross-seed when it is turned off", async () => {
+    vi.mocked(getTrash).mockResolvedValue([])
+    renderWithProviders(<TrashSection />)
+
+    expect(await screen.findByText(en.trash.empty0)).toBeInTheDocument()
+    expect(screen.queryByText('"folder:.analysarr-trash"')).not.toBeInTheDocument()
   })
 })
