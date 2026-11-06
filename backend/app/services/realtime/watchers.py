@@ -41,7 +41,7 @@ from app.services.arr_instances import ArrTarget
 from app.services.realtime.hub import RealtimeHub
 from app.services.realtime.status import StatusBoard
 from app.services.realtime.targets import media_for_arr_ids, media_for_hashes, media_for_items
-from app.services.realtime.webhooks import recently_delivered
+from app.services.realtime.webhooks import HISTORY_EVENT_KINDS, event_key, recently_delivered
 from app.services.seer import seer_client
 from app.services.watch_stats import excluded_user_ids
 
@@ -371,8 +371,9 @@ class ArrWatcher(Watcher):
 
     Toujours actif, webhook ou pas : sans webhook (désactivé, adresse
     d'Analysarr injoignable), c'est lui qui assure le temps réel ; avec, il
-    sert de filet de sécurité — un média que le webhook vient de signaler
-    n'est pas réanalysé une seconde fois (`webhooks.recently_delivered`).
+    sert de filet de sécurité — un événement que le webhook a livré (et dont
+    l'analyse a réussi) n'est pas réanalysé une seconde fois
+    (`webhooks.recently_delivered`, par événement et non par média).
     Ce que l'historique ne dit pas (fiche ajoutée ou retirée sans fichier) est
     vu par le webhook, sinon par le scan de nuit."""
 
@@ -423,7 +424,9 @@ class ArrWatcher(Watcher):
             arr_id = record.get(field)
             if not isinstance(arr_id, int) or isinstance(arr_id, bool) or arr_id <= 0:
                 continue
-            if recently_delivered(self.target.kind, self.instance_id, arr_id):
+            kind = HISTORY_EVENT_KINDS.get(str(record.get("eventType")))
+            key = event_key(self.target.kind, self.instance_id, kind, record.get("downloadId"), arr_id)
+            if recently_delivered(key):
                 continue
             imported[arr_id] = imported.get(arr_id, False) or record.get("eventType") in IMPORT_EVENTS
         if not imported:

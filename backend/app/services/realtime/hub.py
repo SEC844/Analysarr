@@ -158,6 +158,7 @@ class RealtimeHub:
         # dépendent de celui-ci.
         from app.services.partial_scan import run_service_scan
         from app.services.realtime.targets import media_ids_for_keys
+        from app.services.realtime.webhooks import confirm_deliveries
         from app.services.scan import short_analysis
 
         if not media and not services:
@@ -192,6 +193,8 @@ class RealtimeHub:
                 self._failed(key, full, result)
             else:
                 self._attempts.pop(key, None)
+                # Événements reçus par webhook : livrés maintenant seulement.
+                confirm_deliveries(key)
                 changed = changed or result
         self._report_delays()
         if services or changed:

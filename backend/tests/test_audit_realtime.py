@@ -14,7 +14,7 @@ from app.services.realtime import hub as hub_module
 from app.services.realtime import watchers
 from app.services.realtime.hub import ANALYSIS_SOURCE, RealtimeHub
 from app.services.realtime.status import board
-from app.services.realtime.webhooks import forget_deliveries
+from app.services.realtime.webhooks import confirm_deliveries, event_key, forget_deliveries, note_delivery
 
 
 class FakeHub:
@@ -205,3 +205,25 @@ def test_a_queued_signal_still_targets_the_right_media_after_a_full_scan(session
 
     asyncio.run(RealtimeHub().process({queued: True}, []))
     assert seen == ["Dune"]
+
+
+# 12. Le suivi en lecture seule n'écarte plus un import parce qu'un AUTRE
+#     événement de la même série (le grab) est arrivé par webhook.
+def test_a_history_import_is_kept_after_a_delivered_grab(session, settings):
+    forget_deliveries()
+    series = Media(media_type=MediaType.series, title="All's Fair", sonarr_id=7)
+    session.add(series)
+    session.commit()
+    # Webhook Grab reçu et analysé ; le webhook d'import, lui, n'est jamais arrivé.
+    note_delivery(media_key(series), event_key("sonarr", 0, "grab", "DL-1", 7))
+    confirm_deliveries(media_key(series))
+
+    class Target:
+        kind, instance_id, name = "sonarr", None, "Sonarr"
+
+    hub = FakeHub()
+    watcher = watchers.ArrWatcher(settings, 0, hub, FakeBoard(), Target())
+    record = {"id": 99, "seriesId": 7, "eventType": "downloadFolderImported", "downloadId": "DL-1"}
+    asyncio.run(watcher.dispatch([record], overflow=False))
+    assert hub.media == [media_key(series)]
+    forget_deliveries()

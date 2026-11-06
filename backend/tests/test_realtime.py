@@ -582,6 +582,20 @@ def test_an_import_rescans_the_known_series_only_by_its_id(client, session, hook
     assert signals == [("media", media_key(media))]
 
 
+def test_a_delivered_import_waits_for_its_analysis_before_counting(client, session, hooked, signals):
+    media = Media(media_type=MediaType.series, title="Vraie", sonarr_id=12)
+    session.add(media)
+    session.commit()
+    body = {"eventType": "Download", "series": {"id": 12}, "downloadId": "ABC123"}
+
+    assert deliver(client, hooked, body).status_code == 204
+
+    key = webhooks.event_key("sonarr", 0, "import", "abc123", 12)
+    assert webhooks.recently_delivered(key) is False  # pas encore analysé
+    webhooks.confirm_deliveries(media_key(media))
+    assert webhooks.recently_delivered(key) is True
+
+
 def test_an_unknown_series_asks_for_a_sonarr_analysis(client, hooked, signals):
     assert deliver(client, hooked, {"eventType": "SeriesAdd", "series": {"id": 99}}).status_code == 204
     assert signals == [("service", "sonarr")]
@@ -1206,7 +1220,7 @@ def _hanging_on_save(calls: list, *, reached: bool = False):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path == "/api/v3/notification":
             if reached:
-                webhooks.note_received("sonarr", 0, None)
+                webhooks.note_received("sonarr", 0)
             raise httpx.ReadTimeout("timed out", request=request)
         return base(request)
 
@@ -1375,7 +1389,9 @@ def test_a_webhook_suspended_by_sonarr_is_shown_and_notified(admin_client, setti
     _connect(admin_client)
     sent: list[tuple[str, str]] = []
     monkeypatch.setattr(supervisor_module, "notify", lambda targets, event, notice: sent.append((event, notice.title)))
-    webhooks.note_received("sonarr", 0, 7)
+    delivered = webhooks.event_key("sonarr", 0, "delete", None, 7)
+    webhooks.note_delivery("series:arr:0:7", delivered)
+    webhooks.confirm_deliveries("series:arr:0:7")
 
     fake_http["http://sonarr"] = _with_health(sonarr_server(calls), [SUSPENDED])
     sup = reconcile()
@@ -1384,7 +1400,7 @@ def test_a_webhook_suspended_by_sonarr_is_shown_and_notified(admin_client, setti
     assert hook["state"] == "suspended" and "suspendu" in hook["error"]
     assert sent == [("webhook_suspended", "Webhook suspendu")]
     # Le suivi en lecture seule ne doit plus rien écarter pour cette instance.
-    assert webhooks.recently_delivered("sonarr", 0, 7) is False
+    assert webhooks.recently_delivered(delivered) is False
 
     sup._health_at.clear()
     reconcile(sup)
@@ -1486,12 +1502,19 @@ def test_sonarr_history_signals_its_media_without_any_webhook(session, settings,
     assert received == ["sonarr"]
 
 
-def test_a_media_the_webhook_just_signalled_is_not_analysed_twice(session, settings, series, monkeypatch):
+def test_an_event_the_webhook_delivered_is_not_analysed_twice(session, settings, series, monkeypatch):
     watcher, received = _arr_watcher(session, settings, monkeypatch)
-    webhooks.note_received("sonarr", 0, 5)
+    record = {"id": 13, "seriesId": 5, "eventType": "episodeFileDeleted"}
+    webhooks.note_delivery(media_key(series), webhooks.event_key("sonarr", 0, "delete", None, 5))
 
-    asyncio.run(watcher.dispatch([{"id": 13, "seriesId": 5, "eventType": "episodeFileDeleted"}], overflow=False))
+    # Reçu mais média pas encore analysé : rien n'est écarté.
+    asyncio.run(watcher.dispatch([record], overflow=False))
+    assert received == [media_key(series)]
 
+    # Analyse réussie : le même événement retrouvé dans l'historique est écarté.
+    received.clear()
+    webhooks.confirm_deliveries(media_key(series))
+    asyncio.run(watcher.dispatch([record], overflow=False))
     assert received == []
 
 

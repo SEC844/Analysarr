@@ -29,7 +29,10 @@ from app.services.realtime.webhooks import (
     ARR_SERVICES,
     RESCAN_EVENTS,
     TEST_EVENT,
+    WEBHOOK_EVENT_KINDS,
+    event_key,
     find_row,
+    note_delivery,
     note_received,
     parse_event,
     presented_secret,
@@ -96,7 +99,7 @@ async def receive_webhook(service: str, instance_id: int, request: Request) -> R
 
     if not active:
         return Response(status_code=204)
-    note_received(service, instance_id, event.arr_id)
+    note_received(service, instance_id)
     board.event(source_key(service, instance_id))
     if event.event_type == TEST_EVENT or event.event_type not in RESCAN_EVENTS:
         return Response(status_code=204)
@@ -109,5 +112,7 @@ async def receive_webhook(service: str, instance_id: int, request: Request) -> R
         # Nouveau film ou nouvelle série : seule l'analyse du service l'ajoute.
         hub.service_changed(service)
     else:
+        kind = WEBHOOK_EVENT_KINDS.get(event.event_type)
+        note_delivery(media_key, event_key(service, instance_id, kind, event.download_id, event.arr_id))
         hub.media_changed(media_key)
     return Response(status_code=204)
