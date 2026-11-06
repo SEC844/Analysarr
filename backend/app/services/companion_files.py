@@ -53,10 +53,23 @@ def companions(path: str) -> list[str]:
         names = os.listdir(folder)
     except OSError:
         return []
+    # Autres vidéos du dossier dont le nom PROLONGE celui-ci (« S01E01-E02 »
+    # pour « S01E01 ») : leurs annexes leur appartiennent. Bug réel possible :
+    # supprimer un épisode emportait les sous-titres de l'épisode double voisin.
+    longer = [
+        stem
+        for name in names
+        if name != os.path.basename(path)
+        and os.path.splitext(name)[1].lower() in VIDEO_EXTENSIONS
+        and (stem := os.path.splitext(name)[0]) != video_name
+        and stem.startswith(video_name)
+    ]
     return sorted(
         os.path.join(folder, name)
         for name in names
-        if name != os.path.basename(path) and is_companion_name(video_name, name)
+        if name != os.path.basename(path)
+        and is_companion_name(video_name, name)
+        and not any(is_companion_name(other, name) for other in longer)
     )
 
 

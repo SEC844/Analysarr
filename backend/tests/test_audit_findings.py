@@ -85,3 +85,17 @@ def test_a_failed_cache_replacement_keeps_the_previous_library(session, settings
         session.rollback()
 
     assert [m.title for m in session.exec(select(Media)).all()] == ["Ancien"]
+
+
+# 7. Annexes : le nom d'une AUTRE vidéo plus longue du même dossier n'est pas
+#    pris pour une annexe de celle-ci.
+def test_companions_of_a_single_episode_leave_the_double_episode_subtitles(tmp_path):
+    from app.services.companion_files import companions
+
+    single = tmp_path / "Show - S01E01.mkv"
+    single.write_bytes(b"x")
+    (tmp_path / "Show - S01E01-E02.mkv").write_bytes(b"x")
+    (tmp_path / "Show - S01E01-E02.fr.srt").write_bytes(b"x")
+    (tmp_path / "Show - S01E01.fr.srt").write_bytes(b"x")
+
+    assert companions(str(single)) == [str(tmp_path / "Show - S01E01.fr.srt")]
