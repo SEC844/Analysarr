@@ -118,3 +118,17 @@ def test_login_timing_no_longer_reveals_existing_usernames(client):
     unknown = min(timed("inconnu") for _ in range(3))
     known = min(timed(ADMIN["username"]) for _ in range(3))
     assert known < unknown * 3
+
+
+# 9. Aucune séquence d'échappement invalide dans le code ni les tests : dans
+#    test_static_files.py, « ..\config\analysarr.db » contenait en réalité un
+#    caractère de contrôle (\a) — le chemin testé n'était pas celui voulu.
+def test_no_source_file_has_an_invalid_escape_sequence():
+    import warnings
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for path in [*root.glob("app/**/*.py"), *root.glob("tests/**/*.py")]:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SyntaxWarning)
+            compile(path.read_text(encoding="utf-8"), str(path), "exec")
