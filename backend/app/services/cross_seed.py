@@ -121,9 +121,11 @@ async def trigger_cross_seed_search(
     async with httpx.AsyncClient(timeout=15.0) as client:
         for label, body in targets:
             try:
+                # Clé en en-tête, jamais dans l'adresse (journaux, proxys) :
+                # accepté par cross-seed depuis la v6 (vérifié dans `server.ts`).
                 resp = await client.post(
                     f"{base}/api/webhook",
-                    params={"apikey": settings.cross_seed_api_key},
+                    headers={"X-Api-Key": settings.cross_seed_api_key},
                     data=body,
                 )
                 resp.raise_for_status()

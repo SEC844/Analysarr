@@ -30,6 +30,8 @@ def _daemon(fake_http) -> list[dict[str, str]]:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/webhook"
+        # Clé en en-tête, jamais dans l'adresse.
+        assert request.headers.get("X-Api-Key") == "cle-secrete" and not request.url.query
         sent.append({key: values[0] for key, values in parse_qs(request.content.decode()).items()})
         return httpx.Response(204)
 
