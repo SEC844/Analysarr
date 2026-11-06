@@ -72,6 +72,28 @@ describe("realtime UI", () => {
     await waitFor(() => expect(retryWebhook).toHaveBeenCalledWith("sonarr", 2))
   })
 
+  it("shows a webhook suspended by Sonarr and the read-only following that takes over", async () => {
+    vi.mocked(getWebhooks).mockResolvedValue({
+      ...WEBHOOKS,
+      webhooks: [
+        {
+          ...HOOK,
+          service: "sonarr",
+          instance_id: 0,
+          name: "Sonarr",
+          state: "suspended",
+          error: "Sonarr a suspendu le webhook d'Analysarr",
+        },
+      ],
+    })
+    inRouter(<ArrWebhooksCard service="sonarr" />)
+
+    expect(await screen.findByText(`· ${en.realtime.webhooks.states.suspended}`)).toBeInTheDocument()
+    expect(screen.getByText("Sonarr a suspendu le webhook d'Analysarr")).toBeInTheDocument()
+    expect(screen.getByText(en.realtime.webhooks.polling.active)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: en.realtime.webhooks.test })).toBeInTheDocument()
+  })
+
   it("points to the address when it is missing", async () => {
     vi.mocked(getWebhooks).mockResolvedValue({
       ...WEBHOOKS,

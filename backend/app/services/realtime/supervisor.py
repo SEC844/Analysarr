@@ -18,7 +18,10 @@ Deux boucles indépendantes :
   (bug réel : démarrage bloqué jusqu'au délai d'attente, webhook « injoignable »).
   Un essai refusé est retenté au bout de 1 min, 5 min puis toutes les 15 min,
   ou aussitôt sur demande. Un webhook branché est revérifié toutes les
-  `WEBHOOK_VERIFY_SECONDS` (retiré à la main chez eux = rebranché).
+  `WEBHOOK_VERIFY_SECONDS` (retiré à la main chez eux = rebranché), et leur
+  bilan de santé toutes les `WEBHOOK_HEALTH_SECONDS` : un webhook qu'ils ont
+  suspendu après des échecs d'envoi est signalé (état « suspendu »,
+  notification) — le suivi en lecture seule prend alors seul le relais.
 
 Inactif tant que l'application n'a pas démarré (`start`) : les tests, qui
 n'exécutent pas le cycle de vie, ne lancent jamais de tâche de fond."""
@@ -41,6 +44,14 @@ from app.database import engine
 from app.models.settings import Settings
 from app.services.arr_instances import ArrTarget
 from app.services.events import live_events
+from app.services.notifications import (
+    ChannelTarget,
+    Notification,
+    channel_targets,
+    notification_language,
+    notify,
+    webhook_suspended_notification,
+)
 from app.services.realtime import webhooks
 from app.services.realtime.hub import RealtimeHub, hub
 from app.services.realtime.status import STATUS_EVENT, StatusBoard, board
@@ -65,6 +76,9 @@ CONFIG_CHECK_SECONDS = 5.0
 # qui redémarre, réseau Docker qui se met en place), puis espacés.
 WEBHOOK_RETRY_STEPS = (60.0, 300.0, 900.0)
 WEBHOOK_VERIFY_SECONDS = 1800.0
+# Bilan de santé de Sonarr/Radarr relu à ce rythme : ils coupent un webhook
+# après 5 min d'échecs d'envoi, sans rien signaler à Analysarr.
+WEBHOOK_HEALTH_SECONDS = 300.0
 NO_ADDRESS = "Adresse d'Analysarr inconnue : Réglages → Application."
 
 
@@ -174,6 +188,7 @@ class RealtimeSupervisor:
         self._failures: dict[str, int] = {}
         self._logged: dict[str, str] = {}
         self._verified_at: dict[str, float] = {}
+        self._health_at: dict[str, float] = {}
 
     async def start(self) -> None:
         """Rapide et sans appel réseau : le démarrage de l'application
@@ -258,6 +273,7 @@ class RealtimeSupervisor:
             if wanted.key in snapshot.connected:
                 self._succeeded(wanted.key)
                 await self._verify(wanted)
+                await self._check_health(wanted)
                 continue
             if not snapshot.base_url:
                 self.board.failed(wanted.key, NO_ADDRESS)
@@ -317,13 +333,41 @@ class RealtimeSupervisor:
                 logger.debug("Vérification du webhook %s impossible", wanted.key, exc_info=True)
                 return
             if present:
-                self.board.checked(wanted.key)
+                if not webhooks.is_suspended(wanted.target.kind, wanted.instance_id):
+                    self.board.checked(wanted.key)
                 return
             row.notification_id = None
             session.add(row)
             session.commit()
         logger.info("Webhook %s absent de %s : rebranchement", wanted.key, wanted.target.name)
         self.request_webhooks(retry=True)
+
+    async def _check_health(self, wanted: webhooks.WantedWebhook) -> None:
+        """Webhook coupé par Sonarr/Radarr (échecs d'envoi répétés) : branché
+        et présent chez eux, mais plus rien n'arrive. Une erreur réseau ne
+        prouve rien."""
+        now = time.monotonic()
+        last = self._health_at.get(wanted.key)
+        if last is not None and now - last < WEBHOOK_HEALTH_SECONDS:
+            return
+        self._health_at[wanted.key] = now
+        try:
+            suspended = await webhooks.suspended_by_service(wanted.target)
+        except httpx.HTTPError:
+            logger.debug("Bilan de santé de %s illisible", wanted.target.name, exc_info=True)
+            return
+        kind, instance_id = wanted.target.kind, wanted.instance_id
+        was_suspended = webhooks.is_suspended(kind, instance_id)
+        started = webhooks.mark_suspended(kind, instance_id, suspended)
+        if suspended:
+            self.board.failed(wanted.key, webhooks.suspended_message(wanted.target))
+            if started:
+                logger.warning("%s a suspendu le webhook d'Analysarr après des échecs d'envoi", wanted.target.name)
+                targets, notice = await run_in_threadpool(_suspended_notice, wanted.target.name)
+                notify(targets, "webhook_suspended", notice)
+        elif was_suspended:
+            logger.info("%s envoie de nouveau ses événements à Analysarr", wanted.target.name)
+            self.board.checked(wanted.key)
 
     def _failed(self, key: str, context: str, message: str) -> None:
         failures = self._failures.get(key, 0)
@@ -344,6 +388,7 @@ class RealtimeSupervisor:
     def _forget(self, key: str) -> None:
         self._succeeded(key)
         self._verified_at.pop(key, None)
+        self._health_at.pop(key, None)
         self.board.forget(key)
 
     # --- Guetteurs ------------------------------------------------------------------
@@ -365,6 +410,14 @@ class RealtimeSupervisor:
 
     def active_keys(self) -> list[str]:
         return sorted(self._tasks)
+
+
+def _suspended_notice(name: str) -> tuple[list[ChannelTarget], Notification]:
+    """Canaux et message lus en base (dans un thread) ; l'envoi, lui, part de
+    la boucle asyncio."""
+    with Session(engine) as session:
+        settings = session.get(Settings, 1)
+        return channel_targets(session), webhook_suspended_notification(notification_language(settings), name)
 
 
 supervisor = RealtimeSupervisor(hub, board)

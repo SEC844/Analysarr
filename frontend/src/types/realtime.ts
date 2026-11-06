@@ -6,7 +6,8 @@ export type ArrService = "sonarr" | "radarr"
  * `error` : dernier essai refusé (branchement ou retrait) ; `no_address` :
  * adresse d'Analysarr inconnue ; `removing` : webhooks désactivés, retrait en
  * cours ; `disabled` : webhooks désactivés, rien chez Sonarr/Radarr. */
-export type WebhookState = "connected" | "pending" | "error" | "no_address" | "removing" | "disabled"
+/** `suspended` : branché, mais Sonarr/Radarr l'a coupé après des échecs d'envoi. */
+export type WebhookState = "connected" | "suspended" | "pending" | "error" | "no_address" | "removing" | "disabled"
 
 export type SourceState = "active" | "waiting" | "error"
 

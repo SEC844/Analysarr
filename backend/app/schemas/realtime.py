@@ -10,7 +10,8 @@ ArrService = Literal["sonarr", "radarr"]
 # (message dans `error`) ; `no_address` : adresse d'Analysarr inconnue ;
 # `removing` : webhooks désactivés, retrait en cours ; `disabled` : webhooks
 # désactivés, rien chez Sonarr/Radarr.
-WebhookState = Literal["connected", "pending", "error", "no_address", "removing", "disabled"]
+# `suspended` : branché, mais Sonarr/Radarr l'a coupé après des échecs d'envoi.
+WebhookState = Literal["connected", "suspended", "pending", "error", "no_address", "removing", "disabled"]
 SourceState = Literal["active", "waiting", "error"]
 
 

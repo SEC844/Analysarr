@@ -114,6 +114,9 @@ DELIVERY_MEMORY_SECONDS = 600.0
 # de chaque instance, et de chaque média signalé.
 _received_at: dict[tuple[str, int], float] = {}
 _delivered_at: dict[tuple[str, int, int], float] = {}
+# Instances dont Sonarr/Radarr a suspendu le webhook d'Analysarr (voir
+# suspended_by_service) : plus rien n'arrive par là.
+_suspended: set[tuple[str, int]] = set()
 
 
 class WebhookError(RuntimeError):
@@ -157,6 +160,8 @@ def note_received(service: str, instance_id: int, arr_id: int | None) -> None:
 
 
 def recently_delivered(service: str, instance_id: int, arr_id: int) -> bool:
+    if (service, instance_id) in _suspended:
+        return False  # webhook coupé : le suivi en lecture seule ne doit rien écarter
     at = _delivered_at.get((service, instance_id, arr_id))
     return at is not None and time.monotonic() - at <= DELIVERY_MEMORY_SECONDS
 
@@ -164,6 +169,59 @@ def recently_delivered(service: str, instance_id: int, arr_id: int) -> bool:
 def forget_deliveries() -> None:
     _received_at.clear()
     _delivered_at.clear()
+    _suspended.clear()
+
+
+def mark_suspended(service: str, instance_id: int, suspended: bool) -> bool:
+    """Retient l'état ; vrai si la suspension vient de commencer."""
+    key = (service, instance_id)
+    started = suspended and key not in _suspended
+    if suspended:
+        _suspended.add(key)
+    else:
+        _suspended.discard(key)
+    return started
+
+
+def is_suspended(service: str, instance_id: int) -> bool:
+    return (service, instance_id) in _suspended
+
+
+# Contrôle de santé de Sonarr/Radarr qui signale une notification coupée
+# (vérifié dans leur code, `NotificationStatusCheck`) : après 5 min d'échecs
+# d'envoi, la notification est désactivée par paliers (1 min à 24 h) et plus
+# rien n'est envoyé. Avertissement « … : nom1, nom2 » quand une partie des
+# notifications est coupée ; erreur sans aucun nom quand elles le sont toutes.
+NOTIFICATION_HEALTH_SOURCE = "NotificationStatusCheck"
+
+
+def suspended_in(health: list[dict[str, Any]], name: str = WEBHOOK_NAME) -> bool:
+    """Le bilan de santé désigne-t-il ce webhook ? Message traduit selon la
+    langue de leur interface : seuls les noms (jamais traduits) sont lus."""
+    for check in health:
+        if not isinstance(check, dict) or check.get("source") != NOTIFICATION_HEALTH_SOURCE:
+            continue
+        if str(check.get("type", "")).lower() == "error":
+            return True  # toutes les notifications coupées, celle d'Analysarr comprise
+        message = str(check.get("message") or "")
+        names = message.rsplit(":", 1)[-1] if ":" in message else ""
+        if name in (part.strip() for part in names.split(",")):
+            return True
+    return False
+
+
+def suspended_message(target: ArrTarget) -> str:
+    return (
+        f"{target.name} a suspendu le webhook d'Analysarr après des échecs d'envoi : il n'envoie plus rien "
+        "jusqu'à son prochain essai. Le suivi en lecture seule prend le relais ; vérifiez que "
+        f"{target.name} joint toujours Analysarr."
+    )
+
+
+async def suspended_by_service(target: ArrTarget) -> bool:
+    """Sonarr/Radarr a-t-il coupé le webhook d'Analysarr ? Une erreur réseau
+    remonte (rien n'est prouvé)."""
+    return suspended_in(await _client(target).get_health())
 
 
 # --- Réception ------------------------------------------------------------------

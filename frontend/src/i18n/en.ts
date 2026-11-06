@@ -436,6 +436,7 @@ export const en: Dictionary = {
       automation: "Automation ran",
       update_available: "Update available",
       automations_paused: "Automations paused",
+      webhook_suspended: "Webhook suspended by Sonarr/Radarr",
       weekly_summary: "Weekly summary",
     },
     eventHelp: {
@@ -456,6 +457,8 @@ export const en: Dictionary = {
       automation: "An automation rule acted.",
       update_available: "A new version of Analysarr has been released (checked every 3 hours, notified once per version).",
       automations_paused: "A scan flipped an unusual share of the library: the rules are suspended.",
+      webhook_suspended:
+        "Sonarr or Radarr turned off Analysarr's webhook after failed deliveries: read-only tracking takes over.",
       weekly_summary:
         "Every Monday at 9 am (container time): library growth, estimated disk filling, top cleanup candidates and seeding obligations coming to an end.",
     },
@@ -1200,6 +1203,7 @@ export const en: Dictionary = {
       openSchedule: "Schedule settings",
       states: {
         connected: "connected",
+        suspended: "suspended by the service",
         pending: "connecting…",
         error: "not connected",
         no_address: "waiting for Analysarr's address",

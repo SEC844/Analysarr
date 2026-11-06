@@ -1347,6 +1347,68 @@ def test_a_webhook_removed_by_hand_in_sonarr_is_reconnected(admin_client, settin
     assert _webhooks(admin_client)["sonarr"]["state"] == "connected"
 
 
+def _with_health(base, health: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v3/health":
+            return httpx.Response(200, json=health)
+        return base(request)
+
+    return handler
+
+
+SUSPENDED = {
+    "source": "NotificationStatusCheck",
+    "type": "warning",
+    "message": "Notifications unavailable due to failures: Discord, Analysarr",
+}
+
+
+def test_a_webhook_suspended_by_sonarr_is_shown_and_notified(admin_client, settings, fake_http, monkeypatch):
+    """Sonarr coupe un webhook après 5 min d'échecs d'envoi (vérifié dans
+    `NotificationStatusCheck`) sans rien dire à Analysarr : il restait affiché
+    « branché » alors que plus rien n'arrivait."""
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    _connect(admin_client)
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(supervisor_module, "notify", lambda targets, event, notice: sent.append((event, notice.title)))
+    webhooks.note_received("sonarr", 0, 7)
+
+    fake_http["http://sonarr"] = _with_health(sonarr_server(calls), [SUSPENDED])
+    sup = reconcile()
+    hook = _webhooks(admin_client)["sonarr"]
+
+    assert hook["state"] == "suspended" and "suspendu" in hook["error"]
+    assert sent == [("webhook_suspended", "Webhook suspendu")]
+    # Le suivi en lecture seule ne doit plus rien écarter pour cette instance.
+    assert webhooks.recently_delivered("sonarr", 0, 7) is False
+
+    sup._health_at.clear()
+    reconcile(sup)
+    assert len(sent) == 1  # une seule notification par coupure
+
+    fake_http["http://sonarr"] = _with_health(sonarr_server(calls), [])
+    sup._health_at.clear()
+    reconcile(sup)
+    assert _webhooks(admin_client)["sonarr"]["state"] == "connected"
+
+
+@pytest.mark.parametrize(
+    ("health", "expected"),
+    [
+        ([SUSPENDED], True),
+        ([{**SUSPENDED, "message": "Notifications indisponibles en raison d'échecs : Analysarr"}], True),
+        ([{**SUSPENDED, "message": "Notifications unavailable due to failures: Discord"}], False),
+        ([{**SUSPENDED, "message": "Notifications unavailable due to failures: Analysarr 2"}], False),
+        # Toutes coupées : aucun nom dans le message, celle d'Analysarr comprise.
+        ([{**SUSPENDED, "type": "error", "message": "All notifications are unavailable due to failures"}], True),
+        ([{"source": "IndexerStatusCheck", "type": "error", "message": "Indexers: Analysarr"}], False),
+    ],
+)
+def test_the_health_check_names_the_analysarr_webhook(health, expected):
+    assert webhooks.suspended_in(health) is expected
+
+
 def test_scan_only_mode_hides_realtime_and_withdraws_webhooks(admin_client, settings, fake_http):
     calls: list = []
     fake_http["http://sonarr"] = sonarr_server(calls)

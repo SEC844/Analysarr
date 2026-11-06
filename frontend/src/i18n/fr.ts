@@ -439,6 +439,7 @@ export const fr = {
       automation: "Automatisation exécutée",
       update_available: "Mise à jour disponible",
       automations_paused: "Automatisations mises en pause",
+      webhook_suspended: "Webhook suspendu par Sonarr/Radarr",
       weekly_summary: "Résumé hebdomadaire",
     },
     eventHelp: {
@@ -459,6 +460,8 @@ export const fr = {
       automation: "Une règle d'automatisation a agi.",
       update_available: "Une nouvelle version d'Analysarr est publiée (vérifié toutes les 3 h, une seule notification par version).",
       automations_paused: "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues.",
+      webhook_suspended:
+        "Sonarr ou Radarr a coupé le webhook d'Analysarr après des échecs d'envoi : le suivi en lecture seule prend le relais.",
       weekly_summary:
         "Chaque lundi à 9 h (heure du conteneur) : croissance de la bibliothèque, remplissage estimé des disques, meilleurs candidats au nettoyage et fins d'obligation de seed.",
     },
@@ -1209,6 +1212,7 @@ export const fr = {
       openSchedule: "Réglages de planification",
       states: {
         connected: "branché",
+        suspended: "suspendu par le service",
         pending: "branchement en cours…",
         error: "non branché",
         no_address: "en attente de l'adresse d'Analysarr",
