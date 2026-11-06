@@ -104,10 +104,10 @@ async def receive_webhook(service: str, instance_id: int, request: Request) -> R
         # Événement sans film ni série identifiable : la liste du service est relue.
         hub.service_changed(service)
         return Response(status_code=204)
-    media_id = await run_in_threadpool(media_for_arr, service, instance_id or None, event.arr_id)
-    if media_id is None:
+    media_key = await run_in_threadpool(media_for_arr, service, instance_id or None, event.arr_id)
+    if media_key is None:
         # Nouveau film ou nouvelle série : seule l'analyse du service l'ajoute.
         hub.service_changed(service)
     else:
-        hub.media_changed(media_id)
+        hub.media_changed(media_key)
     return Response(status_code=204)

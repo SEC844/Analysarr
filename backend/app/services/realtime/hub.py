@@ -2,6 +2,10 @@
 serveur multimédia) signalent « ce média a changé » ; la file regroupe, puis
 réanalyse avec le code existant et prévient le navigateur.
 
+- Média désigné par sa clé stable (`ignores.media_key`), résolue en
+  identifiant APRÈS la prise du verrou : un scan complet régénère les
+  identifiants pendant qu'un signal attend (bug réel évité : le mauvais média
+  était relu). Une clé qui ne désigne plus rien est simplement ignorée.
 - Regroupement par média : un média signalé plusieurs fois dans la fenêtre
   (`debounce`, 3 s par défaut) n'est analysé qu'une fois — un pack de saison
   importé épisode par épisode = une seule analyse. La fenêtre part du PREMIER
@@ -32,6 +36,7 @@ import time
 from dataclasses import dataclass
 
 from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.database import engine
 from app.models.media import Media
@@ -62,21 +67,21 @@ class _Pending:
 class RealtimeHub:
     def __init__(self) -> None:
         self.debounce = DEFAULT_DEBOUNCE
-        self._media: dict[int, _Pending] = {}
+        self._media: dict[str, _Pending] = {}
         self._services: dict[str, float] = {}
         self._service_last_run: dict[str, float] = {}
         # Échecs consécutifs par média, et la dernière erreur vue.
-        self._attempts: dict[int, int] = {}
+        self._attempts: dict[str, int] = {}
         self._last_error = ""
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
 
     # --- Signaux -------------------------------------------------------------
 
-    def media_changed(self, media_id: int, *, watch_only: bool = False) -> None:
-        pending = self._media.get(media_id)
+    def media_changed(self, media_key: str, *, watch_only: bool = False) -> None:
+        pending = self._media.get(media_key)
         if pending is None:
-            self._media[media_id] = _Pending(time.monotonic(), full=not watch_only)
+            self._media[media_key] = _Pending(time.monotonic(), full=not watch_only)
         else:
             pending.full = pending.full or not watch_only
         self._wake.set()
@@ -132,11 +137,11 @@ class RealtimeHub:
         deadlines += [self._due_at(scope, seen) for scope, seen in self._services.items()]
         return max(0.0, min(deadlines) - time.monotonic()) if deadlines else None
 
-    def _take_due(self) -> tuple[dict[int, bool], list[str]]:
+    def _take_due(self) -> tuple[dict[str, bool], list[str]]:
         now = time.monotonic()
-        media = {mid: p.full for mid, p in self._media.items() if p.first_seen + self.debounce <= now}
-        for media_id in media:
-            del self._media[media_id]
+        media = {key: p.full for key, p in self._media.items() if p.first_seen + self.debounce <= now}
+        for key in media:
+            del self._media[key]
         services = [scope for scope, seen in self._services.items() if self._due_at(scope, seen) <= now]
         for scope in services:
             del self._services[scope]
@@ -147,11 +152,12 @@ class RealtimeHub:
 
     # --- Traitement ------------------------------------------------------------
 
-    async def process(self, media: dict[int, bool], services: list[str]) -> None:
-        """Analyse un lot (média → analyse complète ou visionnage seul)."""
+    async def process(self, media: dict[str, bool], services: list[str]) -> None:
+        """Analyse un lot (clé du média → analyse complète ou visionnage seul)."""
         # Imports différés : le moteur de scan importe des modules qui
         # dépendent de celui-ci.
         from app.services.partial_scan import run_service_scan
+        from app.services.realtime.targets import media_ids_for_keys
         from app.services.scan import short_analysis
 
         if not media and not services:
@@ -160,9 +166,17 @@ class RealtimeHub:
             for scope in services:
                 await run_service_scan(scope, trigger="realtime")
                 await live_events.publish({"type": "library.changed", "scope": scope})
+            # Résolu verrou pris : aucun scan ne peut plus renuméroter les médias.
+            ids = await run_in_threadpool(media_ids_for_keys, list(media))
             semaphore = asyncio.Semaphore(MAX_PARALLEL)
 
-            async def one(media_id: int, full: bool) -> bool:
+            async def one(key: str, full: bool) -> bool:
+                media_id = ids.get(key)
+                if media_id is None:
+                    # Retiré entre-temps (scan, suppression) : son ancien
+                    # identifiant est inconnu, le navigateur relit ses listes.
+                    await live_events.publish({"type": "library.changed", "scope": "media"})
+                    return True
                 async with semaphore:
                     return await self._analyse(media_id, full)
 
@@ -171,19 +185,19 @@ class RealtimeHub:
             # analyses finies, même quand l'une d'elles échoue.
             results = await asyncio.gather(*(one(mid, full) for mid, full in ordered), return_exceptions=True)
         changed = False
-        for (media_id, full), result in zip(ordered, results, strict=True):
+        for (key, full), result in zip(ordered, results, strict=True):
             if isinstance(result, asyncio.CancelledError):
                 raise result
             if isinstance(result, BaseException):
-                self._failed(media_id, full, result)
+                self._failed(key, full, result)
             else:
-                self._attempts.pop(media_id, None)
+                self._attempts.pop(key, None)
                 changed = changed or result
         self._report_delays()
         if services or changed:
             await live_events.publish({"type": "cleanup.changed"})
 
-    def _failed(self, media_id: int, full: bool, exc: BaseException) -> None:
+    def _failed(self, media_id: str, full: bool, exc: BaseException) -> None:
         """Analyse en échec : remise en file après un délai croissant, puis
         abandon (le scan de nuit relira le média)."""
         attempt = self._attempts.get(media_id, 0) + 1

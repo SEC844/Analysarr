@@ -13,6 +13,7 @@ from app.database import engine
 from app.models.media import ImportIssue, Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
 from app.services import queue_issues
+from app.services.ignores import media_key
 from app.services.queue_issues import (
     execute_import_retry,
     index_queue_issues,
@@ -296,8 +297,8 @@ def quick_commands(monkeypatch):
 
 
 @pytest.fixture
-def notified(monkeypatch) -> list[int]:
-    seen: list[int] = []
+def notified(monkeypatch) -> list[str]:
+    seen: list[str] = []
     monkeypatch.setattr(queue_issues.hub, "media_changed", lambda media_id, **_: seen.append(media_id))
     return seen
 
@@ -350,7 +351,7 @@ def test_a_blocked_episode_is_imported_and_checked(fresh_database, fake_http, qu
     # La file est lue en direct, filtrée sur la série, avant ET après l'import.
     queue_reads = sonarr.requests("/api/v3/queue")
     assert len(queue_reads) == 2 and queue_reads[0].url.params["seriesIds"] == "4"
-    assert notified == [media.id]
+    assert notified == [media_key(media)]
 
 
 def test_an_import_already_done_is_not_retried(fresh_database, fake_http, quick_commands, notified):
@@ -363,7 +364,7 @@ def test_an_import_already_done_is_not_retried(fresh_database, fake_http, quick_
     assert imported == 0 and [step.success for step in steps] == [True]
     assert "plus aucun import bloqué" in steps[0].label
     assert radarr.requests("/api/v3/manualimport") == [] and radarr.commands == []
-    assert notified == [media.id]
+    assert notified == [media_key(media)]
 
 
 def test_an_import_still_blocked_afterwards_is_reported(fresh_database, fake_http, quick_commands, notified):

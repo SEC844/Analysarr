@@ -148,11 +148,11 @@ class TorrentWatcher(Watcher):
 
     async def dispatch(self, changes: TorrentChanges, current: dict[str, Fingerprint]) -> None:
         resolved = await run_in_threadpool(media_for_hashes, changes.changed | changes.removed | changes.added)
-        if len(resolved.media_ids) > MASS_THRESHOLD:
+        if len(resolved.media_keys) > MASS_THRESHOLD:
             self.hub.service_changed("torrents")
             return
-        for media_id in resolved.media_ids:
-            self.hub.media_changed(media_id)
+        for media_key in resolved.media_keys:
+            self.hub.media_changed(media_key)
         # Un torrent qu'aucun média ne porte encore (ajout manuel, copie
         # cross-seed) ne se rattache que par une analyse du client torrent —
         # seulement une fois téléchargé : avant, il n'a rien à rattacher.
@@ -302,11 +302,11 @@ class MediaServerWatcher(Watcher):
         self.board.event(self.key)
         resolved = await run_in_threadpool(media_for_items, item_ids)
         scope = "watch" if watch_only else "media_server"
-        if full or len(resolved.media_ids) > MASS_THRESHOLD:
+        if full or len(resolved.media_keys) > MASS_THRESHOLD:
             self.hub.service_changed(scope)
             return
-        for media_id in resolved.media_ids:
-            self.hub.media_changed(media_id, watch_only=watch_only)
+        for media_key in resolved.media_keys:
+            self.hub.media_changed(media_key, watch_only=watch_only)
         if resolved.unknown and not watch_only:
             # Nouvel élément dans la bibliothèque : l'analyse du serveur
             # multimédia le rattache (ou en fait un média non suivi).
@@ -430,8 +430,8 @@ class ArrWatcher(Watcher):
             return
         self.board.event(self.key)
         known = await run_in_threadpool(media_for_arr_ids, self.target.kind, self.target.instance_id, list(imported))
-        for media_id in known.values():
-            self.hub.media_changed(media_id)
+        for media_key in known.values():
+            self.hub.media_changed(media_key)
         if any(was_imported for arr_id, was_imported in imported.items() if arr_id not in known):
             # Nouveau film ou nouvelle série importés : seule l'analyse du
             # service les ajoute.

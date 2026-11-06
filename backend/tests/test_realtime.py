@@ -24,6 +24,7 @@ from app.models.media import Media, MediaType, Torrent
 from app.services import scan as scan_package
 from app.services.arr_instances import arr_targets
 from app.services.events import RESYNC_EVENT, EventBroadcaster, live_events
+from app.services.ignores import media_key
 from app.services.realtime import hub as hub_module
 from app.services.realtime import supervisor as supervisor_module
 from app.services.realtime import webhooks
@@ -154,9 +155,9 @@ def _events(run):
 
 
 def test_processing_rescans_and_tells_the_browser(session, settings, monkeypatch):
-    kept = Media(media_type=MediaType.movie, title="Gardé")
-    gone = Media(media_type=MediaType.movie, title="Retiré")
-    watched = Media(media_type=MediaType.movie, title="Vu")
+    kept = Media(media_type=MediaType.movie, title="Gardé", radarr_id=1)
+    gone = Media(media_type=MediaType.movie, title="Retiré", radarr_id=2)
+    watched = Media(media_type=MediaType.movie, title="Vu", radarr_id=3)
     session.add_all([kept, gone, watched])
     session.commit()
     calls = []
@@ -172,18 +173,20 @@ def test_processing_rescans_and_tells_the_browser(session, settings, monkeypatch
     monkeypatch.setattr("app.services.media_rescan.rescan_media", rescan)
     monkeypatch.setattr("app.services.watch_stats.refresh_media_watch", refresh_watch)
 
-    events = _events(lambda: RealtimeHub().process({kept.id: True, gone.id: True, watched.id: False, 999: True}, []))
+    batch = {media_key(kept): True, media_key(gone): True, media_key(watched): False, "movie:arr:0:999": True}
+    events = _events(lambda: RealtimeHub().process(batch, []))
 
     assert sorted(calls) == [("rescan", "Gardé"), ("rescan", "Retiré"), ("watch", "Vu")]
     by_type = {(e["type"], e.get("media_id")) for e in events}
     assert ("media.updated", kept.id) in by_type and ("media.removed", gone.id) in by_type
-    assert ("media.removed", 999) in by_type  # disparu entre-temps
+    # Disparu entre-temps : son identifiant est inconnu, les listes sont relues.
+    assert ("library.changed", None) in by_type
     assert ("cleanup.changed", None) in by_type
 
 
 def test_a_failing_source_never_stops_the_batch(session, settings, monkeypatch, caplog):
-    first = Media(media_type=MediaType.movie, title="Panne")
-    second = Media(media_type=MediaType.movie, title="Sain")
+    first = Media(media_type=MediaType.movie, title="Panne", radarr_id=1)
+    second = Media(media_type=MediaType.movie, title="Sain", radarr_id=2)
     session.add_all([first, second])
     session.commit()
     seen = []
@@ -196,7 +199,7 @@ def test_a_failing_source_never_stops_the_batch(session, settings, monkeypatch, 
 
     monkeypatch.setattr("app.services.media_rescan.rescan_media", rescan)
 
-    asyncio.run(RealtimeHub().process({first.id: True, second.id: True}, []))
+    asyncio.run(RealtimeHub().process({media_key(first): True, media_key(second): True}, []))
 
     assert seen == ["Sain"]
     assert "impossible" in caplog.text
@@ -576,7 +579,7 @@ def test_an_import_rescans_the_known_series_only_by_its_id(client, session, hook
     }
     assert deliver(client, hooked, body).status_code == 204
 
-    assert signals == [("media", media.id)]
+    assert signals == [("media", media_key(media))]
 
 
 def test_an_unknown_series_asks_for_a_sonarr_analysis(client, hooked, signals):
@@ -716,7 +719,7 @@ def test_the_torrent_watcher_signals_known_media_and_new_finished_torrents(sessi
     current = {"known": fp(), "new": fp(complete=True), "downloading": fp(complete=False)}
     asyncio.run(watcher.dispatch(changes, current))
 
-    assert received == [media.id, "torrents"]
+    assert received == [media_key(media), "torrents"]
 
 
 def test_a_torrent_still_downloading_triggers_nothing(settings, monkeypatch):
@@ -823,7 +826,7 @@ def test_the_media_server_watcher_signals_changed_media(session, settings, fake_
 
     asyncio.run(run())
 
-    assert received == [(series.id, False), "media_server", (movie.id, True)]
+    assert received == [(media_key(series), False), "media_server", (media_key(movie), True)]
     library = next(r for r in calls if "MinDateLastSaved" in r.url.params)
     assert library.url.params["MinDateLastSaved"] == "2026-10-05T12:00:00Z"
     user = next(r for r in calls if "MinDateLastSavedForUser" in r.url.params)
@@ -1471,7 +1474,7 @@ def test_sonarr_history_signals_its_media_without_any_webhook(session, settings,
     ]
 
     asyncio.run(watcher.dispatch(records, overflow=False))
-    assert received == [series.id]
+    assert received == [media_key(series)]
 
     # Série inconnue importée : seule l'analyse de Sonarr l'ajoute.
     asyncio.run(watcher.dispatch([{"id": 12, "seriesId": 9, "eventType": "downloadFolderImported"}], overflow=False))
@@ -1524,7 +1527,7 @@ def test_the_arr_watcher_reads_only_new_history_and_queue_changes(session, setti
     asyncio.run(run())
 
     # Le premier passage sert de référence ; ensuite un seul nouvel événement.
-    assert received == [series.id, "queue"]
+    assert received == [media_key(series), "queue"]
     assert all(r.method == "GET" for r in calls)  # lecture seule
     history = next(r for r in calls if r.url.path == "/api/v3/history")
     assert history.url.params["sortDirection"] == "descending"
