@@ -3,9 +3,22 @@ from typing import Any
 
 import httpx
 
-from app.clients.torrent_base import Fingerprint, TorrentAuthError, TorrentClient, fingerprint
+from app.clients.torrent_base import (
+    STATE_ERROR,
+    STATE_MISSING,
+    STATE_OK,
+    Fingerprint,
+    TorrentAuthError,
+    TorrentClient,
+    fingerprint,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# États qBittorrent (`state` de `sync/maindata`) qui disent que les données
+# posent problème ; tous les autres sont normaux pour Analysarr.
+_QBIT_STATES = {"error": STATE_ERROR, "missingFiles": STATE_MISSING}
 
 
 class QbittorrentClient(TorrentClient):
@@ -91,6 +104,7 @@ class QbittorrentClient(TorrentClient):
                 t.get("content_path"),
                 t.get("category"),
                 (t.get("progress") or 0) >= 1,
+                _QBIT_STATES.get(str(t.get("state")), STATE_OK),
             )
             for torrent_hash, t in self._sync_state.items()
         }

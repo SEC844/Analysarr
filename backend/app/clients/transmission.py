@@ -11,7 +11,15 @@ from typing import Any
 
 import httpx
 
-from app.clients.torrent_base import Fingerprint, TorrentAuthError, TorrentClient, content_path_for, fingerprint
+from app.clients.torrent_base import (
+    STATE_ERROR,
+    STATE_OK,
+    Fingerprint,
+    TorrentAuthError,
+    TorrentClient,
+    content_path_for,
+    fingerprint,
+)
 
 SESSION_HEADER = "X-Transmission-Session-Id"
 FIELDS = [
@@ -32,7 +40,10 @@ FIELDS = [
     "isPrivate",
 ]
 # Temps réel : de quoi calculer l'empreinte, rien de plus.
-WATCH_FIELDS = ["id", "hashString", "name", "downloadDir", "labels", "percentDone"]
+WATCH_FIELDS = ["id", "hashString", "name", "downloadDir", "labels", "percentDone", "error"]
+# `error` de Transmission : 3 = erreur locale (données introuvables, disque),
+# 1 et 2 ne concernent que le tracker.
+LOCAL_ERROR = 3
 
 
 class TransmissionClient(TorrentClient):
@@ -131,6 +142,7 @@ class TransmissionClient(TorrentClient):
                 None,
                 next(iter(t.get("labels") or []), None),
                 (t.get("percentDone") or 0) >= 1,
+                STATE_ERROR if t.get("error") == LOCAL_ERROR else STATE_OK,
             )
             for torrent_hash, t in self._watch.items()
         }

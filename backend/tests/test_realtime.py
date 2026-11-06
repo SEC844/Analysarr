@@ -14,6 +14,7 @@ import httpx
 import pytest
 from sqlmodel import Session, select
 
+from app.clients.deluge import DelugeClient
 from app.clients.emby import EmbyClient
 from app.clients.qbittorrent import QbittorrentClient
 from app.clients.torrent_base import fingerprint
@@ -687,6 +688,68 @@ def test_qbittorrent_rebuilds_its_state_from_partial_updates(fake_http):
     assert first == {"aa": fingerprint("A", "/d", None, None, False)}
     assert second["aa"] == fingerprint("A", "/d", None, None, True) and "bb" in second
     assert set(third) == {"bb"}
+
+
+def test_missing_files_count_as_a_torrent_change(fake_http):
+    """Un torrent dont les données disparaissent (disque démonté, fichiers
+    supprimés) gardait la même empreinte : son média n'était jamais relu."""
+    pages = iter(
+        [
+            {"rid": 1, "full_update": True, "torrents": {"AA": {"name": "A", "progress": 1, "state": "uploading"}}},
+            {"rid": 2, "torrents": {"AA": {"state": "missingFiles"}}},
+            {"rid": 3, "torrents": {"AA": {"state": "stalledUP"}}},
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v2/auth/login":
+            return httpx.Response(200, text="Ok.", headers={"set-cookie": "SID=1; path=/"})
+        return httpx.Response(200, json=next(pages))
+
+    fake_http["http://qbit"] = handler
+
+    async def run():
+        async with QbittorrentClient("http://qbit", "admin", "x") as client:
+            return [await client.fingerprints() for _ in range(3)]
+
+    healthy, missing, back = asyncio.run(run())
+
+    assert diff_fingerprints(healthy, missing).changed == {"aa"}
+    assert missing["aa"][5] == "missing_files"
+    assert back == healthy  # un simple changement d'activité ne compte pas
+
+
+def test_deluge_and_transmission_report_their_data_errors(fake_http):
+    def deluge(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        results = {
+            "auth.login": True,
+            "web.connected": True,
+            "core.get_torrents_status": {"aa": {"name": "A", "progress": 100, "state": "Error"}},
+        }
+        return httpx.Response(200, json={"id": body["id"], "result": results.get(body["method"]), "error": None})
+
+    def transmission(request: httpx.Request) -> httpx.Response:
+        torrents = [
+            {"id": 1, "hashString": "BB", "name": "B", "percentDone": 1, "error": 3},
+            {"id": 2, "hashString": "CC", "name": "C", "percentDone": 1, "error": 2},  # tracker seulement
+        ]
+        return httpx.Response(200, json={"result": "success", "arguments": {"torrents": torrents}})
+
+    fake_http["http://deluge"] = deluge
+    fake_http["http://transmission"] = transmission
+
+    async def run():
+        async with DelugeClient("http://deluge", "x") as client:
+            from_deluge = await client.fingerprints()
+        async with TransmissionClient("http://transmission", None, None) as client:
+            from_transmission = await client.fingerprints()
+        return from_deluge, from_transmission
+
+    from_deluge, from_transmission = asyncio.run(run())
+
+    assert from_deluge["aa"][5] == "error"
+    assert from_transmission["bb"][5] == "error" and from_transmission["cc"][5] == "ok"
 
 
 def test_transmission_reads_only_recently_active_torrents(fake_http):
