@@ -73,7 +73,7 @@ def test_deleting_a_movie_takes_its_companions_and_its_folder(session, settings,
     session.commit()
     media, row, folder, _extras = movie_folder(tmp_path, session)
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     # Plus de vidéo, plus de NFO, plus de dossier : rien ne traîne.
     assert not folder.exists()
@@ -95,7 +95,7 @@ def test_the_library_root_is_never_removed(session, settings, tmp_path, monkeypa
     session.add(row)
     session.commit()
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     assert tmp_path.exists() and not (tmp_path / "Film.nfo").exists()
 
@@ -123,7 +123,7 @@ def test_a_folder_keeping_a_video_is_left_alone(session, settings, tmp_path, mon
     session.add_all(rows)
     session.commit()
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[rows[0].id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[rows[0].path])))
 
     assert not first.exists() and second.exists()
     assert (folder / "tvshow.nfo").exists() and has_video(str(folder))
@@ -135,7 +135,7 @@ def test_the_trash_keeps_the_companions_and_gives_them_back(session, settings, t
     media, row, folder, extras = movie_folder(tmp_path, session)
     originals = [row.path, *(str(path) for path in extras)]
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     assert not folder.exists()
     action = session.exec(select(TrashAction)).one()

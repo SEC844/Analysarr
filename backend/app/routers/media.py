@@ -48,8 +48,14 @@ from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import build_repair_preview, execute_repair
 from app.services.ignore_rules import MediaIgnores, media_ignores, torrent_is_ignorable
-from app.services.ignores import duplicate_file_ids
-from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
+from app.services.ignores import duplicate_file_ids, media_key
+from app.services.media_delete import (
+    StaleSelectionError,
+    build_delete_footprint,
+    execute_media_delete,
+    reclaimed_bytes,
+    resolve_selection,
+)
 from app.services.media_rescan import rescan_media
 from app.services.notifications import action_notification, channel_targets, notification_language, notify
 from app.services.poster_cache import read_cached_poster, safe_image_type, write_cached_poster
@@ -257,6 +263,7 @@ def get_media(media_id: int, session: Session = Depends(get_session)) -> MediaDe
         missing_emby_episodes=[e for e in media.missing_emby_episodes.split(",") if e],
         muted_rules=ignores.muted,
         cleanup_rule_id=ignores.cleanup_rule_id,
+        media_key=media_key(media),
     )
 
 
@@ -385,14 +392,20 @@ async def delete_selection(
 ) -> MediaDeleteSelectionResult:
     # Un média sans fichier ni torrent n'a rien à cocher : seuls son suivi
     # Sonarr/Radarr et sa demande Seer peuvent encore être retirés.
-    if not payload.torrent_ids and not payload.media_file_ids and not payload.remove_from_arr:
+    if not payload.torrent_hashes and not payload.media_file_paths and not payload.remove_from_arr:
         raise HTTPException(400, "Aucun élément sélectionné.")
+    if payload.media_key is None:
+        raise HTTPException(400, "Identité du média manquante : rechargez la page.")
     media, settings = _media_and_settings(media_id, session)
+    try:
+        torrents, files = resolve_selection(session, media, payload)
+    except StaleSelectionError as exc:
+        raise HTTPException(409, str(exc)) from exc
     ref = MediaRef.of(media)
     # Empreinte calculée AVANT la suppression : les inodes ne sont plus
     # lisibles ensuite.
     footprint = await build_delete_footprint(session, media, settings)
-    freed = reclaimed_bytes(footprint, payload.torrent_ids, payload.media_file_ids)
+    freed = reclaimed_bytes(footprint, [row_id(t) for t in torrents], [row_id(f) for f in files])
     result = await execute_media_delete(session, media, settings, payload)
     _log_and_notify(session, settings, "delete_selection", ref, result.steps, freed)
     return result

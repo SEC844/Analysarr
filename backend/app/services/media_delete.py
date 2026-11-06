@@ -25,6 +25,7 @@ from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.disk_footprint import FootprintBuilder, freed_bytes
 from app.services.hardlink import resolve_torrent_files
+from app.services.ignores import media_key
 from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
 
@@ -44,7 +45,7 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
     torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
 
     builder = FootprintBuilder()
-    file_items = [builder.item(row_id(f), [(f.path, f.size)], f.size) for f in files]
+    file_items = [builder.item(row_id(f), [(f.path, f.size)], f.size, f.path) for f in files]
 
     torrent_files: dict[int, list[tuple[str, int | None]]] = {}
     if torrents and torrent_client_configured(settings):
@@ -58,7 +59,7 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
             torrent_files.clear()
 
     torrent_items = [
-        builder.item(row_id(t), torrent_files.get(row_id(t)) or await resolve_torrent_files(None, t), t.size)
+        builder.item(row_id(t), torrent_files.get(row_id(t)) or await resolve_torrent_files(None, t), t.size, t.hash)
         for t in torrents
     ]
     return MediaDeleteFootprint(units=builder.units, torrents=torrent_items, files=file_items)
@@ -183,34 +184,51 @@ async def _capture(tx: DeletionTransaction, media: Media, target: ArrTarget) -> 
         await tx.capture_arr("sonarr", media.arr_instance_id, lambda: target.sonarr().get_series_by_id(series_id))
 
 
-def _selected(
+class StaleSelectionError(Exception):
+    """La sélection désigne un média, un torrent ou un fichier qui n'existe
+    plus tel quel (réanalyse, scan complet) : rien n'est supprimé."""
+
+
+def selection_of(media: Media, torrents: Sequence[Torrent], files: Sequence[MediaFile]) -> MediaDeleteSelection:
+    """Sélection désignant ces éléments par leurs clés stables."""
+    return MediaDeleteSelection(
+        torrent_hashes=[t.hash for t in torrents],
+        media_file_paths=[f.path for f in files],
+        media_key=media_key(media),
+    )
+
+
+def resolve_selection(
     session: Session, media: Media, selection: MediaDeleteSelection
 ) -> tuple[Sequence[Torrent], Sequence[MediaFile]]:
-    """Torrents et fichiers cochés, limités à CE média : un id d'un autre
-    média est ignoré."""
-    torrents = (
-        session.exec(
-            select(Torrent).where(col(Torrent.media_id) == media.id, col(Torrent.id).in_(selection.torrent_ids))
-        ).all()
-        if selection.torrent_ids
-        else []
-    )
+    """Torrents et fichiers cochés, retrouvés par leur clé stable et limités à
+    CE média. Une clé qui ne désigne plus rien n'est JAMAIS ignorée : la
+    suppression entière est refusée (StaleSelectionError), sinon l'utilisateur
+    croirait avoir supprimé ce qu'il a coché."""
+    if selection.media_key is not None and selection.media_key != media_key(media):
+        raise StaleSelectionError("La fiche a changé depuis son ouverture : rechargez-la avant de supprimer.")
+    hashes = {h.lower() for h in selection.torrent_hashes}
+    paths = set(selection.media_file_paths)
+    own_torrents = session.exec(select(Torrent).where(col(Torrent.media_id) == media.id)).all() if hashes else []
+    torrents = [t for t in own_torrents if t.hash.lower() in hashes]
     files = (
         session.exec(
-            select(MediaFile).where(
-                col(MediaFile.media_id) == media.id, col(MediaFile.id).in_(selection.media_file_ids)
-            )
+            select(MediaFile).where(col(MediaFile.media_id) == media.id, col(MediaFile.path).in_(paths))
         ).all()
-        if selection.media_file_ids
+        if paths
         else []
     )
+    if len({t.hash.lower() for t in torrents}) < len(hashes) or len({f.path for f in files}) < len(paths):
+        raise StaleSelectionError(
+            "Un élément sélectionné n'existe plus (analyse entre-temps) : rechargez la fiche avant de supprimer."
+        )
     return torrents, files
 
 
 async def execute_media_delete(
     session: Session, media: Media, settings: Settings, selection: MediaDeleteSelection
 ) -> MediaDeleteSelectionResult:
-    torrents, files = _selected(session, media, selection)
+    torrents, files = resolve_selection(session, media, selection)
 
     all_file_count = len(session.exec(select(MediaFile.id).where(MediaFile.media_id == media.id)).all())
     # Retrait du média entier de Sonarr/Radarr uniquement si TOUTE sa

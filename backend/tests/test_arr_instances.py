@@ -63,7 +63,7 @@ def test_deletion_goes_to_the_instance_tracking_the_media(fake_http, session, se
     session.commit()
     media, files = add_media(session, tmp_path, MediaType.movie, radarr_id=42, arr_instance_id=instance.id)
 
-    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True)
+    selection = MediaDeleteSelection(media_file_paths=[f.path for f in files], remove_from_arr=True)
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
     assert primary_calls == []

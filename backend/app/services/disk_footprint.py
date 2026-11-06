@@ -64,13 +64,13 @@ class FootprintBuilder:
             self.keys.append(key)
         return [self._by_inode[key]]
 
-    def item(self, item_id: int, paths: FilePaths, fallback_size: int | None) -> DeleteFootprintItem:
+    def item(self, item_id: int, paths: FilePaths, fallback_size: int | None, key: str = "") -> DeleteFootprintItem:
         """Élément supprimable (fichier de bibliothèque ou torrent) et ses
         unités ; sans aucun chemin connu, une unité de la taille en base."""
         if not paths:
-            return DeleteFootprintItem(id=item_id, units=self.unit_for(None, fallback_size))
+            return DeleteFootprintItem(id=item_id, key=key, units=self.unit_for(None, fallback_size))
         units = [i for path, size in paths for i in self.unit_for(path, size)]
-        return DeleteFootprintItem(id=item_id, units=units)
+        return DeleteFootprintItem(id=item_id, key=key, units=units)
 
 
 def torrent_paths(save_path: str | None, content_path: str | None, size: int | None, files: FilePaths) -> FilePaths:

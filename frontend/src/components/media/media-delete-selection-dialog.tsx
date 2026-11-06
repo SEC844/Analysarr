@@ -86,14 +86,14 @@ function buildTree(media: MediaDetail, t: Translate): TreeNode[] {
   const isSeries = media.media_type === "series"
   const fileLeaf = (f: MediaFileRead) => {
     const name = f.path.split(/[\\/]/).pop() || f.path
-    return leaf(fileKey(f.id), isSeries ? (f.episode_label ?? name) : name, f.size, f.path)
+    return leaf(fileKey(f.path), isSeries ? (f.episode_label ?? name) : name, f.size, f.path)
   }
 
   const torrents = section(
     "torrents",
     t("deleteSelection.torrents"),
     <HardDriveDownload className="text-muted-foreground size-4 shrink-0" />,
-    media.torrents.map((torrent) => leaf(torrentKey(torrent.id), torrent.name, torrent.size)),
+    media.torrents.map((torrent) => leaf(torrentKey(torrent.hash), torrent.name, torrent.size)),
   )
   const library = section(
     "library",
@@ -192,10 +192,10 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
   const unitsByKey = useMemo(() => (footprint ? indexFootprint(footprint) : null), [footprint])
 
   const isSeries = media.media_type === "series"
-  const selectedTorrents = media.torrents.filter((torrent) => selected.has(torrentKey(torrent.id)))
+  const selectedTorrents = media.torrents.filter((torrent) => selected.has(torrentKey(torrent.hash)))
   const protectedTorrents = selectedTorrents.filter((torrent) => torrent.seed_obligation !== null)
   const { data: trash } = useTrashSettingsQuery()
-  const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.id)))
+  const selectedFiles = media.files.filter((f) => selected.has(fileKey(f.path)))
   const hasSelection = selected.size > 0
   // Média vide : plus aucun fichier ni torrent, seuls subsistent le suivi
   // Sonarr/Radarr et la demande Seer. Rien à cocher, mais il faut pouvoir
@@ -274,8 +274,9 @@ export function MediaDeleteSelectionDialog({ media, onMediaDeleted }: { media: M
       {
         id: media.id,
         selection: {
-          torrent_ids: selectedTorrents.map((torrent) => torrent.id),
-          media_file_ids: selectedFiles.map((f) => f.id),
+          torrent_hashes: selectedTorrents.map((torrent) => torrent.hash),
+          media_file_paths: selectedFiles.map((f) => f.path),
+          media_key: media.media_key,
           remove_from_arr: removeFromArr && showArrOption,
         },
       },

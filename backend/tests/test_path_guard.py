@@ -11,6 +11,7 @@ from sqlmodel import select
 from app.models.media import Media, MediaFile, MediaType
 from app.schemas.media import MediaDeleteSelection
 from app.services.cascade_delete import execute_delete
+from app.services.ignores import media_key
 from app.services.media_delete import execute_media_delete
 from app.services.path_guard import MountUnavailableError, ensure_paths_available, looks_unmounted
 
@@ -50,7 +51,7 @@ def test_selective_deletion_is_refused_and_keeps_everything(session, settings, t
     session.commit()
 
     settings.emby_library_path = str(tmp_path / "jamais-monte")  # volume absent
-    selection = MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True)
+    selection = MediaDeleteSelection(media_file_paths=[row.path], remove_from_arr=True)
     with pytest.raises(MountUnavailableError):
         asyncio.run(execute_media_delete(session, media, settings, selection))
 
@@ -89,7 +90,7 @@ def test_refused_deletion_answers_409(admin_client, session, settings, tmp_path)
     session.commit()
 
     response = admin_client.post(
-        f"/api/media/{media.id}/delete-selection", json={"media_file_ids": [row.id], "torrent_ids": []}
+        f"/api/media/{media.id}/delete-selection", json={"media_file_paths": [row.path], "media_key": media_key(media)}
     )
     assert response.status_code == 409
     assert "montage" in response.json()["detail"] or "monté" in response.json()["detail"]

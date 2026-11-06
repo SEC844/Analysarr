@@ -181,6 +181,8 @@ class MediaDetail(MediaListItem):
     muted_rules: list[MutedStatusRead] = Field(default_factory=list)
     # Règle « jamais proposé au nettoyage » (assistant de nettoyage), s'il y en a une.
     cleanup_rule_id: int | None = None
+    # Identité stable du média, renvoyée avec une suppression sélective.
+    media_key: str = ""
 
 
 class ArrCandidateRead(BaseModel):
@@ -291,8 +293,17 @@ class MediaDeleteSelection(BaseModel):
     un seul épisode, une saison entière (plusieurs media_file_ids) ou toute
     la série, jusqu'au film entier."""
 
-    torrent_ids: list[int] = []
-    media_file_ids: list[int] = []
+    # Éléments désignés par une clé STABLE — hash du torrent, chemin du
+    # fichier — jamais par leur identifiant en base : une réanalyse (temps
+    # réel, scan) efface et réinsère torrents et fichiers, et SQLite réattribue
+    # les identifiants. Bug réel évité : une sélection faite avant une
+    # réanalyse désignait un AUTRE torrent du même média, ou rien du tout.
+    # Une clé qui ne correspond plus à rien refuse la suppression (409).
+    torrent_hashes: list[str] = []
+    media_file_paths: list[str] = []
+    # Identité stable du média (services/ignores.py::media_key), exigée par la
+    # route : l'identifiant dans l'adresse change à chaque scan complet.
+    media_key: str | None = None
     # Arrête aussi le suivi Sonarr/Radarr des fichiers de bibliothèque
     # sélectionnés (pas seulement leur fichier) : empêche un
     # retéléchargement automatique après coup. Radarr : suppression complète
@@ -313,6 +324,8 @@ class DiskUnit(BaseModel):
 
 class DeleteFootprintItem(BaseModel):
     id: int
+    # Clé de sélection stable : hash du torrent, chemin du fichier.
+    key: str = ""
     # Un index dans `MediaDeleteFootprint.units` par fichier physique de
     # l'élément (plusieurs pour un torrent multi-fichiers). Vide pour un
     # lien symbolique : le supprimer ne libère aucun espace.

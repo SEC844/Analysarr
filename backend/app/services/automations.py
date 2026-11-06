@@ -40,14 +40,13 @@ from app.models.ids import row_id
 from app.models.media import Media, MediaFile, Torrent
 from app.models.settings import Settings
 from app.schemas.automations import AutomationConditions, AutomationRunResult, AutomationStep
-from app.schemas.media import MediaDeleteSelection
 from app.services.action_log import MediaRef, record_action
 from app.services.arr_link import ArrLinkError, build_link_preview, link_media, pick_automatic
 from app.services.cascade_delete import build_delete_preview, execute_delete
 from app.services.cleanup import candidate_detail, ranked_candidates, unreliable_sources
 from app.services.cross_seed import trigger_cross_seed_search
 from app.services.hardlink_repair import execute_repair
-from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes
+from app.services.media_delete import build_delete_footprint, execute_media_delete, reclaimed_bytes, selection_of
 from app.services.notifications import ChannelTarget, automation_notification, notification_language, notify
 from app.services.queue_issues import execute_import_retry
 from app.services.scan.statuses import is_orphan
@@ -190,15 +189,12 @@ async def _delete_whole_media(
     detail = candidate_detail(session, row_id(media))
     if detail is None or detail.protections or detail.malus_in_progress:
         return [AutomationStep(label=media.title, success=False, error="Devenu protégé : laissé de côté.")], 0
-    selection = MediaDeleteSelection(
-        torrent_ids=[row_id(t) for t in session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()],
-        media_file_ids=[
-            row_id(f) for f in session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
-        ],
-        remove_from_arr="manquant_arr" not in media.statuses.split(","),
-    )
+    torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
+    files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
+    selection = selection_of(media, torrents, files)
+    selection.remove_from_arr = "manquant_arr" not in media.statuses.split(",")
     footprint = await build_delete_footprint(session, media, settings)
-    freed = reclaimed_bytes(footprint, selection.torrent_ids, selection.media_file_ids)
+    freed = reclaimed_bytes(footprint, [row_id(t) for t in torrents], [row_id(f) for f in files])
     result = await execute_media_delete(session, media, settings, selection)
     steps = [
         AutomationStep(label=f"{detail.title} — {s.label}", success=s.success, error=s.error) for s in result.steps

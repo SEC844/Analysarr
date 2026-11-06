@@ -1,14 +1,16 @@
 import type { DeleteFootprintItem, MediaDeleteFootprint } from "@/types/media"
 
 // Torrents et fichiers de bibliothèque partagent un seul ensemble de
-// sélection : clés préfixées pour les distinguer au moment de l'envoi.
-export const torrentKey = (id: number) => `t:${id}`
-export const fileKey = (id: number) => `f:${id}`
+// sélection : clés préfixées pour les distinguer au moment de l'envoi. Clés
+// STABLES (hash, chemin) : une réanalyse pendant que le dialogue est ouvert
+// réattribue les identifiants, jamais ces clés.
+export const torrentKey = (hash: string) => `t:${hash.toLowerCase()}`
+export const fileKey = (path: string) => `f:${path}`
 
 // Unités disque (inodes) de chaque élément, indexées par clé de sélection.
 export function indexFootprint(footprint: MediaDeleteFootprint): Map<string, number[]> {
-  const index = (items: DeleteFootprintItem[], key: (id: number) => string) =>
-    items.map((item): [string, number[]] => [key(item.id), item.units])
+  const index = (items: DeleteFootprintItem[], key: (stable: string) => string) =>
+    items.map((item): [string, number[]] => [key(item.key), item.units])
   return new Map([...index(footprint.torrents, torrentKey), ...index(footprint.files, fileKey)])
 }
 

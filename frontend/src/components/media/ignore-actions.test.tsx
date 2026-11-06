@@ -87,6 +87,7 @@ const MEDIA: MediaDetail = {
   import_issues: [],
   muted_rules: [{ status: "doublon", rule_id: 41, note: null }],
   cleanup_rule_id: null,
+  media_key: "movie:arr:0:1",
 }
 
 const optionsButton = () => screen.getByRole("button", { name: en.ignore.options })

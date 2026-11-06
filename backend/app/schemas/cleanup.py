@@ -107,6 +107,9 @@ class ProtectionRead(BaseModel):
 
 class CleanupCandidateRead(BaseModel):
     media_id: int
+    # Identité stable, vérifiée par la suppression (l'identifiant change à
+    # chaque scan complet).
+    media_key: str = ""
     media_type: str
     title: str
     year: int | None

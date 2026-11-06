@@ -42,8 +42,11 @@ async function deleteWholeMedia(candidate: CleanupCandidate, removeFromArr: bool
   const media = await getMedia(candidate.media_id)
   const tracked = media.radarr_id !== null || media.sonarr_id !== null
   const result = await deleteSelectionExecute(candidate.media_id, {
-    torrent_ids: media.torrents.map((torrent) => torrent.id),
-    media_file_ids: media.files.map((file) => file.id),
+    torrent_hashes: media.torrents.map((torrent) => torrent.hash),
+    media_file_paths: media.files.map((file) => file.path),
+    // Clé du CANDIDAT, pas de la fiche relue : si un scan complet a réattribué
+    // son identifiant à un autre média, le serveur refuse (409).
+    media_key: candidate.media_key,
     // Rien à retirer pour un média qu'aucun Sonarr/Radarr ne suit.
     remove_from_arr: removeFromArr && tracked,
   })

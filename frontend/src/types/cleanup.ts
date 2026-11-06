@@ -52,6 +52,8 @@ export interface ScoreComponent {
 
 export interface CleanupCandidate {
   media_id: number
+  /** Identité stable du média (l'identifiant change à chaque scan complet). */
+  media_key: string
   media_type: "movie" | "series"
   title: string
   year: number | null

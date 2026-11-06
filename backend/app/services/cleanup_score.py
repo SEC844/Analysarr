@@ -81,6 +81,9 @@ class CandidateFacts:
     title: str
     year: int | None
     reclaimable_bytes: int
+    # Identité stable (services/ignores.py::media_key) : l'identifiant change à
+    # chaque scan complet, une suppression lancée depuis l'assistant la vérifie.
+    media_key: str = ""
     date_added: datetime | None = None
     last_played_at: datetime | None = None
     # Vu (entièrement ou en partie) par au moins un compte, sans aucune date

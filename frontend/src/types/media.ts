@@ -214,6 +214,8 @@ export interface ImportRetryResult {
 }
 
 export interface MediaDetail extends MediaListItem {
+  /** Identité stable du média, renvoyée avec une suppression sélective. */
+  media_key: string
   radarr_id: number | null
   sonarr_id: number | null
   emby_item_id: string | null
@@ -302,9 +304,12 @@ export interface DeleteExecuteResult {
   steps: DeleteStepResult[]
 }
 
+/** Éléments désignés par clé STABLE (hash, chemin), jamais par identifiant :
+ * une réanalyse réattribue les identifiants (voir schemas/media.py). */
 export interface MediaDeleteSelection {
-  torrent_ids: number[]
-  media_file_ids: number[]
+  torrent_hashes: string[]
+  media_file_paths: string[]
+  media_key: string
   remove_from_arr: boolean
 }
 
@@ -315,6 +320,8 @@ export interface DiskUnit {
 
 export interface DeleteFootprintItem {
   id: number
+  /** Clé de sélection stable : hash du torrent, chemin du fichier. */
+  key: string
   units: number[]
 }
 

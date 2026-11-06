@@ -107,7 +107,7 @@ def test_deletion_removes_everything_when_the_trash_is_off(session, settings, tm
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -128,7 +128,7 @@ def test_a_deletion_is_kept_as_one_restorable_action(session, settings, tmp_path
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -158,7 +158,7 @@ def test_restoring_puts_files_and_torrent_back(session, settings, tmp_path, monk
     original_file, original_data = row.path, str(data)
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
     action = session.exec(select(TrashAction)).one()
@@ -192,7 +192,7 @@ def test_restoring_keeps_hardlinks(session, settings, tmp_path, monkeypatch):
     os.link(row.path, link)
     inode = os.stat(row.path).st_ino
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
     action = session.exec(select(TrashAction)).one()
     asyncio.run(restore_action(session, settings, action))
 
@@ -204,7 +204,7 @@ def test_a_failed_step_keeps_the_action_in_the_trash(session, settings, tmp_path
     client = FakeTorrentClient()
     patch_client(monkeypatch, client)
     media, row = add_movie(session, tmp_path)
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
     action = session.exec(select(TrashAction)).one()
     # Un fichier a repris la place : on ne l'écrase jamais.
     with open(row.path, "wb") as handle:
@@ -256,7 +256,7 @@ def test_the_movie_is_restored_in_radarr(session, settings, tmp_path, fake_http,
     media, row = add_movie(session, tmp_path, radarr_id=42)
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True)
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], remove_from_arr=True)
         )
     )
     action = session.exec(select(TrashAction)).one()
@@ -349,7 +349,7 @@ def test_trash_endpoints_group_by_action(admin_client, session, settings, tmp_pa
     torrent, _data = add_torrent(session, media, tmp_path)
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -407,7 +407,7 @@ def test_sonarr_never_deletes_the_files_when_the_trash_is_on(session, settings, 
             session,
             media,
             settings,
-            MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True),
+            MediaDeleteSelection(media_file_paths=[f.path for f in files], remove_from_arr=True),
         )
     )
 
@@ -447,7 +447,7 @@ def test_nothing_leaves_the_disk_if_sonarr_refuses(session, settings, tmp_path, 
 
     result = asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True)
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], remove_from_arr=True)
         )
     )
 
@@ -465,7 +465,7 @@ def test_a_restore_is_recorded_and_triggers_a_scan(admin_client, session, settin
     scans = []
     monkeypatch.setattr("app.routers.trash.launch_scan", lambda scope="full": scans.append(scope) or True)
     media, row = add_movie(session, tmp_path)
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
     action_id = session.exec(select(TrashAction)).one().id
 
     result = admin_client.post(f"/api/trash/{action_id}/restore").json()
@@ -506,7 +506,7 @@ def test_the_announced_size_counts_hardlinks_once(admin_client, session, setting
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -532,7 +532,7 @@ def test_a_file_still_linked_outside_the_trash_frees_nothing(
     session.add(row)
     session.commit()
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     listed = admin_client.get("/api/trash").json()
     assert listed[0]["items"][0]["size"] == 1000  # la taille du fichier reste affichée
@@ -581,7 +581,7 @@ def test_nothing_in_the_trash_looks_like_a_video_to_cross_seed(session, settings
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 

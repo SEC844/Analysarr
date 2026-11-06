@@ -233,7 +233,8 @@ def test_the_whole_media_goes_through_the_usual_deletion(session, settings, dele
 
     by_media = dict(deletions)
     assert set(by_media) == {tracked.id, untracked.id}
-    assert len(by_media[tracked.id].torrent_ids) == 1 and len(by_media[tracked.id].media_file_ids) == 1
+    assert by_media[tracked.id].torrent_hashes == ["abc"]
+    assert by_media[tracked.id].media_file_paths == ["/media/Suivi/Suivi.mkv"]
     assert by_media[tracked.id].remove_from_arr is True
     assert by_media[untracked.id].remove_from_arr is False
     assert result.freed_bytes == 100 * GB and result.executed == 2
