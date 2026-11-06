@@ -40,6 +40,8 @@ describe("sourceSection", () => {
     expect(sourceSection(source({ kind: "webhook", key: "webhook:radarr:2" }))).toBe("radarr")
     expect(sourceSection(source({ kind: "webhook", key: "webhook:sonarr:0" }))).toBe("sonarr")
     expect(sourceSection(source({ kind: "arr", key: "arr:radarr:0" }))).toBe("radarr")
+    // Analyses du temps réel en retard : réglage du temps réel lui-même.
+    expect(sourceSection(source({ kind: "analysis", key: "analysis" }))).toBe("schedule")
   })
 })
 

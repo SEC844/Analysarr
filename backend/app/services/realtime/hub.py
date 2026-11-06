@@ -18,7 +18,12 @@ réanalyse avec le code existant et prévient le navigateur.
 - Deux médias au plus analysés en parallèle.
 
 Aucune erreur d'une source ne remonte : elle est journalisée et le média
-reste dans l'état de la dernière analyse réussie."""
+reste dans l'état de la dernière analyse réussie. Le lot rend le verrou
+seulement quand TOUTES ses analyses sont finies, même si l'une échoue (bug réel
+possible : une erreur imprévue, « database is locked », faisait sortir le lot
+du verrou pendant qu'une autre analyse écrivait encore). Un média en échec est
+remis en file après `RETRY_DELAYS`, et le retard s'affiche dans l'indicateur du
+temps réel (source `analysis`) ; au-delà, le scan de nuit le rattrape."""
 
 import asyncio
 import contextlib
@@ -26,13 +31,13 @@ import logging
 import time
 from dataclasses import dataclass
 
-import httpx
 from sqlmodel import Session
 
 from app.database import engine
 from app.models.media import Media
 from app.models.settings import Settings
 from app.services.events import live_events
+from app.services.realtime.status import board
 from app.services.scan_scopes import SERVICE_SCOPES
 
 logger = logging.getLogger(__name__)
@@ -42,6 +47,10 @@ DEFAULT_DEBOUNCE = 3.0
 # sont espacées d'au moins une minute : elles coûtent bien plus qu'un média.
 SERVICE_COOLDOWN = 60.0
 MAX_PARALLEL = 2
+# Nouvel essai d'un média dont l'analyse a échoué ; au-delà, abandon (le scan
+# de nuit le rattrapera).
+RETRY_DELAYS = (30.0, 120.0, 600.0)
+ANALYSIS_SOURCE = "analysis"
 
 
 @dataclass
@@ -56,6 +65,9 @@ class RealtimeHub:
         self._media: dict[int, _Pending] = {}
         self._services: dict[str, float] = {}
         self._service_last_run: dict[str, float] = {}
+        # Échecs consécutifs par média, et la dernière erreur vue.
+        self._attempts: dict[int, int] = {}
+        self._last_error = ""
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
 
@@ -154,33 +166,78 @@ class RealtimeHub:
                 async with semaphore:
                     return await self._analyse(media_id, full)
 
-            changed = await asyncio.gather(*(one(mid, full) for mid, full in sorted(media.items())))
-        if services or any(changed):
+            ordered = sorted(media.items())
+            # `return_exceptions` : le verrou n'est rendu qu'une fois TOUTES les
+            # analyses finies, même quand l'une d'elles échoue.
+            results = await asyncio.gather(*(one(mid, full) for mid, full in ordered), return_exceptions=True)
+        changed = False
+        for (media_id, full), result in zip(ordered, results, strict=True):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, BaseException):
+                self._failed(media_id, full, result)
+            else:
+                self._attempts.pop(media_id, None)
+                changed = changed or result
+        self._report_delays()
+        if services or changed:
             await live_events.publish({"type": "cleanup.changed"})
+
+    def _failed(self, media_id: int, full: bool, exc: BaseException) -> None:
+        """Analyse en échec : remise en file après un délai croissant, puis
+        abandon (le scan de nuit relira le média)."""
+        attempt = self._attempts.get(media_id, 0) + 1
+        self._last_error = f"{type(exc).__name__} : {exc}"[:200]
+        if attempt > len(RETRY_DELAYS):
+            self._attempts.pop(media_id, None)
+            logger.warning("Analyse en temps réel du média %s abandonnée : %s", media_id, self._last_error)
+            return
+        self._attempts[media_id] = attempt
+        delay = RETRY_DELAYS[attempt - 1]
+        logger.warning(
+            "Analyse en temps réel du média %s impossible, nouvel essai dans %.0f s", media_id, delay, exc_info=exc
+        )
+        pending = self._media.get(media_id)
+        if pending is None:
+            # Échéance = first_seen + debounce : décalée pour tomber après le délai.
+            self._media[media_id] = _Pending(time.monotonic() + delay - self.debounce, full=full)
+        else:
+            pending.full = pending.full or full
+        self._wake.set()
+
+    def _report_delays(self) -> None:
+        """Analyses en retard affichées dans l'indicateur du temps réel."""
+        if not self._attempts:
+            board.forget(ANALYSIS_SOURCE)
+            return
+        board.register(ANALYSIS_SOURCE, "analysis")
+        count = len(self._attempts)
+        board.failed(
+            ANALYSIS_SOURCE,
+            f"{count} média(s) en attente d'une nouvelle analyse (dernière erreur : {self._last_error}).",
+        )
 
     async def _analyse(self, media_id: int, full: bool) -> bool:
         """True si le média a été relu (ou retiré)."""
         from app.services.media_rescan import rescan_media
         from app.services.watch_stats import refresh_media_watch
 
-        try:
-            with Session(engine) as session:
-                media = session.get(Media, media_id)
-                if media is None:
-                    # Retiré entre-temps (scan, suppression) : rien à relire.
-                    await live_events.publish({"type": "media.removed", "media_id": media_id})
-                    return True
-                settings = session.get(Settings, 1)
-                if settings is None:
-                    return False
-                if not full:
-                    await refresh_media_watch(session, media, settings)
-                    await live_events.publish({"type": "media.updated", "media_id": media_id, "watch": True})
-                    return False
-                result = await rescan_media(session, settings, media)
-        except (httpx.HTTPError, RuntimeError, ValueError):
-            logger.warning("Analyse en temps réel du média %s impossible", media_id, exc_info=True)
-            return False
+        # Toute erreur remonte jusqu'au lot (`process`), qui la journalise et
+        # remet le média en file.
+        with Session(engine) as session:
+            media = session.get(Media, media_id)
+            if media is None:
+                # Retiré entre-temps (scan, suppression) : rien à relire.
+                await live_events.publish({"type": "media.removed", "media_id": media_id})
+                return True
+            settings = session.get(Settings, 1)
+            if settings is None:
+                return False
+            if not full:
+                await refresh_media_watch(session, media, settings)
+                await live_events.publish({"type": "media.updated", "media_id": media_id, "watch": True})
+                return False
+            result = await rescan_media(session, settings, media)
         event = "media.removed" if result.media_deleted else "media.updated"
         await live_events.publish({"type": event, "media_id": media_id})
         return True

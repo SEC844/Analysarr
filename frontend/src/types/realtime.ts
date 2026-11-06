@@ -36,7 +36,7 @@ export interface WebhooksRead {
 export interface SourceStatus {
   /** `webhook:sonarr:0`, `arr:sonarr:0`, `torrents`, `media_server`, `requests`. */
   key: string
-  kind: "webhook" | "arr" | "torrents" | "media_server" | "requests"
+  kind: "webhook" | "arr" | "torrents" | "media_server" | "requests" | "analysis"
   state: SourceState
   last_event_at: string | null
   last_check_at: string | null

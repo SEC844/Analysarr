@@ -22,7 +22,8 @@ _MAX_ERROR = 300
 @dataclass(frozen=True)
 class SourceStatus:
     key: str
-    # webhook | arr | torrents | media_server | requests
+    # webhook | arr | torrents | media_server | requests | analysis (analyses
+    # du temps réel en échec, remises en file)
     kind: str
     state: SourceState = "waiting"
     last_event_at: datetime | None = None
@@ -49,7 +50,8 @@ class StatusBoard:
             self._sources[key] = SourceStatus(key=key, kind=kind)
 
     def forget(self, key: str) -> None:
-        self._sources.pop(key, None)
+        if self._sources.pop(key, None) is not None and self._on_change is not None:
+            self._on_change()
 
     def checked(self, key: str) -> None:
         """Vérification réussie (interrogation sans erreur)."""

@@ -20,6 +20,9 @@ export function sourceSection(source: SourceStatus): string {
     case "webhook":
     case "arr":
       return source.key.split(":")[1] === "radarr" ? "radarr" : "sonarr"
+    case "analysis":
+      // Analyses en retard : réglage du temps réel lui-même.
+      return "schedule"
   }
 }
 
