@@ -12,7 +12,7 @@ import pytest
 
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.services.hardlink import stat_inode
-from app.services.hardlink_repair import build_repair_preview, execute_repair
+from app.services.hardlink_repair import CONTENT_BLOCK, build_repair_preview, execute_repair, same_content
 
 
 class FakeTorrentClient:
@@ -20,6 +20,7 @@ class FakeTorrentClient:
 
     def __init__(self, files: dict[str, list[dict]]):
         self.files = files
+        self.rechecked: list[str] = []
 
     async def __aenter__(self):
         return self
@@ -29,6 +30,9 @@ class FakeTorrentClient:
 
     async def get_files(self, torrent_hash):
         return self.files.get(torrent_hash, [])
+
+    async def recheck(self, hashes):
+        self.rechecked += hashes
 
 
 @pytest.fixture
@@ -139,3 +143,47 @@ def test_a_library_file_already_protected_is_never_touched(library, session, set
     assert [step.success for step in result.steps] == [True]
     assert inode(row.path) == library_inode  # le lien existant n'a pas bougé
     assert inode(torrent.content_path) == library_inode
+    # Le fichier du torrent a été remplacé : le client revérifie ses données.
+    assert client.rechecked == ["AAAA"]
+
+
+def test_same_size_but_different_content_is_never_relinked(library, session, settings):
+    """Bug réel possible : la réparation se fiait à la seule taille. Une autre
+    release de même taille aurait remplacé le fichier de la bibliothèque (ou
+    corrompu les données d'un torrent en seed)."""
+    media, row, torrent, client = library
+    with open(torrent.content_path, "wb") as handle:
+        handle.write(b"tout")  # même taille (4 octets), autre contenu
+    before = (inode(row.path), inode(torrent.content_path))
+
+    preview = asyncio.run(build_repair_preview(session, media, settings))
+    result = asyncio.run(execute_repair(session, media, settings))
+
+    assert preview.items == [] and preview.unmatched_torrents == ["Matrix.1999"]
+    assert result.steps == []
+    assert (inode(row.path), inode(torrent.content_path)) == before
+    with open(row.path, "rb") as handle:
+        assert handle.read() == b"film"
+    assert client.rechecked == []
+
+
+def test_a_library_repair_never_asks_for_a_recheck(library, session, settings):
+    """`torrent_to_library` ne touche pas aux données du torrent."""
+    media, _row, _torrent, client = library
+
+    asyncio.run(execute_repair(session, media, settings))
+
+    assert client.rechecked == []
+
+
+def test_content_fingerprint_reads_the_start_middle_and_end(tmp_path):
+    big = tmp_path / "a.mkv"
+    other = tmp_path / "b.mkv"
+    payload = bytearray(5 * CONTENT_BLOCK)
+    big.write_bytes(bytes(payload))
+    payload[-1] = 1  # dernier octet seulement
+    other.write_bytes(bytes(payload))
+
+    assert not same_content(str(big), str(other))
+    assert same_content(str(big), str(big))
+    assert not same_content(str(big), str(tmp_path / "absent.mkv"))

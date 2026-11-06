@@ -171,6 +171,12 @@ class QbittorrentClient(TorrentClient):
         if resp.text.strip().lower() == "fails.":
             raise RuntimeError("qBittorrent a refusé le torrent.")
 
+    async def recheck(self, hashes: list[str]) -> None:
+        if not hashes:
+            return
+        resp = await self.client.post("/api/v2/torrents/recheck", data={"hashes": "|".join(hashes)})
+        resp.raise_for_status()
+
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:
             return

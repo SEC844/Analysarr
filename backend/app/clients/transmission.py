@@ -180,6 +180,10 @@ class TransmissionClient(TorrentClient):
             raise ValueError("Ni fichier .torrent ni magnet fourni.")
         await self._rpc("torrent-add", payload)
 
+    async def recheck(self, hashes: list[str]) -> None:
+        if hashes:
+            await self._rpc("torrent-verify", {"ids": hashes})
+
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:
             return

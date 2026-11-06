@@ -82,6 +82,11 @@ class TorrentClient:
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         raise NotImplementedError
 
+    async def recheck(self, hashes: list[str]) -> None:
+        """Demande au client de revérifier les données de ces torrents (après
+        qu'Analysarr a remplacé un de leurs fichiers par un hardlink)."""
+        raise NotImplementedError
+
     async def export_torrent(self, torrent_hash: str) -> bytes | None:
         """Fichier .torrent du torrent, quand le client sait l'exporter
         (qBittorrent). `None` sinon : la corbeille se rabat alors sur un lien

@@ -163,6 +163,10 @@ class DelugeClient(TorrentClient):
             raise ValueError("Ni fichier .torrent ni magnet fourni.")
         await self._rpc("core.add_torrent_magnet", [magnet, options])
 
+    async def recheck(self, hashes: list[str]) -> None:
+        if hashes:
+            await self._rpc("core.force_recheck", [hashes])
+
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:
             return

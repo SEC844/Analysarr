@@ -1,11 +1,14 @@
+import asyncio
 import errno
+import hashlib
 import logging
 import os
 from collections.abc import Sequence
 
+import httpx
 from sqlmodel import Session, select
 
-from app.clients.torrent import TorrentClient, torrent_client
+from app.clients.torrent import TorrentAuthError, TorrentClient, torrent_client
 from app.models.ids import row_id
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.settings import Settings
@@ -94,8 +97,16 @@ async def build_repair_preview(session: Session, media: Media, settings: Setting
             torrent_files = await resolve_torrent_files(qbit, t)
             items += _repair_items(media, t, torrent_files, by_episode, current_single, protected_inodes)
 
+    # La même taille ne prouve pas le même contenu : chaque paire est
+    # comparée (empreinte de quelques blocs, lue hors de la boucle asyncio)
+    # avant d'être proposée. Un torrent dont un fichier diffère est signalé
+    # comme non apparié avec certitude, jamais relié.
+    same = await asyncio.gather(*(asyncio.to_thread(same_content, i.source_path, i.target_path) for i in items))
+    differing = {item.torrent_id for item, ok in zip(items, same, strict=True) if not ok}
+    items = [item for item, ok in zip(items, same, strict=True) if ok]
+
     matched_torrent_ids = {item.torrent_id for item in items}
-    unmatched = [t.name for t in orphan_torrents if t.id not in matched_torrent_ids]
+    unmatched = [t.name for t in orphan_torrents if t.id not in matched_torrent_ids or t.id in differing]
     return HardlinkRepairPreview(
         items=items,
         unmatched_torrents=unmatched,
@@ -140,9 +151,8 @@ def _repair_items(
         else:
             current = current_single
 
-        # Même vérification de contenu qu'au scan (même taille en octets) :
-        # une source différente entre-temps (torrent modifié, fichier
-        # remplacé) ne doit pas produire une réparation erronée.
+        # Même présélection qu'au scan (même taille en octets) ; le contenu
+        # lui-même est comparé ensuite (same_content) avant toute proposition.
         if current is None or size is None or current.size != size:
             continue
         item = _repair_item(current, torrent, path, size, protected_inodes)
@@ -180,6 +190,35 @@ def _repair_item(
         target_exists=target_exists,
         size=size,
     )
+
+
+# Empreinte de contenu : début, milieu et fin du fichier. Un fichier vidéo
+# d'une autre release qui aurait exactement la même taille diffère toujours
+# sur ces blocs (en-têtes, index de fin), sans lire des gigaoctets.
+CONTENT_BLOCK = 1024 * 1024
+
+
+def content_fingerprint(path: str) -> str | None:
+    """sha256 de la taille et de trois blocs de 1 Mio (début, milieu, fin) ;
+    None si le fichier est illisible."""
+    try:
+        with open(path, "rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
+            digest = hashlib.sha256(str(size).encode())
+            for offset in sorted({0, max(0, size // 2 - CONTENT_BLOCK // 2), max(0, size - CONTENT_BLOCK)}):
+                handle.seek(offset)
+                digest.update(handle.read(CONTENT_BLOCK))
+    except OSError:
+        logger.warning("Contenu illisible pour la réparation : %s", path, exc_info=True)
+        return None
+    return digest.hexdigest()
+
+
+def same_content(first: str, second: str) -> bool:
+    """Vrai seulement si les deux empreintes sont lisibles et identiques :
+    dans le doute, la réparation est refusée (elle remplacerait un fichier)."""
+    a = content_fingerprint(first)
+    return a is not None and a == content_fingerprint(second)
 
 
 def _separate_copy_size(target_path: str, source_path: str) -> int:
@@ -329,4 +368,36 @@ async def execute_repair(session: Session, media: Media, settings: Settings) -> 
     refresh_media_statuses(session, media)
     session.commit()
 
+    steps += await _recheck_torrents(settings, all_torrents, preview.items, repaired_torrent_target_path)
     return HardlinkRepairResult(steps=steps, freed_bytes=freed_bytes)
+
+
+async def _recheck_torrents(
+    settings: Settings,
+    torrents: Sequence[Torrent],
+    items: Sequence[HardlinkRepairItem],
+    relinked: dict[int, str],
+) -> list[HardlinkRepairStepResult]:
+    """Un fichier de torrent remplacé par un hardlink (`library_to_torrent`) :
+    le client torrent revérifie ses données plutôt que de les croire
+    inchangées. Un refus est affiché, sans annuler la réparation (le contenu
+    a été comparé avant de relier)."""
+    rechecked = [t for t in torrents if row_id(t) in relinked]
+    if not rechecked:
+        return []
+    try:
+        async with torrent_client(settings) as client:
+            await client.recheck([t.hash for t in rechecked])
+    except (TorrentAuthError, httpx.HTTPError, RuntimeError) as exc:
+        logger.warning("Revérification des torrents réparés impossible", exc_info=True)
+        first = next(item for item in items if item.torrent_id in relinked)
+        names = ", ".join(t.name for t in rechecked)
+        return [
+            HardlinkRepairStepResult(
+                media_file_id=first.media_file_id,
+                label=f"Revérification de {names}",
+                success=False,
+                error=f"Le client torrent n'a pas pu revérifier les données : {exc}",
+            )
+        ]
+    return []
