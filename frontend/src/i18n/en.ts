@@ -160,7 +160,7 @@ export const en: Dictionary = {
     ratioHelp:
       "On restore: files return to their location with their hardlinks, the torrent goes back to the client with its data (no re-download), and the media is recreated in Sonarr/Radarr. Only the torrent sharing stats (ratio, uploaded) start over: no torrent client allows restoring them.",
     crossSeedHelp:
-      "Trashed files get a non-video extension, so cross-seed does not find them. If its {option} option is on, add {rule} to its {blockList}, otherwise it might bring back what you deleted.",
+      "Trashed files get a non-video extension, so cross-seed does not find them. If its {option} option is on, add {rule} to its {blockList}, otherwise it might bring back what you deleted. In cross-seed v7 these settings are under Settings → General in its web UI; in v6, in its config.js.",
     contentTitle: "Trash content",
     contentDescription:
       "{size} will be freed on permanent deletion. A file still hardlinked elsewhere frees nothing until its last link is gone, so it counts as zero.",

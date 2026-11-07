@@ -102,8 +102,8 @@ def _move_into(path: str, trash_dir: str) -> str:
 # sans exclure les dossiers cachés. Il trouvait les épisodes d'une série
 # supprimée dans `.analysarr-trash`, les recherchait sur les trackers et
 # injectait de nouveaux torrents hardlinkés vers la corbeille — la série
-# revenait, et la purge ne libérait plus rien. Vérifié dans son code
-# (`dataFiles.ts`, `preFilter.ts::filterByContent`) : un fichier sans
+# revenait, et la purge ne libérait plus rien. Vérifié dans son code, v6 et
+# v7.0.0 (`dataFiles.ts`, `preFilter.ts::filterByContent`) : un fichier sans
 # extension vidéo n'est jamais une racine de recherche, et toute recherche dont
 # plus de `fuzzySizeThreshold` (2 %) des octets ne sont pas de la vidéo est
 # écartée (`includeNonVideos` désactivé, son défaut), flux RSS compris. Chaque

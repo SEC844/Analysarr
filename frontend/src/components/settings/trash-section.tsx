@@ -208,8 +208,8 @@ export function TrashSection() {
           {appSettings?.cross_seed.enabled && (
             <p className="text-muted-foreground text-xs">
               {rich("trash.crossSeedHelp", {
-                option: <code>includeNonVideos: true</code>,
-                rule: <code>"folder:.analysarr-trash"</code>,
+                option: <code>includeNonVideos</code>,
+                rule: <code>folder:.analysarr-trash</code>,
                 blockList: <code>blockList</code>,
               })}
             </p>

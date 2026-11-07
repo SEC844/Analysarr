@@ -160,7 +160,7 @@ export const fr = {
     ratioHelp:
       "À la restauration : les fichiers retrouvent leur emplacement et leurs hardlinks, le torrent est remis dans le client avec ses données (aucun retéléchargement), et le média est recréé dans Sonarr/Radarr. Seules les statistiques de partage du torrent (ratio, quantité envoyée) repartent de zéro : aucun client torrent ne permet de les restaurer.",
     crossSeedHelp:
-      "Les fichiers mis de côté portent une extension non vidéo : cross-seed ne les retrouve pas. Si son option {option} est activée, ajoutez {rule} à son {blockList}, sinon il pourrait reprendre ce que vous avez supprimé.",
+      "Les fichiers mis de côté portent une extension non vidéo : cross-seed ne les retrouve pas. Si son option {option} est activée, ajoutez {rule} à sa {blockList}, sinon il pourrait reprendre ce que vous avez supprimé. Dans cross-seed v7, ces réglages sont dans Settings → General de son interface web ; en v6, dans son config.js.",
     contentTitle: "Contenu de la corbeille",
     contentDescription:
       "{size} seront libérés à la suppression définitive. Un fichier encore hardlinké ailleurs ne libère rien tant que son dernier lien existe : il compte donc pour zéro.",

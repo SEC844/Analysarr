@@ -47,7 +47,10 @@ describe("TrashSection", () => {
     vi.mocked(getTrash).mockResolvedValue([])
     renderWithProviders(<TrashSection />)
 
-    expect(await screen.findByText('"folder:.analysarr-trash"')).toBeInTheDocument()
+    // Syntaxe d'une entrée de blockList (préfixe `folder:`), sans guillemets :
+    // en v7 elle se saisit dans l'interface web de cross-seed.
+    expect(await screen.findByText("folder:.analysarr-trash")).toBeInTheDocument()
+    expect(screen.getByText(/Settings → General/)).toBeInTheDocument()
   })
 
   it("never mentions cross-seed when it is turned off", async () => {
@@ -55,6 +58,6 @@ describe("TrashSection", () => {
     renderWithProviders(<TrashSection />)
 
     expect(await screen.findByText(en.trash.empty0)).toBeInTheDocument()
-    expect(screen.queryByText('"folder:.analysarr-trash"')).not.toBeInTheDocument()
+    expect(screen.queryByText("folder:.analysarr-trash")).not.toBeInTheDocument()
   })
 })
