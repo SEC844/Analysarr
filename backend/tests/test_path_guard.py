@@ -63,7 +63,7 @@ def test_selective_deletion_is_refused_and_keeps_everything(session, settings, t
 def test_cleanup_is_refused_when_a_duplicate_sits_on_an_empty_mount(session, settings, tmp_path):
     mount = tmp_path / "media"
     mount.mkdir()  # monté… puis vidé : plus aucun fichier visible
-    media = Media(media_type=MediaType.movie, title="Titre", statuses="doublon")
+    media = Media(media_type=MediaType.movie, title="Titre", statuses="doublon", emby_item_id="item-66")
     session.add(media)
     session.commit()
     session.add_all(
@@ -80,7 +80,7 @@ def test_cleanup_is_refused_when_a_duplicate_sits_on_an_empty_mount(session, set
 
 
 def test_refused_deletion_answers_409(admin_client, session, settings, tmp_path):
-    media = Media(media_type=MediaType.movie, title="Titre")
+    media = Media(media_type=MediaType.movie, title="Titre", emby_item_id="item-83")
     session.add(media)
     session.commit()
     row = MediaFile(media_id=media.id, path=str(tmp_path / "absent" / "Film.mkv"), size=1)
@@ -103,7 +103,7 @@ def test_an_automation_reports_the_refusal_instead_of_crashing(session, settings
     from app.models.automation import Automation
     from app.services.automations import run_rule
 
-    media = Media(media_type=MediaType.movie, title="Titre", statuses="doublon")
+    media = Media(media_type=MediaType.movie, title="Titre", statuses="doublon", emby_item_id="item-106")
     session.add(media)
     session.commit()
     session.add_all(

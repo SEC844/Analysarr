@@ -87,15 +87,15 @@ def test_signals_for_one_media_are_merged_into_one_analysis():
     hub.debounce = 0.05
 
     def signals(h: RealtimeHub) -> None:
-        h.media_changed(7, watch_only=True)
-        h.media_changed(7)
-        h.media_changed(7, watch_only=True)
-        h.media_changed(8, watch_only=True)
+        h.media_changed("movie:arr:0:7", watch_only=True)
+        h.media_changed("movie:arr:0:7")
+        h.media_changed("movie:arr:0:7", watch_only=True)
+        h.media_changed("movie:arr:0:8", watch_only=True)
 
     run_hub(hub, signals, 0.2)
 
     # Une analyse complète l'emporte sur le simple visionnage.
-    assert hub.batches == [({7: True, 8: False}, [])]
+    assert hub.batches == [({"movie:arr:0:7": True, "movie:arr:0:8": False}, [])]
 
 
 def test_the_window_starts_at_the_first_signal_and_never_grows():
@@ -105,7 +105,7 @@ def test_the_window_starts_at_the_first_signal_and_never_grows():
     async def run():
         hub.start()
         for _ in range(6):
-            hub.media_changed(1)
+            hub.media_changed("movie:arr:0:1")
             await asyncio.sleep(0.03)
         await asyncio.sleep(0.15)
         await hub.stop()
@@ -1097,7 +1097,7 @@ def test_end_to_end_a_finished_torrent_reaches_the_browser_within_seconds(sessio
     """Chaîne complète, sans rien simuler entre les maillons : superviseur,
     guetteur qBittorrent (vrai `sync/maindata`), correspondance, file,
     analyse du média, événement envoyé au navigateur."""
-    media = Media(media_type=MediaType.movie, title="Film")
+    media = Media(media_type=MediaType.movie, title="Film", emby_item_id="film")
     session.add(media)
     session.commit()
     session.add(Torrent(media_id=media.id, hash="ABC", name="Film"))

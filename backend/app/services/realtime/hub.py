@@ -73,12 +73,24 @@ class RealtimeHub:
         # Échecs consécutifs par média, et la dernière erreur vue.
         self._attempts: dict[str, int] = {}
         self._last_error = ""
+        self._unaddressable_logged: set[str] = set()
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
 
     # --- Signaux -------------------------------------------------------------
 
     def media_changed(self, media_key: str, *, watch_only: bool = False) -> None:
+        # Import différé : ignores → scan.statuses → queue_issues → hub.
+        from app.services.ignores import is_addressable
+
+        if not is_addressable(media_key):
+            # Clé partagée par plusieurs médias (ni fiche Sonarr/Radarr ni
+            # item du serveur multimédia) : la relire reviendrait à relire un
+            # média au hasard. Le scan complet s'en charge.
+            if media_key not in self._unaddressable_logged:
+                self._unaddressable_logged.add(media_key)
+                logger.warning("Temps réel : média sans identité stable ignoré (%s), relu au prochain scan", media_key)
+            return
         pending = self._media.get(media_key)
         if pending is None:
             self._media[media_key] = _Pending(time.monotonic(), full=not watch_only)

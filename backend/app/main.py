@@ -31,7 +31,7 @@ from app.routers import webhooks as webhooks_router
 from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
 from app.services.login_log import record_attempt
-from app.services.media_delete import StaleSelectionError
+from app.services.media_delete import StaleSelectionError, UnaddressableMediaError
 from app.services.path_guard import DiskAccessError
 from app.services.rate_limit import retry_after
 from app.services.realtime.supervisor import supervisor as realtime_supervisor
@@ -128,6 +128,13 @@ async def stale_selection(request: Request, exc: StaleSelectionError) -> JSONRes
     """Sélection périmée (réanalyse entre l'ouverture et la confirmation) :
     l'interface recharge la fiche au lieu de laisser l'erreur bloquer."""
     return JSONResponse({"detail": str(exc), "stale_selection": True}, status_code=409)
+
+
+@app.exception_handler(UnaddressableMediaError)
+async def unaddressable_media(request: Request, exc: UnaddressableMediaError) -> JSONResponse:
+    """Média sans identité stable : suppression refusée avant toute
+    modification, message à afficher tel quel."""
+    return JSONResponse({"detail": str(exc)}, status_code=409)
 
 
 # Les middlewares sont async : tout travail de base de données y est confié au

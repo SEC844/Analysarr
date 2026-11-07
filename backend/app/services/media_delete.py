@@ -27,7 +27,7 @@ from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
 from app.services.disk_footprint import FootprintBuilder, freed_bytes, torrent_paths
 from app.services.hardlink import resolve_torrent_files
-from app.services.ignores import media_key
+from app.services.ignores import is_addressable, media_key
 from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
 
@@ -214,6 +214,13 @@ class StaleSelectionError(RuntimeError):
     RuntimeError : une automatisation la traite comme une étape en échec."""
 
 
+class UnaddressableMediaError(RuntimeError):
+    """Média sans identité stable (`ignores.is_addressable`) : sa clé est
+    partagée par d'autres, la vérification d'identité de la sélection ne
+    garantirait plus rien. Rien n'est supprimé : HTTP 409 (main.py), et une
+    automatisation le traite comme une étape en échec (RuntimeError)."""
+
+
 def selection_of(media: Media, torrents: Sequence[Torrent], files: Sequence[MediaFile]) -> MediaDeleteSelection:
     """Sélection désignant ces éléments par leurs clés stables."""
     return MediaDeleteSelection(
@@ -230,7 +237,13 @@ def resolve_selection(
     CE média. Une clé qui ne désigne plus rien n'est JAMAIS ignorée : la
     suppression entière est refusée (StaleSelectionError), sinon l'utilisateur
     croirait avoir supprimé ce qu'il a coché."""
-    if selection.media_key is not None and selection.media_key != media_key(media):
+    key = media_key(media)
+    if not is_addressable(key):
+        raise UnaddressableMediaError(
+            "Ce média n'a aucune identité stable (ni fiche Sonarr/Radarr, ni élément du serveur multimédia) : "
+            "lancez un scan complet avant de le supprimer."
+        )
+    if selection.media_key is not None and selection.media_key != key:
         raise StaleSelectionError("La fiche a changé depuis son ouverture : rechargez-la avant de supprimer.")
     hashes = {h.lower() for h in selection.torrent_hashes}
     paths = set(selection.media_file_paths)

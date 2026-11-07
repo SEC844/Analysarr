@@ -12,7 +12,7 @@ from app.services.media_delete import resolve_selection
 #    fichiers, SQLite réattribue les identifiants. La sélection désigne donc
 #    les éléments par clé stable (hash, chemin) et une clé périmée est refusée.
 def test_a_selection_made_before_a_rebuild_still_targets_the_chosen_torrent(session, settings):
-    media = Media(media_type=MediaType.movie, title="Film")
+    media = Media(media_type=MediaType.movie, title="Film", emby_item_id="item-15")
     session.add(media)
     session.commit()
     session.add_all(
@@ -41,7 +41,7 @@ def test_a_selection_made_before_a_rebuild_still_targets_the_chosen_torrent(sess
 
 
 def test_a_stale_selection_is_refused_never_silently_ignored(admin_client, session, settings, tmp_path):
-    media = Media(media_type=MediaType.series, title="Série")
+    media = Media(media_type=MediaType.series, title="Série", emby_item_id="item-44")
     session.add(media)
     session.commit()
     episode = tmp_path / "e1.mkv"
@@ -226,3 +226,72 @@ def test_the_path_diagnostic_spots_separate_file_systems(tmp_path, monkeypatch):
         lambda path: SimpleNamespace(st_dev=2) if str(path) == str(downloads) else real_stat(path),
     )
     assert diagnostics.separate_mounts(str(library), str(downloads)) is True
+
+
+# Revue de la 1.0.3 — clé stable vide : un média sans fiche Sonarr/Radarr NI
+# item du serveur multimédia aurait la clé « movie:library: », partagée par
+# tous ses semblables. Le scan n'en crée plus, le temps réel les ignore et la
+# suppression les refuse.
+def test_a_library_item_without_id_never_becomes_a_media(tmp_path, caplog):
+    import asyncio
+
+    from app.services.scan import LibraryContext, build_untracked_results
+
+    class NoEpisodes:
+        async def get_episodes(self, item_id):
+            raise AssertionError("une série sans identifiant ne doit pas être relue")
+
+    movie = {"Name": "Sans Id", "MediaSources": [{"Path": str(tmp_path / "Film.mkv"), "Size": 1}]}
+    series = {"Name": "Série sans Id"}
+
+    results = asyncio.run(
+        build_untracked_results(LibraryContext(emby=NoEpisodes()), [movie], [series], claimed_item_ids=set())
+    )
+
+    assert results == []
+    assert "Sans Id" in caplog.text and "Série sans Id" in caplog.text
+
+
+def test_the_realtime_queue_ignores_a_key_shared_by_several_media(caplog):
+    from app.services.realtime.hub import RealtimeHub
+
+    hub = RealtimeHub()
+    hub.media_changed("movie:library:")
+    hub.media_changed("series:library:", watch_only=True)
+    hub.media_changed("movie:library:")
+
+    assert hub.pending_count == 0
+    # Journalisé une fois par clé, pas à chaque signal.
+    assert caplog.text.count("movie:library:") == 1 and caplog.text.count("series:library:") == 1
+
+
+def test_deleting_a_media_without_stable_identity_is_refused(admin_client, session, settings, tmp_path):
+    import asyncio
+
+    import pytest
+
+    from app.services.media_delete import UnaddressableMediaError, execute_media_delete
+
+    media = Media(media_type=MediaType.movie, title="Sans identité")
+    other = Media(media_type=MediaType.movie, title="Autre sans identité")
+    session.add_all([media, other])
+    session.commit()
+    film = tmp_path / "Film.mkv"
+    film.write_bytes(b"x")
+    session.add(MediaFile(media_id=media.id, path=str(film), size=1))
+    session.commit()
+    # Les deux médias partagent la même clé : elle ne prouve plus rien.
+    assert media_key(media) == media_key(other) == "movie:library:"
+
+    response = admin_client.post(
+        f"/api/media/{media.id}/delete-selection",
+        json={"media_file_paths": [str(film)], "media_key": media_key(media)},
+    )
+
+    assert response.status_code == 409
+    assert "identité stable" in response.json()["detail"] and "stale_selection" not in response.json()
+    assert film.exists()
+    # Même refus pour une automatisation, qui passe par le même service.
+    with pytest.raises(UnaddressableMediaError):
+        asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[str(film)])))
+    assert film.exists()

@@ -26,6 +26,10 @@ def add_media(session, tmp_path, media_type, files=1, **fields):
     media = Media(media_type=media_type, title="Titre", **fields)
     session.add(media)
     session.commit()
+    if media.radarr_id is None and media.sonarr_id is None:
+        # Média non suivi : son identité stable est son item du serveur multimédia.
+        media.emby_item_id = f"item-{media.id}"
+        session.commit()
     rows = []
     for i in range(files):
         path = tmp_path / f"{media_type.value}-{media.id}-{i}.mkv"

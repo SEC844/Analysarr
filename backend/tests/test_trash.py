@@ -35,6 +35,7 @@ def enable_trash(session, settings, tmp_path):
 
 
 def add_movie(session, tmp_path, name="Film.mkv", **fields):
+    fields.setdefault("emby_item_id", f"item-{name}")
     media = Media(media_type=MediaType.movie, title="Titre", **fields)
     session.add(media)
     session.commit()
@@ -224,7 +225,7 @@ def test_cleanup_sends_orphan_torrents_to_the_trash(session, settings, tmp_path,
     enable_trash(session, settings, tmp_path)
     client = FakeTorrentClient()
     patch_client(monkeypatch, client)
-    media = Media(media_type=MediaType.movie, title="Titre", statuses="orphelin_qbit")
+    media = Media(media_type=MediaType.movie, title="Titre", statuses="orphelin_qbit", emby_item_id="item-227")
     session.add(media)
     session.commit()
     torrent, data = add_torrent(session, media, tmp_path)
@@ -483,7 +484,7 @@ def test_the_announced_size_counts_hardlinks_once(admin_client, session, setting
     deux liens) : le purger ne libère cette taille qu'une fois."""
     enable_trash(session, settings, tmp_path)
     patch_client(monkeypatch, FakeTorrentClient())
-    media = Media(media_type=MediaType.movie, title="Titre")
+    media = Media(media_type=MediaType.movie, title="Titre", emby_item_id="item-486")
     session.add(media)
     session.commit()
     library = tmp_path / "Film.mkv"
@@ -522,7 +523,7 @@ def test_a_file_still_linked_outside_the_trash_frees_nothing(
     corbeille ne rendra pas un octet tant que ce lien existe."""
     enable_trash(session, settings, tmp_path)
     patch_client(monkeypatch, FakeTorrentClient())
-    media = Media(media_type=MediaType.movie, title="Titre")
+    media = Media(media_type=MediaType.movie, title="Titre", emby_item_id="item-525")
     session.add(media)
     session.commit()
     library = tmp_path / "Film.mkv"
