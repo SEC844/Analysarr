@@ -948,6 +948,8 @@ export const fr = {
     leechers: { one: "{count} leecher", other: "{count} leechers" },
     ratio: "Ratio {ratio}",
     seedingSince: "Seedé depuis le {date}",
+    trackerStateHint:
+      "État lu au dernier scan complet ou à la dernière analyse de ce média : il n'est pas suivi en temps réel.",
     seriesStatus: {
       continuing: "En cours de diffusion",
       ended: "Terminée",

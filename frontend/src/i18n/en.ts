@@ -940,6 +940,7 @@ export const en: Dictionary = {
     leechers: { one: "{count} leecher", other: "{count} leechers" },
     ratio: "Ratio {ratio}",
     seedingSince: "Seeding since {date}",
+    trackerStateHint: "State read at the last full scan or the last analysis of this media: it is not followed in real time.",
     seriesStatus: {
       continuing: "Continuing",
       ended: "Ended",
