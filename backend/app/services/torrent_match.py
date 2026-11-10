@@ -168,10 +168,59 @@ class FetchedTorrents:
 DETAIL_CONCURRENCY = 8
 
 
-async def fetch_torrents(settings: Settings) -> FetchedTorrents:
+@dataclass
+class KnownTorrent:
+    """Ce que le cache sait d'un torrent depuis la dernière lecture du client :
+    sa ligne (trackers, drapeau privé) et ses fichiers (table TorrentFile)."""
+
+    row: Torrent
+    entries: list[tuple[str, int | None]]
+
+
+def known_torrents(session: Session) -> dict[str, KnownTorrent]:
+    """Torrents du cache, par hash en minuscules."""
+    files_by_hash: dict[str, list[tuple[str, int | None]]] = {}
+    for row in session.exec(select(TorrentFile)).all():
+        files_by_hash.setdefault(row.torrent_hash, []).append((row.path, row.size))
+    return {
+        t.hash.lower(): KnownTorrent(t, files_by_hash.get(t.hash.lower(), []))
+        for t in session.exec(select(Torrent)).all()
+        if t.hash
+    }
+
+
+def _naive(value: datetime | None) -> datetime | None:
+    return value.replace(tzinfo=None) if value is not None else None
+
+
+def _unchanged(t: dict[str, Any], known: KnownTorrent) -> bool:
+    """Même nom, mêmes dossiers, même taille, même fin de téléchargement :
+    ses fichiers et ses trackers n'ont aucune raison d'avoir changé."""
+    row = known.row
+    return bool(known.entries) and (
+        t.get("name", ""),
+        t.get("save_path"),
+        t.get("content_path"),
+        t.get("size"),
+        _naive(epoch_to_datetime(t.get("completion_on"))),
+    ) == (row.name, row.save_path, row.content_path, row.size, _naive(row.completed_on))
+
+
+async def fetch_torrents(
+    settings: Settings, known: dict[str, KnownTorrent] | None = None, *, reuse_unchanged: bool = False
+) -> FetchedTorrents:
     """Lit tous les torrents du client configuré, avec leurs trackers et leurs
     fichiers. Une authentification refusée arrête l'analyse : continuer
-    donnerait une bibliothèque entièrement « non seedée »."""
+    donnerait une bibliothèque entièrement « non seedée ».
+
+    `known` (le cache) sert de repli : un torrent dont les fichiers ou les
+    trackers sont illisibles garde ceux du cache au lieu de passer pour vide
+    (son statut basculerait). Avec `reuse_unchanged` (analyse des torrents du
+    temps réel), seul le détail des torrents NOUVEAUX ou MODIFIÉS est demandé :
+    bug réel, chaque torrent ajouté par cross-seed relisait le détail de tous
+    les torrents (deux appels chacun, près de 3 000 requêtes pour 1 470
+    torrents). Le scan complet, lui, relit tout (états des trackers à jour)."""
+    known = known or {}
     try:
         async with torrent_client(settings) as client:
             torrents = await client.get_torrents()
@@ -182,14 +231,27 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
             limit = asyncio.Semaphore(DETAIL_CONCURRENCY)
 
             async def detail(t: dict[str, Any]) -> FetchedTorrent:
+                cached = known.get(str(t["hash"]).lower())
+                if reuse_unchanged and cached is not None and _unchanged(t, cached):
+                    row = cached.row
+                    return await run_in_threadpool(
+                        build_fetched, t, row.trackers_json, cached.entries, row.is_private
+                    )
                 async with limit:
-                    trackers = await optional_read(client.get_trackers, t["hash"], "Trackers")
-                    files = await optional_read(client.get_files, t["hash"], "Fichiers")
+                    trackers = await _read_or_none(client.get_trackers, t["hash"], "Trackers")
+                    files = await _read_or_none(client.get_files, t["hash"], "Fichiers")
                     private = await read_private_flag(client, t)
-                    # Inodes lus sur le disque (lent sur un partage Unraid) :
-                    # hors de la boucle asyncio. Bug réel : 6 s d'interface
-                    # figée à chaque analyse des torrents.
-                    return await run_in_threadpool(resolve_fetched, t, trackers, files, private)
+                if cached is not None and (files is None or trackers is None):
+                    # Lecture en échec : ce que le cache savait plutôt que rien.
+                    entries = file_entries(t, files) if files is not None else cached.entries
+                    trackers_json = (
+                        json.dumps(_tracker_domains(trackers)) if trackers is not None else cached.row.trackers_json
+                    )
+                    return await run_in_threadpool(build_fetched, t, trackers_json, entries, private)
+                # Inodes lus sur le disque (lent sur un partage Unraid) :
+                # hors de la boucle asyncio. Bug réel : 6 s d'interface
+                # figée à chaque analyse des torrents.
+                return await run_in_threadpool(resolve_fetched, t, trackers or [], files or [], private)
 
             resolved = await asyncio.gather(*(detail(t) for t in torrents))
     except TorrentAuthError as exc:
@@ -204,13 +266,20 @@ async def fetch_torrents(settings: Settings) -> FetchedTorrents:
 async def optional_read(
     read: Callable[[str], Awaitable[list[dict[str, Any]]]], torrent_hash: str, what: str
 ) -> list[dict[str, Any]]:
+    return await _read_or_none(read, torrent_hash, what) or []
+
+
+async def _read_or_none(
+    read: Callable[[str], Awaitable[list[dict[str, Any]]]], torrent_hash: str, what: str
+) -> list[dict[str, Any]] | None:
+    """None si la lecture échoue (à distinguer d'une liste vraiment vide)."""
     try:
         return await read(torrent_hash)
     except (httpx.HTTPError, ValueError, RuntimeError, TorrentAuthError):
         # Un torrent illisible ne doit pas arrêter l'analyse : sans ses
         # fichiers, son hardlink n'est simplement pas évalué.
         logger.warning("%s illisibles pour le torrent %s", what, torrent_hash, exc_info=True)
-        return []
+        return None
 
 
 async def read_private_flag(client: TorrentClient, torrent: dict[str, Any]) -> bool | None:
@@ -231,18 +300,31 @@ def resolve_fetched(
 ) -> FetchedTorrent:
     """Ligne Torrent et fichiers d'un torrent du client. Lit le disque
     (inodes) : jamais dans la boucle asyncio."""
+    return build_fetched(t, json.dumps(_tracker_domains(trackers)), file_entries(t, files), private)
+
+
+def file_entries(t: dict[str, Any], files: list[dict[str, Any]]) -> list[tuple[str, int | None]]:
+    """Chemin complet et taille de chaque fichier d'un torrent du client."""
     content_path = t.get("content_path") or t.get("save_path")
     save_path = t.get("save_path")
-
-    file_entries: list[tuple[str, int | None]] = []
+    entries: list[tuple[str, int | None]] = []
     for f in files:
         rel = f.get("name")
         if rel and save_path:
-            file_entries.append((os.path.join(save_path, rel), f.get("size")))
-    if not file_entries and content_path:
+            entries.append((os.path.join(save_path, rel), f.get("size")))
+    if not entries and content_path:
         # repli si l'API des fichiers a échoué ou n'a rien renvoyé
-        file_entries.append((content_path, t.get("size")))
+        entries.append((content_path, t.get("size")))
+    return entries
 
+
+def build_fetched(
+    t: dict[str, Any], trackers_json: str, file_entries: list[tuple[str, int | None]], private: bool | None
+) -> FetchedTorrent:
+    """Ligne Torrent d'un torrent du client, ses fichiers donnés (lus à
+    l'instant ou repris du cache). Lit le disque : jamais dans la boucle."""
+    content_path = t.get("content_path") or t.get("save_path")
+    save_path = t.get("save_path")
     resolved_inodes, file_details = _resolve_files(file_entries)
     first_inode = resolved_inodes[0] if resolved_inodes else None
     row = Torrent(
@@ -252,6 +334,7 @@ def resolve_fetched(
         save_path=save_path,
         content_path=t.get("content_path"),
         category=t.get("category") or None,
+        tags=t.get("tags") or None,
         size=t.get("size"),
         inode=first_inode[0] if first_inode else None,
         device=first_inode[1] if first_inode else None,
@@ -261,7 +344,7 @@ def resolve_fetched(
         added_on=epoch_to_datetime(t.get("added_on")),
         completed_on=epoch_to_datetime(t.get("completion_on")),
         is_private=private,
-        trackers_json=json.dumps(_tracker_domains(trackers)),
+        trackers_json=trackers_json,
     )
     return FetchedTorrent(row, content_path, resolved_inodes, file_details, file_entries)
 
@@ -526,6 +609,7 @@ def torrents_from_cache(session: Session) -> FetchedTorrents:
             save_path=torrent.save_path,
             content_path=torrent.content_path,
             category=torrent.category,
+            tags=torrent.tags,
             size=torrent.size,
             inode=resolved_inodes[0][0] if resolved_inodes else None,
             device=resolved_inodes[0][1] if resolved_inodes else None,

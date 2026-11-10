@@ -17,6 +17,7 @@ const t = (key: string, vars?: Record<string, string | number>) => `${key} ${JSO
 function candidate(overrides: Partial<CleanupCandidate>): CleanupCandidate {
   return {
     media_id: 1,
+    media_key: "movie:arr:0:1",
     media_type: "movie",
     title: "Film",
     year: 2020,

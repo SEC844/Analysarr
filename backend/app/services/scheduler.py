@@ -17,8 +17,8 @@ _JOB_ID = "periodic_scan"
 _UPDATE_JOB_ID = "update_watch"
 _UPDATE_INTERVAL_HOURS = 3
 _TRASH_JOB_ID = "trash_purge"
-_TRASH_INTERVAL_HOURS = 6
-_TRASH_CONCEAL_JOB_ID = "trash_conceal_startup"
+_TRASH_INTERVAL_HOURS = 1
+_TRASH_STARTUP_JOB_ID = "trash_startup"
 _WEEKLY_JOB_ID = "weekly_summary"
 # Résumé hebdomadaire : le lundi matin, heure du conteneur.
 WEEKLY_SUMMARY_DAY = "mon"
@@ -78,20 +78,32 @@ def configure_weekly_summary() -> None:
         )
 
 
-async def _run_trash_purge() -> None:
+def _run_trash_purge() -> None:
+    # Synchrone : APScheduler l'exécute dans un thread (effacer des fichiers
+    # dans la boucle asyncio figerait l'application).
     with Session(engine) as session:
         purge_expired(session, session.get(Settings, 1))
 
 
 def configure_trash_purge() -> None:
-    """Rétention de la corbeille appliquée toutes les 6 h (et à la demande,
-    voir routers/trash.py). Sans effet quand la corbeille est vide."""
+    """Rétention de la corbeille appliquée au démarrage puis toutes les heures
+    (et à la demande, voir routers/trash.py). Sans effet quand la corbeille est
+    vide. Bug réel : une purge toutes les 6 h comptées depuis le démarrage
+    n'avait jamais lieu sur un conteneur redémarré plus souvent (mises à jour),
+    et une rétention d'un jour gardait la suppression bien au-delà."""
     if scheduler.get_job(_TRASH_JOB_ID) is None:
         scheduler.add_job(_run_trash_purge, "interval", hours=_TRASH_INTERVAL_HOURS, id=_TRASH_JOB_ID)
-    # Une fois au démarrage, dans un thread (disque) : ce que la corbeille
-    # contenait avant de se cacher de cross-seed (services/trash.py::conceal).
-    if scheduler.get_job(_TRASH_CONCEAL_JOB_ID) is None:
-        scheduler.add_job(conceal_existing, id=_TRASH_CONCEAL_JOB_ID)
+    if scheduler.get_job(_TRASH_STARTUP_JOB_ID) is None:
+        scheduler.add_job(_trash_startup, id=_TRASH_STARTUP_JOB_ID)
+
+
+def _trash_startup() -> None:
+    """Une fois au démarrage, dans un thread (disque) : ce que la corbeille
+    contenait avant de se cacher de cross-seed (services/trash.py::conceal),
+    PUIS la rétention. Jamais en parallèle : un fichier renommé pendant la
+    purge passerait pour déjà effacé et resterait sur le disque."""
+    conceal_existing()
+    _run_trash_purge()
 
 
 def configure_scan_schedule(

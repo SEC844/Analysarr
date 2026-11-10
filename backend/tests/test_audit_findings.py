@@ -1,0 +1,297 @@
+"""Non-régression des constats de l'audit de la 1.0.3."""
+
+from sqlmodel import delete
+
+from app.models.media import Media, MediaFile, MediaType, Torrent
+from app.schemas.media import MediaDeleteSelection
+from app.services.ignores import media_key
+from app.services.media_delete import resolve_selection
+
+
+# 1. Identifiants recyclés : une réanalyse efface et réinsère torrents et
+#    fichiers, SQLite réattribue les identifiants. La sélection désigne donc
+#    les éléments par clé stable (hash, chemin) et une clé périmée est refusée.
+def test_a_selection_made_before_a_rebuild_still_targets_the_chosen_torrent(session, settings):
+    media = Media(media_type=MediaType.movie, title="Film", emby_item_id="item-15")
+    session.add(media)
+    session.commit()
+    session.add_all(
+        [
+            Torrent(media_id=media.id, hash="aaa", name="Film YGG"),
+            Torrent(media_id=media.id, hash="bbb", name="Film C411"),
+        ]
+    )
+    session.commit()
+    chosen = MediaDeleteSelection(torrent_hashes=["BBB"], media_key=media_key(media))  # copie C411 cochée
+
+    # Réanalyse des torrents (partial_scan._store_torrents) : tout est effacé
+    # puis réinséré, dans l'ordre que renvoie le client.
+    session.exec(delete(Torrent))
+    session.commit()
+    session.add_all(
+        [
+            Torrent(media_id=media.id, hash="bbb", name="Film C411"),
+            Torrent(media_id=media.id, hash="aaa", name="Film YGG"),
+        ]
+    )
+    session.commit()
+
+    torrents, _ = resolve_selection(session, media, chosen)
+    assert [t.name for t in torrents] == ["Film C411"]
+
+
+def test_a_stale_selection_is_refused_never_silently_ignored(admin_client, session, settings, tmp_path):
+    media = Media(media_type=MediaType.series, title="Série", emby_item_id="item-44")
+    session.add(media)
+    session.commit()
+    episode = tmp_path / "e1.mkv"
+    episode.write_bytes(b"x")
+    session.add(MediaFile(media_id=media.id, path=str(episode), size=1))
+    session.commit()
+    key = media_key(media)
+    url = f"/api/media/{media.id}/delete-selection"
+
+    # Fichier renommé par Sonarr entre l'ouverture du dialogue et la confirmation.
+    gone = admin_client.post(url, json={"media_file_paths": [str(tmp_path / "ancien.mkv")], "media_key": key})
+    # Scan complet entre-temps : l'identifiant de l'adresse désigne un autre média.
+    other = admin_client.post(url, json={"media_file_paths": [str(episode)], "media_key": "series:arr:0:999"})
+
+    assert gone.status_code == 409 and other.status_code == 409
+    assert "rechargez" in gone.json()["detail"]
+    # Marquée : l'interface recharge la fiche au lieu de rester sur l'erreur.
+    assert gone.json()["stale_selection"] is True and other.json()["stale_selection"] is True
+    assert episode.exists()
+
+
+# 6. Le scan complet remplace le cache en une seule transaction : une écriture
+#    qui échoue laisse l'ancien cache intact au lieu d'une bibliothèque vide.
+def test_a_failed_cache_replacement_keeps_the_previous_library(session, settings):
+    from sqlalchemy.exc import IntegrityError
+    from sqlmodel import select
+
+    from app.services.scan.orchestrator import _replace_cache
+    from app.services.scan.results import MediaBuildResult
+
+    session.add(Media(media_type=MediaType.movie, title="Ancien", radarr_id=1))
+    session.commit()
+    broken = MediaBuildResult(
+        media=Media(media_type=MediaType.movie, title="Nouveau", radarr_id=2),
+        files=[MediaFile(path=None, size=1)],  # chemin obligatoire : l'écriture échoue
+    )
+
+    try:
+        _replace_cache(session, [broken], [])
+    except IntegrityError:
+        session.rollback()
+
+    assert [m.title for m in session.exec(select(Media)).all()] == ["Ancien"]
+
+
+# 7. Annexes : le nom d'une AUTRE vidéo plus longue du même dossier n'est pas
+#    pris pour une annexe de celle-ci.
+def test_companions_of_a_single_episode_leave_the_double_episode_subtitles(tmp_path):
+    from app.services.companion_files import companions
+
+    single = tmp_path / "Show - S01E01.mkv"
+    single.write_bytes(b"x")
+    (tmp_path / "Show - S01E01-E02.mkv").write_bytes(b"x")
+    (tmp_path / "Show - S01E01-E02.fr.srt").write_bytes(b"x")
+    (tmp_path / "Show - S01E01.fr.srt").write_bytes(b"x")
+
+    assert companions(str(single)) == [str(tmp_path / "Show - S01E01.fr.srt")]
+
+
+# 8. Connexion : un nom inconnu répond après une vérification bcrypt, comme un
+#    nom connu — le temps de réponse ne révèle plus les noms valides.
+def test_login_timing_no_longer_reveals_existing_usernames(client):
+    import time
+
+    from tests.conftest import ADMIN
+
+    assert client.post("/api/auth/setup", json=ADMIN).status_code == 201
+
+    def timed(username):
+        start = time.perf_counter()
+        client.post("/api/auth/login", json={"username": username, "password": "mauvais-mdp"})
+        return time.perf_counter() - start
+
+    unknown = min(timed("inconnu") for _ in range(3))
+    known = min(timed(ADMIN["username"]) for _ in range(3))
+    assert known < unknown * 3
+
+
+# 9. Aucune séquence d'échappement invalide dans le code ni les tests : dans
+#    test_static_files.py, « ..\config\analysarr.db » contenait en réalité un
+#    caractère de contrôle (\a) — le chemin testé n'était pas celui voulu.
+def test_no_source_file_has_an_invalid_escape_sequence():
+    import warnings
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for path in [*root.glob("app/**/*.py"), *root.glob("tests/**/*.py")]:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SyntaxWarning)
+            compile(path.read_text(encoding="utf-8"), str(path), "exec")
+
+
+# 19. Badge « cross-seed » : l'étiquette du torrent compte aussi, pas seulement
+#     sa catégorie ou son dossier.
+def test_a_torrent_tagged_cross_seed_gets_the_badge(admin_client, session):
+    media = Media(media_type=MediaType.movie, title="Film", radarr_id=1)
+    session.add(media)
+    session.commit()
+    session.add(Torrent(media_id=media.id, hash="aaa", name="Film", category="films", tags="cross-seed, ygg"))
+    session.add(Torrent(media_id=media.id, hash="bbb", name="Film", category="films", tags="ygg"))
+    session.commit()
+
+    torrents = admin_client.get(f"/api/media/{media.id}").json()["torrents"]
+
+    assert {t["hash"]: t["is_cross_seed"] for t in torrents} == {"aaa": True, "bbb": False}
+
+
+def test_the_tags_column_is_added_without_recreating_the_cache(tmp_path, monkeypatch):
+    """Base existante : la colonne est ajoutée, les torrents en cache restent."""
+    import sqlite3
+
+    from sqlalchemy import create_engine, inspect, text
+
+    from app import database
+
+    path = tmp_path / "analysarr.db"
+    legacy = sqlite3.connect(path)
+    legacy.execute("CREATE TABLE torrent (id INTEGER PRIMARY KEY, hash VARCHAR, category VARCHAR)")
+    legacy.execute("INSERT INTO torrent VALUES (1, 'aaa', 'films')")
+    legacy.commit()
+    legacy.close()
+    engine = create_engine(f"sqlite:///{path}")
+    monkeypatch.setattr(database, "engine", engine)
+
+    database._ensure_columns("torrent", database._TORRENT_NEW_COLUMNS)
+
+    assert "tags" in {c["name"] for c in inspect(engine).get_columns("torrent")}
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT hash, category FROM torrent")).one() == ("aaa", "films")
+    engine.dispose()
+
+
+# 5. La vérification avant suppression regarde les corbeilles que
+#    `move_to_trash` utilisera vraiment : celle de la bibliothèque d'abord,
+#    toujours, puis celle voisine d'un élément situé sur un autre disque.
+def test_trash_checks_follow_the_real_destination(settings, tmp_path, monkeypatch):
+    import os as real_os
+    from types import SimpleNamespace
+
+    from app.services import trash as trash_service
+
+    library = tmp_path / "media"
+    downloads = tmp_path / "torrents" / "Film"
+    library.mkdir()
+    downloads.mkdir(parents=True)
+    torrent_file = downloads / "Film.mkv"
+    torrent_file.write_bytes(b"x")
+    settings.emby_library_path = str(library)
+    real_stat = real_os.stat
+
+    def other_disk(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if str(path) == str(downloads):
+            return SimpleNamespace(st_dev=result.st_dev + 1, st_mode=result.st_mode)
+        return result
+
+    monkeypatch.setattr(trash_service.os, "stat", other_disk)
+    library_trash = str(library / trash_service.TRASH_DIR_NAME)
+    monkeypatch.setattr(trash_service, "creatable_dir", lambda path: path != library_trash)
+
+    # Autre disque : la corbeille de la bibliothèque est tout de même essayée
+    # en premier (seul EXDEV fait passer à la voisine) ; elle doit être vérifiée.
+    assert library_trash in trash_service.staging_blockers(settings, str(torrent_file))
+
+
+def test_the_path_diagnostic_spots_separate_file_systems(tmp_path, monkeypatch):
+    import os as real_os
+    from types import SimpleNamespace
+
+    from app.services import diagnostics
+
+    library, downloads = tmp_path / "media", tmp_path / "torrents"
+    library.mkdir()
+    downloads.mkdir()
+    assert diagnostics.separate_mounts(str(library), str(downloads)) is False
+    assert diagnostics.separate_mounts(str(library), str(tmp_path / "absent")) is False
+
+    real_stat = real_os.stat
+    monkeypatch.setattr(
+        diagnostics.os,
+        "stat",
+        lambda path: SimpleNamespace(st_dev=2) if str(path) == str(downloads) else real_stat(path),
+    )
+    assert diagnostics.separate_mounts(str(library), str(downloads)) is True
+
+
+# Revue de la 1.0.3 — clé stable vide : un média sans fiche Sonarr/Radarr NI
+# item du serveur multimédia aurait la clé « movie:library: », partagée par
+# tous ses semblables. Le scan n'en crée plus, le temps réel les ignore et la
+# suppression les refuse.
+def test_a_library_item_without_id_never_becomes_a_media(tmp_path, caplog):
+    import asyncio
+
+    from app.services.scan import LibraryContext, build_untracked_results
+
+    class NoEpisodes:
+        async def get_episodes(self, item_id):
+            raise AssertionError("une série sans identifiant ne doit pas être relue")
+
+    movie = {"Name": "Sans Id", "MediaSources": [{"Path": str(tmp_path / "Film.mkv"), "Size": 1}]}
+    series = {"Name": "Série sans Id"}
+
+    results = asyncio.run(
+        build_untracked_results(LibraryContext(emby=NoEpisodes()), [movie], [series], claimed_item_ids=set())
+    )
+
+    assert results == []
+    assert "Sans Id" in caplog.text and "Série sans Id" in caplog.text
+
+
+def test_the_realtime_queue_ignores_a_key_shared_by_several_media(caplog):
+    from app.services.realtime.hub import RealtimeHub
+
+    hub = RealtimeHub()
+    hub.media_changed("movie:library:")
+    hub.media_changed("series:library:", watch_only=True)
+    hub.media_changed("movie:library:")
+
+    assert hub.pending_count == 0
+    # Journalisé une fois par clé, pas à chaque signal.
+    assert caplog.text.count("movie:library:") == 1 and caplog.text.count("series:library:") == 1
+
+
+def test_deleting_a_media_without_stable_identity_is_refused(admin_client, session, settings, tmp_path):
+    import asyncio
+
+    import pytest
+
+    from app.services.media_delete import UnaddressableMediaError, execute_media_delete
+
+    media = Media(media_type=MediaType.movie, title="Sans identité")
+    other = Media(media_type=MediaType.movie, title="Autre sans identité")
+    session.add_all([media, other])
+    session.commit()
+    film = tmp_path / "Film.mkv"
+    film.write_bytes(b"x")
+    session.add(MediaFile(media_id=media.id, path=str(film), size=1))
+    session.commit()
+    # Les deux médias partagent la même clé : elle ne prouve plus rien.
+    assert media_key(media) == media_key(other) == "movie:library:"
+
+    response = admin_client.post(
+        f"/api/media/{media.id}/delete-selection",
+        json={"media_file_paths": [str(film)], "media_key": media_key(media)},
+    )
+
+    assert response.status_code == 409
+    assert "identité stable" in response.json()["detail"] and "stale_selection" not in response.json()
+    assert film.exists()
+    # Même refus pour une automatisation, qui passe par le même service.
+    with pytest.raises(UnaddressableMediaError):
+        asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[str(film)])))
+    assert film.exists()

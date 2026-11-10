@@ -1,14 +1,15 @@
 import json
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Any, Concatenate
 
 from sqlalchemy import event, inspect, text
 from sqlalchemy.pool import ConnectionPoolEntry, QueuePool
 from sqlmodel import Session, SQLModel, create_engine
+from starlette.concurrency import run_in_threadpool
 
 from app.config import DATABASE_PATH
 
@@ -210,6 +211,13 @@ _ARR_WEBHOOK_NEW_COLUMNS = [
 ]
 
 
+# Torrents : colonne ajoutée sans recréer le cache (sinon toute la
+# bibliothèque disparaîtrait jusqu'au scan suivant).
+_TORRENT_NEW_COLUMNS = [
+    ("tags", "VARCHAR"),
+]
+
+
 # Même principe pour le compte administrateur (`user`), jamais recréé.
 _USER_NEW_COLUMNS = [
     ("totp_secret", "VARCHAR"),
@@ -323,6 +331,7 @@ def init_db() -> None:
     _ensure_columns("settings", _SETTINGS_NEW_COLUMNS)
     _ensure_columns("user", _USER_NEW_COLUMNS)
     _ensure_columns("arrwebhook", _ARR_WEBHOOK_NEW_COLUMNS)
+    _ensure_columns("torrent", _TORRENT_NEW_COLUMNS)
     SQLModel.metadata.create_all(engine)
     _migrate_legacy_notifications()
     _apply_realtime_default()
@@ -339,3 +348,15 @@ def _drop_legacy_trash() -> None:
 def get_session() -> Iterator[Session]:
     with Session(engine) as session:
         yield session
+
+
+async def run_in_session[**P, T](fn: Callable[Concatenate[Session, P], T], *args: P.args, **kwargs: P.kwargs) -> T:
+    """Travail de base de données hors de la boucle asyncio, avec SA PROPRE
+    session ouverte dans le thread : une session n'est jamais partagée entre
+    threads. Les objets renvoyés restent lisibles (`expire_on_commit=False`)."""
+
+    def call() -> T:
+        with Session(engine, expire_on_commit=False) as session:
+            return fn(session, *args, **kwargs)
+
+    return await run_in_threadpool(call)

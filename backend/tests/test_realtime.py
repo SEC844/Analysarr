@@ -14,6 +14,7 @@ import httpx
 import pytest
 from sqlmodel import Session, select
 
+from app.clients.deluge import DelugeClient
 from app.clients.emby import EmbyClient
 from app.clients.qbittorrent import QbittorrentClient
 from app.clients.torrent_base import fingerprint
@@ -24,6 +25,7 @@ from app.models.media import Media, MediaType, Torrent
 from app.services import scan as scan_package
 from app.services.arr_instances import arr_targets
 from app.services.events import RESYNC_EVENT, EventBroadcaster, live_events
+from app.services.ignores import media_key
 from app.services.realtime import hub as hub_module
 from app.services.realtime import supervisor as supervisor_module
 from app.services.realtime import webhooks
@@ -85,15 +87,15 @@ def test_signals_for_one_media_are_merged_into_one_analysis():
     hub.debounce = 0.05
 
     def signals(h: RealtimeHub) -> None:
-        h.media_changed(7, watch_only=True)
-        h.media_changed(7)
-        h.media_changed(7, watch_only=True)
-        h.media_changed(8, watch_only=True)
+        h.media_changed("movie:arr:0:7", watch_only=True)
+        h.media_changed("movie:arr:0:7")
+        h.media_changed("movie:arr:0:7", watch_only=True)
+        h.media_changed("movie:arr:0:8", watch_only=True)
 
     run_hub(hub, signals, 0.2)
 
     # Une analyse complète l'emporte sur le simple visionnage.
-    assert hub.batches == [({7: True, 8: False}, [])]
+    assert hub.batches == [({"movie:arr:0:7": True, "movie:arr:0:8": False}, [])]
 
 
 def test_the_window_starts_at_the_first_signal_and_never_grows():
@@ -103,7 +105,7 @@ def test_the_window_starts_at_the_first_signal_and_never_grows():
     async def run():
         hub.start()
         for _ in range(6):
-            hub.media_changed(1)
+            hub.media_changed("movie:arr:0:1")
             await asyncio.sleep(0.03)
         await asyncio.sleep(0.15)
         await hub.stop()
@@ -154,9 +156,9 @@ def _events(run):
 
 
 def test_processing_rescans_and_tells_the_browser(session, settings, monkeypatch):
-    kept = Media(media_type=MediaType.movie, title="Gardé")
-    gone = Media(media_type=MediaType.movie, title="Retiré")
-    watched = Media(media_type=MediaType.movie, title="Vu")
+    kept = Media(media_type=MediaType.movie, title="Gardé", radarr_id=1)
+    gone = Media(media_type=MediaType.movie, title="Retiré", radarr_id=2)
+    watched = Media(media_type=MediaType.movie, title="Vu", radarr_id=3)
     session.add_all([kept, gone, watched])
     session.commit()
     calls = []
@@ -172,18 +174,20 @@ def test_processing_rescans_and_tells_the_browser(session, settings, monkeypatch
     monkeypatch.setattr("app.services.media_rescan.rescan_media", rescan)
     monkeypatch.setattr("app.services.watch_stats.refresh_media_watch", refresh_watch)
 
-    events = _events(lambda: RealtimeHub().process({kept.id: True, gone.id: True, watched.id: False, 999: True}, []))
+    batch = {media_key(kept): True, media_key(gone): True, media_key(watched): False, "movie:arr:0:999": True}
+    events = _events(lambda: RealtimeHub().process(batch, []))
 
     assert sorted(calls) == [("rescan", "Gardé"), ("rescan", "Retiré"), ("watch", "Vu")]
     by_type = {(e["type"], e.get("media_id")) for e in events}
     assert ("media.updated", kept.id) in by_type and ("media.removed", gone.id) in by_type
-    assert ("media.removed", 999) in by_type  # disparu entre-temps
+    # Disparu entre-temps : son identifiant est inconnu, les listes sont relues.
+    assert ("library.changed", None) in by_type
     assert ("cleanup.changed", None) in by_type
 
 
 def test_a_failing_source_never_stops_the_batch(session, settings, monkeypatch, caplog):
-    first = Media(media_type=MediaType.movie, title="Panne")
-    second = Media(media_type=MediaType.movie, title="Sain")
+    first = Media(media_type=MediaType.movie, title="Panne", radarr_id=1)
+    second = Media(media_type=MediaType.movie, title="Sain", radarr_id=2)
     session.add_all([first, second])
     session.commit()
     seen = []
@@ -196,7 +200,7 @@ def test_a_failing_source_never_stops_the_batch(session, settings, monkeypatch, 
 
     monkeypatch.setattr("app.services.media_rescan.rescan_media", rescan)
 
-    asyncio.run(RealtimeHub().process({first.id: True, second.id: True}, []))
+    asyncio.run(RealtimeHub().process({media_key(first): True, media_key(second): True}, []))
 
     assert seen == ["Sain"]
     assert "impossible" in caplog.text
@@ -576,7 +580,21 @@ def test_an_import_rescans_the_known_series_only_by_its_id(client, session, hook
     }
     assert deliver(client, hooked, body).status_code == 204
 
-    assert signals == [("media", media.id)]
+    assert signals == [("media", media_key(media))]
+
+
+def test_a_delivered_import_waits_for_its_analysis_before_counting(client, session, hooked, signals):
+    media = Media(media_type=MediaType.series, title="Vraie", sonarr_id=12)
+    session.add(media)
+    session.commit()
+    body = {"eventType": "Download", "series": {"id": 12}, "downloadId": "ABC123"}
+
+    assert deliver(client, hooked, body).status_code == 204
+
+    key = webhooks.event_key("sonarr", 0, "import", "abc123", 12)
+    assert webhooks.recently_delivered(key) is False  # pas encore analysé
+    webhooks.confirm_deliveries(media_key(media))
+    assert webhooks.recently_delivered(key) is True
 
 
 def test_an_unknown_series_asks_for_a_sonarr_analysis(client, hooked, signals):
@@ -672,6 +690,68 @@ def test_qbittorrent_rebuilds_its_state_from_partial_updates(fake_http):
     assert set(third) == {"bb"}
 
 
+def test_missing_files_count_as_a_torrent_change(fake_http):
+    """Un torrent dont les données disparaissent (disque démonté, fichiers
+    supprimés) gardait la même empreinte : son média n'était jamais relu."""
+    pages = iter(
+        [
+            {"rid": 1, "full_update": True, "torrents": {"AA": {"name": "A", "progress": 1, "state": "uploading"}}},
+            {"rid": 2, "torrents": {"AA": {"state": "missingFiles"}}},
+            {"rid": 3, "torrents": {"AA": {"state": "stalledUP"}}},
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v2/auth/login":
+            return httpx.Response(200, text="Ok.", headers={"set-cookie": "SID=1; path=/"})
+        return httpx.Response(200, json=next(pages))
+
+    fake_http["http://qbit"] = handler
+
+    async def run():
+        async with QbittorrentClient("http://qbit", "admin", "x") as client:
+            return [await client.fingerprints() for _ in range(3)]
+
+    healthy, missing, back = asyncio.run(run())
+
+    assert diff_fingerprints(healthy, missing).changed == {"aa"}
+    assert missing["aa"][5] == "missing_files"
+    assert back == healthy  # un simple changement d'activité ne compte pas
+
+
+def test_deluge_and_transmission_report_their_data_errors(fake_http):
+    def deluge(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        results = {
+            "auth.login": True,
+            "web.connected": True,
+            "core.get_torrents_status": {"aa": {"name": "A", "progress": 100, "state": "Error"}},
+        }
+        return httpx.Response(200, json={"id": body["id"], "result": results.get(body["method"]), "error": None})
+
+    def transmission(request: httpx.Request) -> httpx.Response:
+        torrents = [
+            {"id": 1, "hashString": "BB", "name": "B", "percentDone": 1, "error": 3},
+            {"id": 2, "hashString": "CC", "name": "C", "percentDone": 1, "error": 2},  # tracker seulement
+        ]
+        return httpx.Response(200, json={"result": "success", "arguments": {"torrents": torrents}})
+
+    fake_http["http://deluge"] = deluge
+    fake_http["http://transmission"] = transmission
+
+    async def run():
+        async with DelugeClient("http://deluge", "x") as client:
+            from_deluge = await client.fingerprints()
+        async with TransmissionClient("http://transmission", None, None) as client:
+            from_transmission = await client.fingerprints()
+        return from_deluge, from_transmission
+
+    from_deluge, from_transmission = asyncio.run(run())
+
+    assert from_deluge["aa"][5] == "error"
+    assert from_transmission["bb"][5] == "error" and from_transmission["cc"][5] == "ok"
+
+
 def test_transmission_reads_only_recently_active_torrents(fake_http):
     calls = []
     replies = iter(
@@ -716,7 +796,7 @@ def test_the_torrent_watcher_signals_known_media_and_new_finished_torrents(sessi
     current = {"known": fp(), "new": fp(complete=True), "downloading": fp(complete=False)}
     asyncio.run(watcher.dispatch(changes, current))
 
-    assert received == [media.id, "torrents"]
+    assert received == [media_key(media), "torrents"]
 
 
 def test_a_torrent_still_downloading_triggers_nothing(settings, monkeypatch):
@@ -823,7 +903,7 @@ def test_the_media_server_watcher_signals_changed_media(session, settings, fake_
 
     asyncio.run(run())
 
-    assert received == [(series.id, False), "media_server", (movie.id, True)]
+    assert received == [(media_key(series), False), "media_server", (media_key(movie), True)]
     library = next(r for r in calls if "MinDateLastSaved" in r.url.params)
     assert library.url.params["MinDateLastSaved"] == "2026-10-05T12:00:00Z"
     user = next(r for r in calls if "MinDateLastSavedForUser" in r.url.params)
@@ -1017,7 +1097,7 @@ def test_end_to_end_a_finished_torrent_reaches_the_browser_within_seconds(sessio
     """Chaîne complète, sans rien simuler entre les maillons : superviseur,
     guetteur qBittorrent (vrai `sync/maindata`), correspondance, file,
     analyse du média, événement envoyé au navigateur."""
-    media = Media(media_type=MediaType.movie, title="Film")
+    media = Media(media_type=MediaType.movie, title="Film", emby_item_id="film")
     session.add(media)
     session.commit()
     session.add(Torrent(media_id=media.id, hash="ABC", name="Film"))
@@ -1203,7 +1283,7 @@ def _hanging_on_save(calls: list, *, reached: bool = False):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path == "/api/v3/notification":
             if reached:
-                webhooks.note_received("sonarr", 0, None)
+                webhooks.note_received("sonarr", 0)
             raise httpx.ReadTimeout("timed out", request=request)
         return base(request)
 
@@ -1347,6 +1427,70 @@ def test_a_webhook_removed_by_hand_in_sonarr_is_reconnected(admin_client, settin
     assert _webhooks(admin_client)["sonarr"]["state"] == "connected"
 
 
+def _with_health(base, health: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v3/health":
+            return httpx.Response(200, json=health)
+        return base(request)
+
+    return handler
+
+
+SUSPENDED = {
+    "source": "NotificationStatusCheck",
+    "type": "warning",
+    "message": "Notifications unavailable due to failures: Discord, Analysarr",
+}
+
+
+def test_a_webhook_suspended_by_sonarr_is_shown_and_notified(admin_client, settings, fake_http, monkeypatch):
+    """Sonarr coupe un webhook après 5 min d'échecs d'envoi (vérifié dans
+    `NotificationStatusCheck`) sans rien dire à Analysarr : il restait affiché
+    « branché » alors que plus rien n'arrivait."""
+    calls: list = []
+    fake_http["http://sonarr"] = sonarr_server(calls)
+    _connect(admin_client)
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(supervisor_module, "notify", lambda targets, event, notice: sent.append((event, notice.title)))
+    delivered = webhooks.event_key("sonarr", 0, "delete", None, 7)
+    webhooks.note_delivery("series:arr:0:7", delivered)
+    webhooks.confirm_deliveries("series:arr:0:7")
+
+    fake_http["http://sonarr"] = _with_health(sonarr_server(calls), [SUSPENDED])
+    sup = reconcile()
+    hook = _webhooks(admin_client)["sonarr"]
+
+    assert hook["state"] == "suspended" and "suspendu" in hook["error"]
+    assert sent == [("webhook_suspended", "Webhook suspendu")]
+    # Le suivi en lecture seule ne doit plus rien écarter pour cette instance.
+    assert webhooks.recently_delivered(delivered) is False
+
+    sup._health_at.clear()
+    reconcile(sup)
+    assert len(sent) == 1  # une seule notification par coupure
+
+    fake_http["http://sonarr"] = _with_health(sonarr_server(calls), [])
+    sup._health_at.clear()
+    reconcile(sup)
+    assert _webhooks(admin_client)["sonarr"]["state"] == "connected"
+
+
+@pytest.mark.parametrize(
+    ("health", "expected"),
+    [
+        ([SUSPENDED], True),
+        ([{**SUSPENDED, "message": "Notifications indisponibles en raison d'échecs : Analysarr"}], True),
+        ([{**SUSPENDED, "message": "Notifications unavailable due to failures: Discord"}], False),
+        ([{**SUSPENDED, "message": "Notifications unavailable due to failures: Analysarr 2"}], False),
+        # Toutes coupées : aucun nom dans le message, celle d'Analysarr comprise.
+        ([{**SUSPENDED, "type": "error", "message": "All notifications are unavailable due to failures"}], True),
+        ([{"source": "IndexerStatusCheck", "type": "error", "message": "Indexers: Analysarr"}], False),
+    ],
+)
+def test_the_health_check_names_the_analysarr_webhook(health, expected):
+    assert webhooks.suspended_in(health) is expected
+
+
 def test_scan_only_mode_hides_realtime_and_withdraws_webhooks(admin_client, settings, fake_http):
     calls: list = []
     fake_http["http://sonarr"] = sonarr_server(calls)
@@ -1409,7 +1553,7 @@ def test_sonarr_history_signals_its_media_without_any_webhook(session, settings,
     ]
 
     asyncio.run(watcher.dispatch(records, overflow=False))
-    assert received == [series.id]
+    assert received == [media_key(series)]
 
     # Série inconnue importée : seule l'analyse de Sonarr l'ajoute.
     asyncio.run(watcher.dispatch([{"id": 12, "seriesId": 9, "eventType": "downloadFolderImported"}], overflow=False))
@@ -1421,12 +1565,19 @@ def test_sonarr_history_signals_its_media_without_any_webhook(session, settings,
     assert received == ["sonarr"]
 
 
-def test_a_media_the_webhook_just_signalled_is_not_analysed_twice(session, settings, series, monkeypatch):
+def test_an_event_the_webhook_delivered_is_not_analysed_twice(session, settings, series, monkeypatch):
     watcher, received = _arr_watcher(session, settings, monkeypatch)
-    webhooks.note_received("sonarr", 0, 5)
+    record = {"id": 13, "seriesId": 5, "eventType": "episodeFileDeleted"}
+    webhooks.note_delivery(media_key(series), webhooks.event_key("sonarr", 0, "delete", None, 5))
 
-    asyncio.run(watcher.dispatch([{"id": 13, "seriesId": 5, "eventType": "episodeFileDeleted"}], overflow=False))
+    # Reçu mais média pas encore analysé : rien n'est écarté.
+    asyncio.run(watcher.dispatch([record], overflow=False))
+    assert received == [media_key(series)]
 
+    # Analyse réussie : le même événement retrouvé dans l'historique est écarté.
+    received.clear()
+    webhooks.confirm_deliveries(media_key(series))
+    asyncio.run(watcher.dispatch([record], overflow=False))
     assert received == []
 
 
@@ -1462,7 +1613,7 @@ def test_the_arr_watcher_reads_only_new_history_and_queue_changes(session, setti
     asyncio.run(run())
 
     # Le premier passage sert de référence ; ensuite un seul nouvel événement.
-    assert received == [series.id, "queue"]
+    assert received == [media_key(series), "queue"]
     assert all(r.method == "GET" for r in calls)  # lecture seule
     history = next(r for r in calls if r.url.path == "/api/v3/history")
     assert history.url.params["sortDirection"] == "descending"

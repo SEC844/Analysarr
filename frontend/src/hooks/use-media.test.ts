@@ -52,7 +52,7 @@ describe("destructive media mutations", () => {
     act(() =>
       result.current.mutate({
         id: MEDIA_ID,
-        selection: { torrent_ids: [1], media_file_ids: [], remove_from_arr: false },
+        selection: { torrent_hashes: ["abc"], media_file_paths: [], media_key: "movie:arr:0:5", remove_from_arr: false },
       }),
     )
 

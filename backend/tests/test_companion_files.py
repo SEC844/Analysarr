@@ -39,7 +39,7 @@ def movie_folder(tmp_path, session, *, with_companions=True):
         poster.write_bytes(b"image")
         extras.append(poster)
 
-    media = Media(media_type=MediaType.movie, title="Film")
+    media = Media(media_type=MediaType.movie, title="Film", emby_item_id="item-42")
     session.add(media)
     session.commit()
     row = MediaFile(media_id=media.id, path=str(video), size=5)
@@ -73,7 +73,7 @@ def test_deleting_a_movie_takes_its_companions_and_its_folder(session, settings,
     session.commit()
     media, row, folder, _extras = movie_folder(tmp_path, session)
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     # Plus de vidéo, plus de NFO, plus de dossier : rien ne traîne.
     assert not folder.exists()
@@ -88,14 +88,14 @@ def test_the_library_root_is_never_removed(session, settings, tmp_path, monkeypa
     video = tmp_path / "Film.mkv"
     video.write_bytes(b"video")
     (tmp_path / "Film.nfo").write_bytes(b"meta")
-    media = Media(media_type=MediaType.movie, title="Film")
+    media = Media(media_type=MediaType.movie, title="Film", emby_item_id="item-91")
     session.add(media)
     session.commit()
     row = MediaFile(media_id=media.id, path=str(video), size=5)
     session.add(row)
     session.commit()
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     assert tmp_path.exists() and not (tmp_path / "Film.nfo").exists()
 
@@ -113,7 +113,7 @@ def test_a_folder_keeping_a_video_is_left_alone(session, settings, tmp_path, mon
     for path in (first, second):
         path.write_bytes(b"video")
     (folder / "tvshow.nfo").write_bytes(b"meta")
-    media = Media(media_type=MediaType.series, title="Série")
+    media = Media(media_type=MediaType.series, title="Série", emby_item_id="item-116")
     session.add(media)
     session.commit()
     rows = [
@@ -123,7 +123,7 @@ def test_a_folder_keeping_a_video_is_left_alone(session, settings, tmp_path, mon
     session.add_all(rows)
     session.commit()
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[rows[0].id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[rows[0].path])))
 
     assert not first.exists() and second.exists()
     assert (folder / "tvshow.nfo").exists() and has_video(str(folder))
@@ -135,7 +135,7 @@ def test_the_trash_keeps_the_companions_and_gives_them_back(session, settings, t
     media, row, folder, extras = movie_folder(tmp_path, session)
     originals = [row.path, *(str(path) for path in extras)]
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     assert not folder.exists()
     action = session.exec(select(TrashAction)).one()

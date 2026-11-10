@@ -35,7 +35,7 @@ def test_hardlinked_copies_share_a_single_disk_unit(session, settings, tmp_path)
     session.commit()
     settings.qbittorrent_url = None  # repli sur content_path, sans qBittorrent
 
-    footprint = asyncio.run(build_delete_footprint(session, media, settings))
+    footprint = asyncio.run(build_delete_footprint(media, settings))
 
     assert [(u.size, u.links) for u in footprint.units] == [(1000, 2), (500, 1)]
     assert footprint.torrents[0].units == footprint.files[0].units
@@ -55,7 +55,7 @@ def test_deleting_a_symlink_frees_nothing(session, settings, tmp_path):
     session.add(MediaFile(media_id=media.id, path=str(link), size=100))
     session.commit()
 
-    footprint = asyncio.run(build_delete_footprint(session, media, settings))
+    footprint = asyncio.run(build_delete_footprint(media, settings))
     assert footprint.files[0].units == []
 
 

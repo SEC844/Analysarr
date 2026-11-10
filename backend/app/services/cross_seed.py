@@ -51,26 +51,25 @@ def paths_for_scope(files: list[MediaFile], scope: str) -> list[str]:
     la recherche simplement en changeant le chemin envoyé, sans paramètre
     dédié côté cross-seed :
     - "episode" : un chemin par fichier d'épisode (comportement historique).
-    - "season" : un chemin par dossier de saison (parent commun aux épisodes
-      de cette saison) — une seule requête cross-seed par saison.
-    - "series" : un seul chemin, dossier parent commun à TOUS les épisodes de
-      la série — une seule requête pour toute la série d'un coup."""
+    - "season" (et "series") : un chemin par dossier de saison (parent commun
+      aux épisodes de cette saison) — une seule requête cross-seed par saison.
+
+    Plus de chemin unique pour toute la série : cross-seed écarte un dossier
+    nommé comme ceux de Sonarr (« All's Fair (2025) », `ARR_DIR_REGEX` dans
+    `preFilter.ts::filterByContent`, vérifié dans son code) — la recherche
+    était refusée en silence (204 renvoyé avant de chercher)."""
     paths = [f.path for f in files if f.path]
     if not paths:
         return []
 
-    if scope == "series":
-        return [_common_dir(paths)]
-
-    if scope == "season":
+    if scope in ("season", "series"):
         by_season: dict[int | None, list[str]] = {}
         for f in files:
             if f.path:
                 by_season.setdefault(_season_number(f.episode_label), []).append(f.path)
-        return [
-            _common_dir(season_paths)
-            for _season, season_paths in sorted(by_season.items(), key=lambda kv: (kv[0] is None, kv[0]))
-        ]
+        ordered = sorted(by_season.items(), key=lambda kv: (kv[0] is None, kv[0]))
+        # Épisodes sans dossier de saison : un même dossier pour plusieurs saisons.
+        return list(dict.fromkeys(_common_dir(season_paths) for _season, season_paths in ordered))
 
     return paths  # "episode" (ou valeur inconnue) : repli sur le comportement historique
 
@@ -87,11 +86,17 @@ async def trigger_cross_seed_search(
     chaque torrent connu ; si le média n'a AUCUN torrent (statut
     manquant_qbit), repli sur le chemin de chaque fichier Emby.
 
-    Portées "season"/"series" : recherche TOUJOURS par chemin, à la
-    granularité demandée (voir `paths_for_scope`), même si des torrents
+    Portées "season"/"series" : recherche TOUJOURS par chemin, une par
+    saison (voir `paths_for_scope`), même si des torrents
     existent déjà pour certains épisodes — c'est une recherche
     délibérément plus large qu'une simple recherche par torrent connu,
     utile pour retrouver un season pack ou un intégral sur un autre tracker.
+
+    `includeSingleEpisodes=true` : sans lui, cross-seed rejette en silence un
+    torrent ou un fichier d'un seul épisode, et un fichier rangé dans un
+    dossier « Season XX » (`filterByContent`, vérifié dans son code, v6 et
+    v7). Sa route répond 204 AVANT de chercher : un succès veut dire
+    « recherche demandée », jamais « trouvée ».
 
     `ignoreExcludeRecentSearch=true` : sans ça, cross-seed ignore
     silencieusement toute requête pour un torrent/chemin déjà cherché
@@ -105,22 +110,22 @@ async def trigger_cross_seed_search(
     errors: list[str] = []
     triggered = 0
 
+    options = {"ignoreExcludeRecentSearch": "true", "includeSingleEpisodes": "true"}
     targets: list[tuple[str, dict[str, str]]]
     if scope == "episode" and torrent_hashes:
-        targets = [(h, {"infoHash": h, "ignoreExcludeRecentSearch": "true"}) for h in torrent_hashes]
+        targets = [(h, {"infoHash": h, **options}) for h in torrent_hashes]
     else:
         paths = paths_for_scope(files or [], scope)
-        targets = [
-            (p, {"path": _translate_path_for_cross_seed(p, settings), "ignoreExcludeRecentSearch": "true"})
-            for p in paths
-        ]
+        targets = [(p, {"path": _translate_path_for_cross_seed(p, settings), **options}) for p in paths]
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         for label, body in targets:
             try:
+                # Clé en en-tête, jamais dans l'adresse (journaux, proxys) :
+                # accepté par cross-seed depuis la v6 (vérifié dans `server.ts`).
                 resp = await client.post(
                     f"{base}/api/webhook",
-                    params={"apikey": settings.cross_seed_api_key},
+                    headers={"X-Api-Key": settings.cross_seed_api_key},
                     data=body,
                 )
                 resp.raise_for_status()

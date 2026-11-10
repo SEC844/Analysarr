@@ -379,16 +379,28 @@ async def build_untracked_results(
     l'installation de Radarr restaient totalement invisibles, avec leurs
     doublons et leurs torrents orphelins."""
     results: list[MediaBuildResult] = []
-    for item in emby_movies:
-        if item.get("Id") in claimed_item_ids:
+    for item in _addressable_items(emby_movies):
+        if item["Id"] in claimed_item_ids:
             continue
         built = build_untracked_movie(item)
         if built is not None:
             results.append(built)
-    for item in emby_series:
-        if item.get("Id") in claimed_item_ids:
+    for item in _addressable_items(emby_series):
+        if item["Id"] in claimed_item_ids:
             continue
         built = await build_untracked_series(ctx, item)
         if built is not None:
             results.append(built)
     return results
+
+
+def _addressable_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Items qui portent un identifiant. Sans lui, un média non suivi n'aurait
+    aucune identité stable (`ignores.is_addressable`) : plusieurs partageraient
+    la même clé, aucun ne pourrait être relu, rattaché ni supprimé sans
+    risque. Ignorés et journalisés."""
+    kept = [item for item in items if item.get("Id")]
+    if len(kept) < len(items):
+        names = ", ".join(str(item.get("Name") or "?") for item in items if not item.get("Id"))
+        logger.warning("Éléments du serveur multimédia sans identifiant ignorés : %s", names[:300])
+    return kept

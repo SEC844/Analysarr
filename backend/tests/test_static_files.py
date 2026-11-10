@@ -29,7 +29,7 @@ def test_a_file_of_the_build_is_served(layout):
     [
         "../config/analysarr.db",
         "assets/../../config/analysarr.db",
-        "..\config\analysarr.db",
+        r"..\config\analysarr.db",
         "",
         "assets",  # un dossier n'est pas un fichier
         "absent.js",

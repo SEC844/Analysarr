@@ -10,8 +10,10 @@ from collections.abc import Sequence
 
 import httpx
 from sqlmodel import Session, col, delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.torrent import TorrentAuthError, torrent_client, torrent_client_configured
+from app.database import run_in_session
 from app.models.ids import row_id
 from app.models.media import Media, MediaFile, MediaRequest, MediaType, MediaWatch, Torrent
 from app.models.settings import Settings
@@ -23,15 +25,16 @@ from app.schemas.media import (
 )
 from app.services.arr_instances import ArrTarget, arr_target_for
 from app.services.deletion import DeletionFailed, DeletionTransaction, ensure_deletable
-from app.services.disk_footprint import FootprintBuilder, freed_bytes
+from app.services.disk_footprint import FootprintBuilder, freed_bytes, torrent_paths
 from app.services.hardlink import resolve_torrent_files
+from app.services.ignores import is_addressable, media_key
 from app.services.media_status import refresh_media_statuses
 from app.services.path_guard import ensure_paths_available
 
 logger = logging.getLogger(__name__)
 
 
-async def build_delete_footprint(session: Session, media: Media, settings: Settings) -> MediaDeleteFootprint:
+async def build_delete_footprint(media: Media, settings: Settings) -> MediaDeleteFootprint:
     """Résout en direct l'inode de chaque fichier physique de chaque élément
     supprimable (fichiers de bibliothèque, CHAQUE fichier de chaque torrent
     — pas seulement l'inode représentatif stocké au scan, insuffisant pour
@@ -39,12 +42,12 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
 
     Un chemin introuvable ou non résolu (dossier, qBittorrent injoignable)
     devient une unité à part, de la taille connue en base : estimation
-    prudente plutôt que de faire disparaître l'élément du calcul."""
-    files = session.exec(select(MediaFile).where(MediaFile.media_id == media.id)).all()
-    torrents = session.exec(select(Torrent).where(Torrent.media_id == media.id)).all()
+    prudente plutôt que de faire disparaître l'élément du calcul.
 
-    builder = FootprintBuilder()
-    file_items = [builder.item(row_id(f), [(f.path, f.size)], f.size) for f in files]
+    Base et disque hors de la boucle asyncio (chaque ouverture du dialogue
+    « Supprimer » relit tous les fichiers : lent sur un partage Unraid), le
+    client torrent dans la boucle."""
+    files, torrents = await run_in_session(_footprint_rows, row_id(media))
 
     torrent_files: dict[int, list[tuple[str, int | None]]] = {}
     if torrents and torrent_client_configured(settings):
@@ -57,8 +60,29 @@ async def build_delete_footprint(session: Session, media: Media, settings: Setti
             logger.warning("Fichiers des torrents illisibles pour l'empreinte disque", exc_info=True)
             torrent_files.clear()
 
+    return await run_in_threadpool(_assemble_footprint, files, torrents, torrent_files)
+
+
+def _footprint_rows(session: Session, media_id: int) -> tuple[list[MediaFile], list[Torrent]]:
+    files = list(session.exec(select(MediaFile).where(MediaFile.media_id == media_id)).all())
+    torrents = list(session.exec(select(Torrent).where(Torrent.media_id == media_id)).all())
+    return files, torrents
+
+
+def _assemble_footprint(
+    files: list[MediaFile], torrents: list[Torrent], torrent_files: dict[int, list[tuple[str, int | None]]]
+) -> MediaDeleteFootprint:
+    """Inodes lus sur le disque : jamais dans la boucle asyncio."""
+    builder = FootprintBuilder()
+    file_items = [builder.item(row_id(f), [(f.path, f.size)], f.size, f.path) for f in files]
     torrent_items = [
-        builder.item(row_id(t), torrent_files.get(row_id(t)) or await resolve_torrent_files(None, t), t.size)
+        builder.item(
+            row_id(t),
+            # Repli sur `content_path` (client injoignable), comme resolve_torrent_files.
+            torrent_paths(t.save_path, t.content_path, t.size, torrent_files.get(row_id(t), [])),
+            t.size,
+            t.hash,
+        )
         for t in torrents
     ]
     return MediaDeleteFootprint(units=builder.units, torrents=torrent_items, files=file_items)
@@ -183,34 +207,66 @@ async def _capture(tx: DeletionTransaction, media: Media, target: ArrTarget) -> 
         await tx.capture_arr("sonarr", media.arr_instance_id, lambda: target.sonarr().get_series_by_id(series_id))
 
 
-def _selected(
+class StaleSelectionError(RuntimeError):
+    """La sélection désigne un média, un torrent ou un fichier qui n'existe
+    plus tel quel (réanalyse, scan complet) : rien n'est supprimé. HTTP 409
+    avec `stale_selection` (main.py) : l'interface recharge la fiche. Hérite de
+    RuntimeError : une automatisation la traite comme une étape en échec."""
+
+
+class UnaddressableMediaError(RuntimeError):
+    """Média sans identité stable (`ignores.is_addressable`) : sa clé est
+    partagée par d'autres, la vérification d'identité de la sélection ne
+    garantirait plus rien. Rien n'est supprimé : HTTP 409 (main.py), et une
+    automatisation le traite comme une étape en échec (RuntimeError)."""
+
+
+def selection_of(media: Media, torrents: Sequence[Torrent], files: Sequence[MediaFile]) -> MediaDeleteSelection:
+    """Sélection désignant ces éléments par leurs clés stables."""
+    return MediaDeleteSelection(
+        torrent_hashes=[t.hash for t in torrents],
+        media_file_paths=[f.path for f in files],
+        media_key=media_key(media),
+    )
+
+
+def resolve_selection(
     session: Session, media: Media, selection: MediaDeleteSelection
 ) -> tuple[Sequence[Torrent], Sequence[MediaFile]]:
-    """Torrents et fichiers cochés, limités à CE média : un id d'un autre
-    média est ignoré."""
-    torrents = (
-        session.exec(
-            select(Torrent).where(col(Torrent.media_id) == media.id, col(Torrent.id).in_(selection.torrent_ids))
-        ).all()
-        if selection.torrent_ids
-        else []
-    )
+    """Torrents et fichiers cochés, retrouvés par leur clé stable et limités à
+    CE média. Une clé qui ne désigne plus rien n'est JAMAIS ignorée : la
+    suppression entière est refusée (StaleSelectionError), sinon l'utilisateur
+    croirait avoir supprimé ce qu'il a coché."""
+    key = media_key(media)
+    if not is_addressable(key):
+        raise UnaddressableMediaError(
+            "Ce média n'a aucune identité stable (ni fiche Sonarr/Radarr, ni élément du serveur multimédia) : "
+            "lancez un scan complet avant de le supprimer."
+        )
+    if selection.media_key is not None and selection.media_key != key:
+        raise StaleSelectionError("La fiche a changé depuis son ouverture : rechargez-la avant de supprimer.")
+    hashes = {h.lower() for h in selection.torrent_hashes}
+    paths = set(selection.media_file_paths)
+    own_torrents = session.exec(select(Torrent).where(col(Torrent.media_id) == media.id)).all() if hashes else []
+    torrents = [t for t in own_torrents if t.hash.lower() in hashes]
     files = (
         session.exec(
-            select(MediaFile).where(
-                col(MediaFile.media_id) == media.id, col(MediaFile.id).in_(selection.media_file_ids)
-            )
+            select(MediaFile).where(col(MediaFile.media_id) == media.id, col(MediaFile.path).in_(paths))
         ).all()
-        if selection.media_file_ids
+        if paths
         else []
     )
+    if len({t.hash.lower() for t in torrents}) < len(hashes) or len({f.path for f in files}) < len(paths):
+        raise StaleSelectionError(
+            "Un élément sélectionné n'existe plus (analyse entre-temps) : rechargez la fiche avant de supprimer."
+        )
     return torrents, files
 
 
 async def execute_media_delete(
     session: Session, media: Media, settings: Settings, selection: MediaDeleteSelection
 ) -> MediaDeleteSelectionResult:
-    torrents, files = _selected(session, media, selection)
+    torrents, files = resolve_selection(session, media, selection)
 
     all_file_count = len(session.exec(select(MediaFile.id).where(MediaFile.media_id == media.id)).all())
     # Retrait du média entier de Sonarr/Radarr uniquement si TOUTE sa

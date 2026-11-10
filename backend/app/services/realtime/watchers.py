@@ -8,6 +8,12 @@ tableau des sources (`status.board`), backoff exponentiel en cas d'erreur
 SIGNALER à la file (`hub`) : il ne lit ni n'écrit jamais le cache média
 lui-même, en dehors de la correspondance identifiant → média.
 
+Reconnexion : l'état de référence (empreintes, dernier événement vu,
+compteurs, date de la dernière lecture) est gardé d'une session à l'autre.
+Bug réel : chaque session repartait d'une page blanche, et tout ce qui avait
+changé pendant une coupure (client torrent ou Sonarr redémarré) n'était vu
+qu'au scan de nuit.
+
 Garde-fou commun : au-delà de `MASS_THRESHOLD` médias touchés d'un coup
 (bibliothèque réanalysée par le serveur, client torrent redémarré), une seule
 analyse du service remplace des centaines d'analyses individuelles."""
@@ -35,7 +41,7 @@ from app.services.arr_instances import ArrTarget
 from app.services.realtime.hub import RealtimeHub
 from app.services.realtime.status import StatusBoard
 from app.services.realtime.targets import media_for_arr_ids, media_for_hashes, media_for_items
-from app.services.realtime.webhooks import recently_delivered
+from app.services.realtime.webhooks import HISTORY_EVENT_KINDS, event_key, recently_delivered
 from app.services.seer import seer_client
 from app.services.watch_stats import excluded_user_ids
 
@@ -121,27 +127,32 @@ class TorrentWatcher(Watcher):
     key = "torrents"
     kind = "torrents"
 
+    def __init__(self, settings: Settings, interval: float, hub: RealtimeHub, board: StatusBoard) -> None:
+        super().__init__(settings, interval, hub, board)
+        # Gardées d'une session à l'autre : la première lecture après une
+        # coupure est comparée à la dernière d'avant.
+        self.previous: dict[str, Fingerprint] | None = None
+
     async def session(self) -> None:
         async with torrent_client(self.settings) as client:
-            previous: dict[str, Fingerprint] | None = None
             while True:
                 current = await client.fingerprints()
                 self.board.checked(self.key)
-                if previous is not None:
-                    changes = diff_fingerprints(previous, current)
+                if self.previous is not None:
+                    changes = diff_fingerprints(self.previous, current)
                     if changes:
                         self.board.event(self.key)
                         await self.dispatch(changes, current)
-                previous = current
+                self.previous = current
                 await asyncio.sleep(self.interval)
 
     async def dispatch(self, changes: TorrentChanges, current: dict[str, Fingerprint]) -> None:
         resolved = await run_in_threadpool(media_for_hashes, changes.changed | changes.removed | changes.added)
-        if len(resolved.media_ids) > MASS_THRESHOLD:
+        if len(resolved.media_keys) > MASS_THRESHOLD:
             self.hub.service_changed("torrents")
             return
-        for media_id in resolved.media_ids:
-            self.hub.media_changed(media_id)
+        for media_key in resolved.media_keys:
+            self.hub.media_changed(media_key)
         # Un torrent qu'aucun média ne porte encore (ajout manuel, copie
         # cross-seed) ne se rattache que par une analyse du client torrent —
         # seulement une fois téléchargé : avant, il n'a rien à rattacher.
@@ -217,23 +228,28 @@ class MediaServerWatcher(Watcher):
         self.seen = SeenItems(OVERLAP.total_seconds())
         self.counts: tuple[int, int, int] | None = None
         self.counts_supported = True
+        # Gardés d'une session à l'autre : après une coupure, la lecture
+        # « changé depuis » reprend là où la dernière réussie s'était arrêtée,
+        # et les compteurs comparés sont ceux d'avant la coupure.
+        self.since: datetime | None = None
+        self.watch_since: datetime | None = None
 
     async def session(self) -> None:
         emby = media_server_client(self.settings)
         if emby is None:
             raise RuntimeError("Serveur multimédia non configuré.")
-        since = datetime.now(UTC) - OVERLAP
         tick = 0
-        self.counts = None
         while True:
             started = datetime.now(UTC)
+            since = self.since or started - OVERLAP
             await self.poll_counts(emby)
             await self.poll_library(emby, since)
+            self.since = started - OVERLAP
             if tick % WATCH_EVERY == 0:
-                await self.poll_watch(emby, since)
+                await self.poll_watch(emby, self.watch_since or since)
+                self.watch_since = started - OVERLAP
             self.board.checked(self.key)
             self.seen.prune(time.monotonic())
-            since = started - OVERLAP
             tick += 1
             await asyncio.sleep(self.interval)
 
@@ -286,11 +302,11 @@ class MediaServerWatcher(Watcher):
         self.board.event(self.key)
         resolved = await run_in_threadpool(media_for_items, item_ids)
         scope = "watch" if watch_only else "media_server"
-        if full or len(resolved.media_ids) > MASS_THRESHOLD:
+        if full or len(resolved.media_keys) > MASS_THRESHOLD:
             self.hub.service_changed(scope)
             return
-        for media_id in resolved.media_ids:
-            self.hub.media_changed(media_id, watch_only=watch_only)
+        for media_key in resolved.media_keys:
+            self.hub.media_changed(media_key, watch_only=watch_only)
         if resolved.unknown and not watch_only:
             # Nouvel élément dans la bibliothèque : l'analyse du serveur
             # multimédia le rattache (ou en fait un média non suivi).
@@ -309,18 +325,22 @@ class RequestsWatcher(Watcher):
     key = "requests"
     kind = "requests"
 
+    def __init__(self, settings: Settings, interval: float, hub: RealtimeHub, board: StatusBoard) -> None:
+        super().__init__(settings, interval, hub, board)
+        # Gardée d'une session à l'autre (voir l'en-tête du module).
+        self.previous: tuple[Any, ...] | None = None
+
     async def session(self) -> None:
         client = seer_client(self.settings)
         if client is None:
             raise RuntimeError("Gestionnaire de demandes non configuré.")
-        previous: tuple[Any, ...] | None = None
         while True:
             current = await client.requests_fingerprint()
             self.board.checked(self.key)
-            if previous is not None and current != previous:
+            if self.previous is not None and current != self.previous:
                 self.board.event(self.key)
                 self.hub.service_changed("seer")
-            previous = current
+            self.previous = current
             await asyncio.sleep(self.interval)
 
 
@@ -351,8 +371,9 @@ class ArrWatcher(Watcher):
 
     Toujours actif, webhook ou pas : sans webhook (désactivé, adresse
     d'Analysarr injoignable), c'est lui qui assure le temps réel ; avec, il
-    sert de filet de sécurité — un média que le webhook vient de signaler
-    n'est pas réanalysé une seconde fois (`webhooks.recently_delivered`).
+    sert de filet de sécurité — un événement que le webhook a livré (et dont
+    l'analyse a réussi) n'est pas réanalysé une seconde fois
+    (`webhooks.recently_delivered`, par événement et non par média).
     Ce que l'historique ne dit pas (fiche ajoutée ou retirée sans fichier) est
     vu par le webhook, sinon par le scan de nuit."""
 
@@ -365,26 +386,30 @@ class ArrWatcher(Watcher):
         self.target = target
         self.instance_id = target.instance_id or 0
         self.key = arr_source_key(target.kind, self.instance_id)
+        # Gardés d'une session à l'autre : après une coupure, les événements
+        # survenus entre-temps sont repris (au-delà d'une page, le service est
+        # relu en entier).
+        self.last_id: int | None = None
+        self.queue: tuple[Any, ...] | None = None
 
     async def session(self) -> None:
         client = self.target.sonarr() if self.target.kind == "sonarr" else self.target.radarr()
-        last_id: int | None = None
-        queue: tuple[Any, ...] | None = None
         while True:
             records = await client.get_recent_history(HISTORY_PAGE)
             status = await client.get_queue_status()
             current_queue = tuple(status.get(name) for name in _QUEUE_COUNTERS)
             self.board.checked(self.key)
             newest = max((rid for r in records if (rid := _record_id(r)) is not None), default=0)
+            last_id = self.last_id
             if last_id is not None:
                 fresh = [r for r in records if (rid := _record_id(r)) is not None and rid > last_id]
                 await self.dispatch(fresh, overflow=len(fresh) >= HISTORY_PAGE)
-            if queue is not None and current_queue != queue:
+            if self.queue is not None and current_queue != self.queue:
                 # Import bloqué, téléchargement en souffrance : la file est relue.
                 self.board.event(self.key)
                 self.hub.service_changed("queue")
-            last_id = max(newest, last_id or 0)
-            queue = current_queue
+            self.last_id = max(newest, last_id or 0)
+            self.queue = current_queue
             await asyncio.sleep(self.interval)
 
     async def dispatch(self, records: list[dict[str, Any]], *, overflow: bool) -> None:
@@ -399,15 +424,17 @@ class ArrWatcher(Watcher):
             arr_id = record.get(field)
             if not isinstance(arr_id, int) or isinstance(arr_id, bool) or arr_id <= 0:
                 continue
-            if recently_delivered(self.target.kind, self.instance_id, arr_id):
+            kind = HISTORY_EVENT_KINDS.get(str(record.get("eventType")))
+            key = event_key(self.target.kind, self.instance_id, kind, record.get("downloadId"), arr_id)
+            if recently_delivered(key):
                 continue
             imported[arr_id] = imported.get(arr_id, False) or record.get("eventType") in IMPORT_EVENTS
         if not imported:
             return
         self.board.event(self.key)
         known = await run_in_threadpool(media_for_arr_ids, self.target.kind, self.target.instance_id, list(imported))
-        for media_id in known.values():
-            self.hub.media_changed(media_id)
+        for media_key in known.values():
+            self.hub.media_changed(media_key)
         if any(was_imported for arr_id, was_imported in imported.items() if arr_id not in known):
             # Nouveau film ou nouvelle série importés : seule l'analyse du
             # service les ajoute.

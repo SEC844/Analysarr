@@ -58,6 +58,16 @@ def media_key_of(media_type: MediaType, arr_id: int | None, instance_id: int | N
     return f"{media_type.value}:arr:{instance_id or 0}:{arr_id}"
 
 
+def is_addressable(key: str) -> bool:
+    """Une clé désigne-t-elle UN SEUL média ? Un média sans fiche Sonarr/Radarr
+    ni item du serveur multimédia aurait la clé « movie:library: », partagée
+    par tous ses semblables : le temps réel les fusionnerait (un seul relu) et
+    la vérification d'identité d'une suppression ne protégerait plus rien. Le
+    scan n'en crée plus (`build_untracked_results`), mais une base plus
+    ancienne peut encore en contenir."""
+    return not key.endswith(":library:")
+
+
 def torrent_state(torrent: Torrent) -> str | None:
     """État d'un torrent vis-à-vis de sa bibliothèque, None s'il n'a pas pu
     être évalué."""

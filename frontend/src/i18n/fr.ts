@@ -159,6 +159,8 @@ export const fr = {
       "Concerne les fichiers qu'Analysarr supprime lui-même et les torrents qu'il retire du client (leurs données sont mises de côté, jamais effacées). Quand Sonarr ou Radarr supprime un fichier à notre demande, c'est leur propre corbeille qui s'applique.",
     ratioHelp:
       "À la restauration : les fichiers retrouvent leur emplacement et leurs hardlinks, le torrent est remis dans le client avec ses données (aucun retéléchargement), et le média est recréé dans Sonarr/Radarr. Seules les statistiques de partage du torrent (ratio, quantité envoyée) repartent de zéro : aucun client torrent ne permet de les restaurer.",
+    crossSeedHelp:
+      "Les fichiers mis de côté portent une extension non vidéo : cross-seed ne les retrouve pas. Si son option {option} est activée, ajoutez {rule} à sa {blockList}, sinon il pourrait reprendre ce que vous avez supprimé. Dans cross-seed v7, ces réglages sont dans Settings → General de son interface web ; en v6, dans son config.js.",
     contentTitle: "Contenu de la corbeille",
     contentDescription:
       "{size} seront libérés à la suppression définitive. Un fichier encore hardlinké ailleurs ne libère rien tant que son dernier lien existe : il compte donc pour zéro.",
@@ -345,6 +347,8 @@ export const fr = {
     commonPrefix:
       "Tous les chemins non résolus partagent le dossier {path} — ce dossier ne semble pas monté dans le conteneur Analysarr (vérifiez qu'il est bien ajouté au docker-compose / template Unraid, comme pour les autres dossiers de téléchargement).",
     emptyPath: "(chemin vide)",
+    separateMounts:
+      "La bibliothèque et les téléchargements sont sur deux systèmes de fichiers différents : aucun hardlink n'est possible entre eux, et la corbeille met les données des torrents de côté dans un dossier {trash} à côté d'eux. Si un outil comme qbit_manage nettoie les fichiers orphelins, excluez {rule}.",
     embyMovies: "{server} (films)",
   },
   schedule: {
@@ -439,6 +443,7 @@ export const fr = {
       automation: "Automatisation exécutée",
       update_available: "Mise à jour disponible",
       automations_paused: "Automatisations mises en pause",
+      webhook_suspended: "Webhook suspendu par Sonarr/Radarr",
       weekly_summary: "Résumé hebdomadaire",
     },
     eventHelp: {
@@ -459,6 +464,8 @@ export const fr = {
       automation: "Une règle d'automatisation a agi.",
       update_available: "Une nouvelle version d'Analysarr est publiée (vérifié toutes les 3 h, une seule notification par version).",
       automations_paused: "Un scan a fait basculer une part anormale de la bibliothèque : les règles sont suspendues.",
+      webhook_suspended:
+        "Sonarr ou Radarr a coupé le webhook d'Analysarr après des échecs d'envoi : le suivi en lecture seule prend le relais.",
       weekly_summary:
         "Chaque lundi à 9 h (heure du conteneur) : croissance de la bibliothèque, remplissage estimé des disques, meilleurs candidats au nettoyage et fins d'obligation de seed.",
     },
@@ -919,8 +926,8 @@ export const fr = {
     crossSeedSearch: "Chercher un cross-seed",
     byEpisode: "Par épisode",
     bySeason: "Par saison",
-    wholeSeries: "Série intégrale",
-    crossSeedTriggered: "Recherche cross-seed déclenchée ({count}).",
+    crossSeedTriggered:
+      "Recherche demandée à cross-seed ({count}) : il cherche en arrière-plan, ses journaux diront s'il a trouvé quelque chose.",
     crossSeedErrors: "{count} échec(s) — {detail}",
     crossSeedMoreErrors: " (+{count} autre(s) type(s) d'erreur)",
     crossSeedFailed: "Échec de la recherche cross-seed.",
@@ -941,6 +948,8 @@ export const fr = {
     leechers: { one: "{count} leecher", other: "{count} leechers" },
     ratio: "Ratio {ratio}",
     seedingSince: "Seedé depuis le {date}",
+    trackerStateHint:
+      "État lu au dernier scan complet ou à la dernière analyse de ce média : il n'est pas suivi en temps réel.",
     seriesStatus: {
       continuing: "En cours de diffusion",
       ended: "Terminée",
@@ -1158,6 +1167,7 @@ export const fr = {
       done: "Supprimé",
       skipped: "Laissé de côté : devenu protégé",
       failed: "Échec : rien n'a été supprimé",
+      stale: "Ce média a changé depuis l'ouverture de la liste (analyse entre-temps) : la liste est relue, relancez la suppression.",
       finished: "{done} média(s) supprimé(s) sur {total}.",
     },
     settings: {
@@ -1209,6 +1219,7 @@ export const fr = {
       openSchedule: "Réglages de planification",
       states: {
         connected: "branché",
+        suspended: "suspendu par le service",
         pending: "branchement en cours…",
         error: "non branché",
         no_address: "en attente de l'adresse d'Analysarr",
@@ -1276,5 +1287,6 @@ export const fr = {
     cancelledIncomplete:
       "Suppression annulée, mais certains éléments sont restés dans la corbeille : restaurez-les depuis Réglages → Corbeille.",
     failed: "Échec de la suppression.",
+    reloaded: "Rien n'a été supprimé. La fiche vient d'être rechargée : vérifiez la sélection puis confirmez de nouveau.",
   },
 }

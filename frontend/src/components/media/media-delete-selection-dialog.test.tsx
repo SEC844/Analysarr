@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { MediaDeleteSelectionDialog } from "@/components/media/media-delete-selection-dialog"
 import { en } from "@/i18n/en"
-import { deleteSelectionExecute, getDeleteFootprint, getMediaWatch, getTrashSettings } from "@/lib/api"
+import { ApiError, deleteSelectionExecute, getDeleteFootprint, getMediaWatch, getTrashSettings } from "@/lib/api"
 import { footerCloseButton } from "@/test/dialog"
 import { renderWithProviders } from "@/test/render"
 import type { MediaDetail, MediaFileRead, TorrentRead } from "@/types/media"
@@ -46,10 +46,12 @@ function torrent(id: number, name: string, size: number): TorrentRead {
   }
 }
 
+const LIBRARY = "/data/media/movies/Inception (2010)/"
+
 function file(id: number, name: string, size: number, isCurrent: boolean): MediaFileRead {
   return {
     id,
-    path: `/data/media/movies/Inception (2010)/${name}`,
+    path: `${LIBRARY}${name}`,
     size,
     episode_label: null,
     is_current: isCurrent,
@@ -94,6 +96,7 @@ const MEDIA: MediaDetail = {
   import_issues: [],
   muted_rules: [],
   cleanup_rule_id: null,
+  media_key: "movie:arr:0:5",
 }
 
 async function openDialog(onMediaDeleted = vi.fn()) {
@@ -162,8 +165,9 @@ describe("MediaDeleteSelectionDialog", () => {
     await user.click(getConfirm())
     await waitFor(() =>
       expect(deleteSelectionExecute).toHaveBeenCalledWith(MEDIA.id, {
-        torrent_ids: [1, 2],
-        media_file_ids: [],
+        torrent_hashes: ["hash-1", "hash-2"],
+        media_file_paths: [],
+        media_key: MEDIA.media_key,
         remove_from_arr: false,
       }),
     )
@@ -204,8 +208,35 @@ describe("MediaDeleteSelectionDialog", () => {
     await waitFor(() => expect(deleteSelectionExecute).toHaveBeenCalledTimes(1))
     // Une partie de la bibliothèque seulement : le film reste dans Radarr.
     expect(deleteSelectionExecute).toHaveBeenCalledWith(MEDIA.id, {
-      torrent_ids: [1, 2],
-      media_file_ids: [11],
+      torrent_hashes: ["hash-1", "hash-2"],
+      media_file_paths: [`${LIBRARY}Inception.1080p.mkv`],
+      media_key: MEDIA.media_key,
+      remove_from_arr: false,
+    })
+  })
+
+  it("keeps the checked items when an analysis renumbers them while the dialog is open", async () => {
+    // Bug réel : une réanalyse (temps réel) réattribue les identifiants ; une
+    // sélection par identifiant désignait alors un autre torrent, ou rien.
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(<MediaDeleteSelectionDialog media={MEDIA} onMediaDeleted={vi.fn()} />)
+    await user.click(screen.getByRole("button", { name: en.deleteSelection.trigger }))
+    await screen.findByText(en.deleteSelection.title)
+    await selectTorrentsAndOldFile(user)
+
+    const renumbered: MediaDetail = {
+      ...MEDIA,
+      files: MEDIA.files.map((f) => ({ ...f, id: f.id + 100 })),
+      torrents: MEDIA.torrents.map((tr) => ({ ...tr, id: 3 - tr.id })),
+    }
+    rerender(<MediaDeleteSelectionDialog media={renumbered} onMediaDeleted={vi.fn()} />)
+    await user.click(getConfirm())
+
+    await waitFor(() => expect(deleteSelectionExecute).toHaveBeenCalledTimes(1))
+    expect(deleteSelectionExecute).toHaveBeenCalledWith(MEDIA.id, {
+      torrent_hashes: ["hash-1", "hash-2"],
+      media_file_paths: [`${LIBRARY}Inception.1080p.mkv`],
+      media_key: MEDIA.media_key,
       remove_from_arr: false,
     })
   })
@@ -219,8 +250,9 @@ describe("MediaDeleteSelectionDialog", () => {
 
     await waitFor(() => expect(deleteSelectionExecute).toHaveBeenCalledTimes(1))
     expect(deleteSelectionExecute).toHaveBeenCalledWith(MEDIA.id, {
-      torrent_ids: [1, 2],
-      media_file_ids: [10, 11],
+      torrent_hashes: ["hash-1", "hash-2"],
+      media_file_paths: [`${LIBRARY}Inception.2160p.mkv`, `${LIBRARY}Inception.1080p.mkv`],
+      media_key: MEDIA.media_key,
       remove_from_arr: true,
     })
   })
@@ -264,5 +296,26 @@ describe("MediaDeleteSelectionDialog", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Radarr injoignable"))
     expect(screen.getByText(en.deleteSelection.title)).toBeInTheDocument()
     expect(screen.getByText(counter(3))).toBeInTheDocument() // la sélection est conservée
+  })
+
+  it("reloads the page and clears the selection when it became outdated", async () => {
+    vi.mocked(deleteSelectionExecute).mockRejectedValue(
+      new ApiError("Un élément sélectionné n'existe plus", 409, {
+        detail: "Un élément sélectionné n'existe plus",
+        stale_selection: true,
+      }),
+    )
+    const user = await openDialog()
+    await selectTorrentsAndOldFile(user)
+
+    await user.click(getConfirm())
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Un élément sélectionné n'existe plus", {
+        description: en.deleteSelection.reloaded,
+      }),
+    )
+    expect(screen.getByText(en.deleteSelection.title)).toBeInTheDocument()
+    expect(screen.getByText(counter(0))).toBeInTheDocument() // à refaire sur la fiche relue
   })
 })

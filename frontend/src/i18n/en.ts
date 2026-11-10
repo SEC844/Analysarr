@@ -159,6 +159,8 @@ export const en: Dictionary = {
       "Covers the files Analysarr deletes itself and the torrents it removes from the client (their data is set aside, never erased). When Sonarr or Radarr deletes a file on our behalf, their own recycling bin applies.",
     ratioHelp:
       "On restore: files return to their location with their hardlinks, the torrent goes back to the client with its data (no re-download), and the media is recreated in Sonarr/Radarr. Only the torrent sharing stats (ratio, uploaded) start over: no torrent client allows restoring them.",
+    crossSeedHelp:
+      "Trashed files get a non-video extension, so cross-seed does not find them. If its {option} option is on, add {rule} to its {blockList}, otherwise it might bring back what you deleted. In cross-seed v7 these settings are under Settings → General in its web UI; in v6, in its config.js.",
     contentTitle: "Trash content",
     contentDescription:
       "{size} will be freed on permanent deletion. A file still hardlinked elsewhere frees nothing until its last link is gone, so it counts as zero.",
@@ -344,6 +346,8 @@ export const en: Dictionary = {
     commonPrefix:
       "All unresolved paths share the folder {path} — this folder does not seem to be mounted in the Analysarr container (check that it is added to the docker-compose / Unraid template, like the other download folders).",
     emptyPath: "(empty path)",
+    separateMounts:
+      "The library and the downloads are on two different file systems: no hardlink is possible between them, and the trash sets torrent data aside in a {trash} folder next to them. If a tool like qbit_manage cleans orphaned files, exclude {rule}.",
     embyMovies: "{server} (movies)",
   },
   schedule: {
@@ -436,6 +440,7 @@ export const en: Dictionary = {
       automation: "Automation ran",
       update_available: "Update available",
       automations_paused: "Automations paused",
+      webhook_suspended: "Webhook suspended by Sonarr/Radarr",
       weekly_summary: "Weekly summary",
     },
     eventHelp: {
@@ -456,6 +461,8 @@ export const en: Dictionary = {
       automation: "An automation rule acted.",
       update_available: "A new version of Analysarr has been released (checked every 3 hours, notified once per version).",
       automations_paused: "A scan flipped an unusual share of the library: the rules are suspended.",
+      webhook_suspended:
+        "Sonarr or Radarr turned off Analysarr's webhook after failed deliveries: read-only tracking takes over.",
       weekly_summary:
         "Every Monday at 9 am (container time): library growth, estimated disk filling, top cleanup candidates and seeding obligations coming to an end.",
     },
@@ -912,8 +919,7 @@ export const en: Dictionary = {
     crossSeedSearch: "Search cross-seed",
     byEpisode: "By episode",
     bySeason: "By season",
-    wholeSeries: "Whole series",
-    crossSeedTriggered: "Cross-seed search triggered ({count}).",
+    crossSeedTriggered: "Search requested from cross-seed ({count}): it searches in the background, its logs will tell whether it found anything.",
     crossSeedErrors: "{count} failure(s) — {detail}",
     crossSeedMoreErrors: " (+{count} other error type(s))",
     crossSeedFailed: "Cross-seed search failed.",
@@ -934,6 +940,7 @@ export const en: Dictionary = {
     leechers: { one: "{count} leecher", other: "{count} leechers" },
     ratio: "Ratio {ratio}",
     seedingSince: "Seeding since {date}",
+    trackerStateHint: "State read at the last full scan or the last analysis of this media: it is not followed in real time.",
     seriesStatus: {
       continuing: "Continuing",
       ended: "Ended",
@@ -1149,6 +1156,7 @@ export const en: Dictionary = {
       done: "Deleted",
       skipped: "Left aside: became protected",
       failed: "Failed: nothing was deleted",
+      stale: "This media changed since the list was opened (an analysis ran meanwhile): the list is reloaded, run the deletion again.",
       finished: "{done} media deleted out of {total}.",
     },
     settings: {
@@ -1200,6 +1208,7 @@ export const en: Dictionary = {
       openSchedule: "Schedule settings",
       states: {
         connected: "connected",
+        suspended: "suspended by the service",
         pending: "connecting…",
         error: "not connected",
         no_address: "waiting for Analysarr's address",
@@ -1264,5 +1273,6 @@ export const en: Dictionary = {
     cancelled: "Deletion cancelled: a step failed, nothing was deleted.",
     cancelledIncomplete: "Deletion cancelled, but some items stayed in the trash: restore them from Settings → Trash.",
     failed: "Deletion failed.",
+    reloaded: "Nothing was deleted. The page has just been reloaded: check the selection, then confirm again.",
   },
 }

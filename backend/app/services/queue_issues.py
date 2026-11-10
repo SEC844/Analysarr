@@ -472,5 +472,8 @@ async def execute_import_retry(session: "Session", media: "Media", settings: "Se
     except httpx.HTTPError as exc:
         return [DeleteStepResult(kind="import_retry", label=media.title, success=False, error=http_error_text(exc))], 0
     if media.id is not None and any(step.success for step in steps):
-        hub.media_changed(media.id)
+        # Import différé : ignores dépend du moteur de scan, qui dépend d'ici.
+        from app.services.ignores import media_key
+
+        hub.media_changed(media_key(media))
     return steps, imported

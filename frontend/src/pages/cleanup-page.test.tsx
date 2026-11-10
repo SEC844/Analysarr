@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { en } from "@/i18n/en"
 import {
+  ApiError,
   deleteSelectionExecute,
   getCleanupCandidate,
   getCleanupOtherLinks,
@@ -35,6 +36,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 function candidate(overrides: Partial<CleanupCandidate>): CleanupCandidate {
   return {
     media_id: 1,
+    media_key: "movie:arr:0:11",
     media_type: "movie",
     title: "Forgotten",
     year: 2010,
@@ -58,6 +60,7 @@ function candidate(overrides: Partial<CleanupCandidate>): CleanupCandidate {
 const FORGOTTEN = candidate({})
 const OLD_SERIES = candidate({
   media_id: 2,
+  media_key: "series:arr:0:12",
   title: "Old series",
   media_type: "series",
   score: 55,
@@ -96,8 +99,8 @@ function media(id: number): MediaDetail {
     id,
     radarr_id: 10 + id,
     sonarr_id: null,
-    files: [{ id: 100 + id }],
-    torrents: [{ id: 200 + id }],
+    files: [{ id: 100 + id, path: `/media/${id}.mkv` }],
+    torrents: [{ id: 200 + id, hash: `hash-${id}` }],
   } as unknown as MediaDetail
 }
 
@@ -278,15 +281,35 @@ describe("CleanupPage", () => {
 
     expect(await within(dialog).findByText("2 media deleted out of 2.")).toBeInTheDocument()
     expect(deleteSelectionExecute).toHaveBeenCalledWith(1, {
-      torrent_ids: [201],
-      media_file_ids: [101],
+      torrent_hashes: ["hash-1"],
+      media_file_paths: ["/media/1.mkv"],
+      media_key: "movie:arr:0:11",
       remove_from_arr: true,
     })
     expect(deleteSelectionExecute).toHaveBeenCalledWith(2, {
-      torrent_ids: [202],
-      media_file_ids: [102],
+      torrent_hashes: ["hash-2"],
+      media_file_paths: ["/media/2.mkv"],
+      media_key: "series:arr:0:12",
       remove_from_arr: true,
     })
+  })
+
+  it("explains an outdated list instead of a bare failure", async () => {
+    vi.mocked(deleteSelectionExecute).mockRejectedValue(
+      new ApiError("Un élément sélectionné n'existe plus", 409, {
+        detail: "Un élément sélectionné n'existe plus",
+        stale_selection: true,
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole("checkbox", { name: "Select Forgotten" }))
+    await user.click(screen.getByRole("button", { name: en.cleanup.deleteSelection }))
+    const dialog = await screen.findByRole("dialog")
+
+    await user.click(within(dialog).getByRole("button", { name: en.common.confirmDelete }))
+
+    expect(await within(dialog).findByText(en.cleanup.delete.stale)).toBeInTheDocument()
   })
 
   it("leaves aside a media that became protected before its turn", async () => {

@@ -183,16 +183,18 @@ def _flagged_before(session: Session) -> dict[str, set[tuple[str, str, int | Non
 
 
 def _replace_cache(session: Session, results: list[MediaBuildResult], emby_users: list[EmbyUser]) -> None:
+    """Remplace tout le cache en UNE transaction : une écriture qui échoue
+    laisse le cache précédent intact. Bug réel possible : vidé puis rempli en
+    deux validations, un échec entre les deux laissait une bibliothèque vide
+    (et des automatisations sans aucune donnée de référence)."""
     # Tables filles d'abord : les clés étrangères pointent vers `media`.
     for table in (ImportIssue, MediaRequest, MediaWatch, EmbyUser, Torrent, MediaFile, Media):
         session.exec(delete(table))
-    session.commit()
 
     session.add_all(emby_users)
     session.add_all([result.media for result in results])
-    session.commit()
+    session.flush()  # identifiants attribués, rien n'est encore validé
     for result in results:
-        session.refresh(result.media)
         media_id = row_id(result.media)
         for row in (*result.files, *result.torrents, *result.watches, *result.requests, *result.import_issues):
             row.media_id = media_id

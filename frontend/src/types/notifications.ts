@@ -19,6 +19,7 @@ export const NOTIFICATION_EVENTS = [
   "automation",
   "update_available",
   "automations_paused",
+  "webhook_suspended",
   "weekly_summary",
 ] as const
 

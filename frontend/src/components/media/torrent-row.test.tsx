@@ -86,6 +86,13 @@ describe("TorrentRow seed protection", () => {
     expect(screen.getByText(/Protected until .*2026 \(minimum seeding on tracker\.example\.org\)/)).toBeInTheDocument()
   })
 
+  it("never presents a tracker state as live", () => {
+    // Relu au scan complet ou à l'analyse du média, pas par le temps réel.
+    renderRow({ trackers: [{ domain: "tracker.example.org", status: "Working" }] })
+
+    expect(screen.getByText("tracker.example.org · Working")).toHaveAttribute("title", en.media.trackerStateHint)
+  })
+
   it("shows nothing when the protection does not apply", () => {
     renderRow({ is_private: false })
 

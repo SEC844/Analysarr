@@ -63,7 +63,9 @@ function WebhookRow({ hook }: { hook: WebhookRead }) {
           <span className="truncate">{hook.name}</span>
           <span className="text-muted-foreground font-normal">· {t(`realtime.webhooks.states.${hook.state}`)}</span>
         </p>
-        {hook.state === "error" && hook.error && <p className="text-destructive text-xs break-words">{hook.error}</p>}
+        {(hook.state === "error" || hook.state === "suspended") && hook.error && (
+          <p className="text-destructive text-xs break-words">{hook.error}</p>
+        )}
         {hook.state === "no_address" && (
           <p className="text-muted-foreground text-xs">
             {t("realtime.webhooks.addressMissing")}{" "}
@@ -74,7 +76,7 @@ function WebhookRow({ hook }: { hook: WebhookRead }) {
         )}
         <PollingLine hook={hook} />
       </div>
-      {hook.state === "connected" && (
+      {(hook.state === "connected" || hook.state === "suspended") && (
         <Button
           type="button"
           variant="outline"

@@ -12,7 +12,15 @@ from typing import Any
 
 import httpx
 
-from app.clients.torrent_base import Fingerprint, TorrentAuthError, TorrentClient, content_path_for, fingerprint
+from app.clients.torrent_base import (
+    STATE_ERROR,
+    STATE_OK,
+    Fingerprint,
+    TorrentAuthError,
+    TorrentClient,
+    content_path_for,
+    fingerprint,
+)
 
 # `download_location` est le nom Deluge 2 ; `save_path` celui de Deluge 1.
 STATUS_FIELDS = [
@@ -33,7 +41,7 @@ STATUS_FIELDS = [
 ]
 # Temps réel : de quoi calculer l'empreinte, sans fichiers ni trackers (les
 # champs coûteux) — Deluge n'a pas de lecture incrémentale.
-WATCH_FIELDS = ["name", "download_location", "save_path", "label", "progress"]
+WATCH_FIELDS = ["name", "download_location", "save_path", "label", "progress", "state"]
 
 
 class DelugeClient(TorrentClient):
@@ -115,6 +123,8 @@ class DelugeClient(TorrentClient):
                 None,
                 status.get("label"),
                 (status.get("progress") or 0) >= 100,
+                # Deluge signale des fichiers manquants par l'état « Error ».
+                STATE_ERROR if status.get("state") == "Error" else STATE_OK,
             )
             for torrent_hash, status in statuses.items()
         }
@@ -162,6 +172,10 @@ class DelugeClient(TorrentClient):
         if not magnet:
             raise ValueError("Ni fichier .torrent ni magnet fourni.")
         await self._rpc("core.add_torrent_magnet", [magnet, options])
+
+    async def recheck(self, hashes: list[str]) -> None:
+        if hashes:
+            await self._rpc("core.force_recheck", [hashes])
 
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:

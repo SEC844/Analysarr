@@ -212,3 +212,34 @@ def test_connection_test_covers_every_client(fake_http):
     assert deluge.success and "Deluge" in deluge.message
     assert transmission.success and "Transmission" in transmission.message
     assert not unreachable.success and "Connexion impossible" in unreachable.message
+
+
+def test_every_client_can_recheck_a_repaired_torrent(fake_http):
+    """Réparation `library_to_torrent` : le fichier d'un torrent en seed est
+    remplacé par un hardlink, son client doit revérifier les données."""
+    deluge_calls: list[tuple[str, list]] = []
+    transmission_calls: list[dict] = []
+    qbit_calls: list[tuple[str, str]] = []
+    fake_http["http://deluge"] = deluge_handler(deluge_calls)
+    fake_http["http://transmission"] = transmission_handler(transmission_calls)
+
+    def qbit(req: httpx.Request) -> httpx.Response:
+        qbit_calls.append((req.url.path, req.content.decode()))
+        return httpx.Response(200, text="Ok.")
+
+    fake_http["http://qbit"] = qbit
+
+    async def run():
+        async with DelugeClient("http://deluge", "secret") as client:
+            await client.recheck(["abc123"])
+        async with TransmissionClient("http://transmission", None, None) as client:
+            await client.recheck(["ABC123"])
+        async with QbittorrentClient("http://qbit", "admin", "secret") as client:
+            await client.recheck(["aaa", "bbb"])
+
+    asyncio.run(run())
+
+    assert ("core.force_recheck", [["abc123"]]) in deluge_calls
+    assert transmission_calls[-1]["method"] == "torrent-verify"
+    assert transmission_calls[-1]["arguments"] == {"ids": ["ABC123"]}
+    assert ("/api/v2/torrents/recheck", "hashes=aaa%7Cbbb") in qbit_calls

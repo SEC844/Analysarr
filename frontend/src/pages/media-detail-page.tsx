@@ -254,7 +254,6 @@ export function MediaDetailPage() {
                   <DropdownMenuContent>
                     <DropdownMenuItem onClick={() => handleCrossSeed("episode")}>{t("media.byEpisode")}</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => handleCrossSeed("season")}>{t("media.bySeason")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleCrossSeed("series")}>{t("media.wholeSeries")}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (

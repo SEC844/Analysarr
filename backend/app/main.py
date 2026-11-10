@@ -31,6 +31,7 @@ from app.routers import webhooks as webhooks_router
 from app.routers import widget as widget_router
 from app.routers.auth import is_request_authenticated
 from app.services.login_log import record_attempt
+from app.services.media_delete import StaleSelectionError, UnaddressableMediaError
 from app.services.path_guard import DiskAccessError
 from app.services.rate_limit import retry_after
 from app.services.realtime.supervisor import supervisor as realtime_supervisor
@@ -119,6 +120,20 @@ async def disk_access_refused(request: Request, exc: DiskAccessError) -> JSONRes
     """Action refusée avant toute modification (montage manquant, droits
     insuffisants) : 409 plutôt que 500, avec le message exact à afficher (voir
     services/path_guard.py)."""
+    return JSONResponse({"detail": str(exc)}, status_code=409)
+
+
+@app.exception_handler(StaleSelectionError)
+async def stale_selection(request: Request, exc: StaleSelectionError) -> JSONResponse:
+    """Sélection périmée (réanalyse entre l'ouverture et la confirmation) :
+    l'interface recharge la fiche au lieu de laisser l'erreur bloquer."""
+    return JSONResponse({"detail": str(exc), "stale_selection": True}, status_code=409)
+
+
+@app.exception_handler(UnaddressableMediaError)
+async def unaddressable_media(request: Request, exc: UnaddressableMediaError) -> JSONResponse:
+    """Média sans identité stable : suppression refusée avant toute
+    modification, message à afficher tel quel."""
     return JSONResponse({"detail": str(exc)}, status_code=409)
 
 

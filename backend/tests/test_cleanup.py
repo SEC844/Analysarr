@@ -393,7 +393,7 @@ def test_whole_media_space_matches_the_delete_dialog(session, settings, tmp_path
 
     refresh_media_statuses(session, media)
     settings.qbittorrent_url = None
-    live = asyncio.run(build_delete_footprint(session, media, settings))
+    live = asyncio.run(build_delete_footprint(media, settings))
 
     assert media.full_reclaimable_bytes == 1000
     assert media.full_reclaimable_bytes == reclaimed_bytes(

@@ -81,8 +81,11 @@ export function TorrentRow({ mediaId, torrent }: { mediaId: number; torrent: Tor
             <ShieldCheck className="size-3" /> {obligationText(t, torrent.seed_obligation)}
           </Badge>
         )}
+        {/* État relu au scan complet ou à l'analyse du média, jamais en temps
+            réel (le temps réel ne détaille que les torrents modifiés) : dit
+            au survol, pour ne pas le faire passer pour frais. */}
         {torrent.trackers.map((tr, i) => (
-          <Badge key={i} variant="secondary">
+          <Badge key={i} variant="secondary" title={t("media.trackerStateHint")}>
             {tr.domain} · {tr.status}
           </Badge>
         ))}

@@ -17,16 +17,25 @@ class TorrentAuthError(Exception):
 
 
 # Ce qui, dans un torrent, peut changer son rattachement ou son état dans
-# Analysarr : nom, dossiers, catégorie, téléchargement terminé. Le ratio, la
-# vitesse ou le nombre de pairs changent sans cesse et ne déclenchent rien.
-Fingerprint = tuple[str, str | None, str | None, str | None, bool]
+# Analysarr : nom, dossiers, catégorie, téléchargement terminé, état (normal,
+# erreur, fichiers manquants). Le ratio, la vitesse ou le nombre de pairs
+# changent sans cesse et ne déclenchent rien.
+Fingerprint = tuple[str, str | None, str | None, str | None, bool, str]
+
+# États normalisés : un torrent dont les données ont disparu (disque démonté,
+# fichiers supprimés à la main) doit déclencher une analyse de son média.
+STATE_OK = "ok"
+STATE_ERROR = "error"
+STATE_MISSING = "missing_files"
 
 
-def fingerprint(name: Any, save_path: Any, content_path: Any, category: Any, complete: bool) -> Fingerprint:
+def fingerprint(
+    name: Any, save_path: Any, content_path: Any, category: Any, complete: bool, state: str = STATE_OK
+) -> Fingerprint:
     def text(value: Any) -> str | None:
         return value if isinstance(value, str) and value else None
 
-    return (text(name) or "", text(save_path), text(content_path), text(category), complete)
+    return (text(name) or "", text(save_path), text(content_path), text(category), complete, state)
 
 
 class TorrentClient:
@@ -80,6 +89,11 @@ class TorrentClient:
         raise NotImplementedError
 
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
+        raise NotImplementedError
+
+    async def recheck(self, hashes: list[str]) -> None:
+        """Demande au client de revérifier les données de ces torrents (après
+        qu'Analysarr a remplacé un de leurs fichiers par un hardlink)."""
         raise NotImplementedError
 
     async def export_torrent(self, torrent_hash: str) -> bytes | None:

@@ -13,6 +13,8 @@ from sqlmodel import select
 from app.models.media import Media, MediaFile, MediaType, Torrent
 from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import MediaDeleteSelection
+from app.services import scheduler
+from app.services import trash as trash_service
 from app.services.cascade_delete import execute_delete
 from app.services.media_delete import execute_media_delete
 from app.services.trash import (
@@ -33,6 +35,7 @@ def enable_trash(session, settings, tmp_path):
 
 
 def add_movie(session, tmp_path, name="Film.mkv", **fields):
+    fields.setdefault("emby_item_id", f"item-{name}")
     media = Media(media_type=MediaType.movie, title="Titre", **fields)
     session.add(media)
     session.commit()
@@ -105,7 +108,7 @@ def test_deletion_removes_everything_when_the_trash_is_off(session, settings, tm
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -126,7 +129,7 @@ def test_a_deletion_is_kept_as_one_restorable_action(session, settings, tmp_path
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -156,7 +159,7 @@ def test_restoring_puts_files_and_torrent_back(session, settings, tmp_path, monk
     original_file, original_data = row.path, str(data)
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
     action = session.exec(select(TrashAction)).one()
@@ -190,7 +193,7 @@ def test_restoring_keeps_hardlinks(session, settings, tmp_path, monkeypatch):
     os.link(row.path, link)
     inode = os.stat(row.path).st_ino
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
     action = session.exec(select(TrashAction)).one()
     asyncio.run(restore_action(session, settings, action))
 
@@ -202,7 +205,7 @@ def test_a_failed_step_keeps_the_action_in_the_trash(session, settings, tmp_path
     client = FakeTorrentClient()
     patch_client(monkeypatch, client)
     media, row = add_movie(session, tmp_path)
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
     action = session.exec(select(TrashAction)).one()
     # Un fichier a repris la place : on ne l'écrase jamais.
     with open(row.path, "wb") as handle:
@@ -222,7 +225,7 @@ def test_cleanup_sends_orphan_torrents_to_the_trash(session, settings, tmp_path,
     enable_trash(session, settings, tmp_path)
     client = FakeTorrentClient()
     patch_client(monkeypatch, client)
-    media = Media(media_type=MediaType.movie, title="Titre", statuses="orphelin_qbit")
+    media = Media(media_type=MediaType.movie, title="Titre", statuses="orphelin_qbit", emby_item_id="item-227")
     session.add(media)
     session.commit()
     torrent, data = add_torrent(session, media, tmp_path)
@@ -254,7 +257,7 @@ def test_the_movie_is_restored_in_radarr(session, settings, tmp_path, fake_http,
     media, row = add_movie(session, tmp_path, radarr_id=42)
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True)
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], remove_from_arr=True)
         )
     )
     action = session.exec(select(TrashAction)).one()
@@ -287,6 +290,58 @@ def test_retention_purges_whole_actions(session, settings, tmp_path):
     assert len(session.exec(select(TrashAction)).all()) == 1
 
 
+def add_expired_action(session, path, title="Titre", age=3):
+    path.write_bytes(b"x")
+    created = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=age)
+    action = TrashAction(media_title=title, created_at=created)
+    session.add(action)
+    session.commit()
+    session.add(TrashItem(action_id=action.id, original_path="/a", trashed_path=str(path)))
+    session.commit()
+    return action
+
+
+def test_a_refusing_item_never_blocks_the_rest_of_the_purge(session, settings, tmp_path, monkeypatch):
+    settings.trash_retention_days = 1
+    blocked, freed = tmp_path / "bloque.mkv", tmp_path / "libre.mkv"
+    add_expired_action(session, blocked, "Bloqué")
+    add_expired_action(session, freed, "Libre")
+    real_remove = trash_service._remove
+
+    def refuse_one(path):
+        if path == str(blocked):
+            raise PermissionError(13, "Permission denied", path)
+        real_remove(path)
+
+    monkeypatch.setattr(trash_service, "_remove", refuse_one)
+
+    assert purge_expired(session, settings) == 1
+    assert os.path.exists(blocked) and not os.path.exists(freed)
+    remaining = session.exec(select(TrashAction)).all()
+    assert [action.media_title for action in remaining] == ["Bloqué"]
+
+
+def test_retention_applies_as_soon_as_the_container_starts(session, settings, tmp_path):
+    # Bug réel : purge toutes les 6 h comptées depuis le démarrage, jamais
+    # atteinte sur un conteneur mis à jour plus souvent — une rétention d'un
+    # jour gardait la suppression plus d'une journée de trop.
+    settings.trash_retention_days = 1
+    session.add(settings)
+    session.commit()
+    expired = tmp_path / "vieux.mkv"
+    add_expired_action(session, expired, age=2)
+    recent = tmp_path / "recent.mkv"
+    add_expired_action(session, recent, age=0)
+
+    scheduler._trash_startup()
+
+    # Masquée puis purgée, dans cet ordre : rien ne reste sur le disque.
+    assert not os.path.exists(expired) and not os.path.exists(str(expired) + CONCEALED_SUFFIX)
+    assert os.path.exists(str(recent) + CONCEALED_SUFFIX)
+    session.expire_all()
+    assert len(session.exec(select(TrashAction)).all()) == 1
+
+
 def test_trash_endpoints_group_by_action(admin_client, session, settings, tmp_path, monkeypatch):
     enable_trash(session, settings, tmp_path)
     client = FakeTorrentClient()
@@ -295,7 +350,7 @@ def test_trash_endpoints_group_by_action(admin_client, session, settings, tmp_pa
     torrent, _data = add_torrent(session, media, tmp_path)
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -353,7 +408,7 @@ def test_sonarr_never_deletes_the_files_when_the_trash_is_on(session, settings, 
             session,
             media,
             settings,
-            MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True),
+            MediaDeleteSelection(media_file_paths=[f.path for f in files], remove_from_arr=True),
         )
     )
 
@@ -393,7 +448,7 @@ def test_nothing_leaves_the_disk_if_sonarr_refuses(session, settings, tmp_path, 
 
     result = asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], remove_from_arr=True)
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], remove_from_arr=True)
         )
     )
 
@@ -411,7 +466,7 @@ def test_a_restore_is_recorded_and_triggers_a_scan(admin_client, session, settin
     scans = []
     monkeypatch.setattr("app.routers.trash.launch_scan", lambda scope="full": scans.append(scope) or True)
     media, row = add_movie(session, tmp_path)
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
     action_id = session.exec(select(TrashAction)).one().id
 
     result = admin_client.post(f"/api/trash/{action_id}/restore").json()
@@ -429,7 +484,7 @@ def test_the_announced_size_counts_hardlinks_once(admin_client, session, setting
     deux liens) : le purger ne libère cette taille qu'une fois."""
     enable_trash(session, settings, tmp_path)
     patch_client(monkeypatch, FakeTorrentClient())
-    media = Media(media_type=MediaType.movie, title="Titre")
+    media = Media(media_type=MediaType.movie, title="Titre", emby_item_id="item-486")
     session.add(media)
     session.commit()
     library = tmp_path / "Film.mkv"
@@ -452,7 +507,7 @@ def test_the_announced_size_counts_hardlinks_once(admin_client, session, setting
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 
@@ -468,7 +523,7 @@ def test_a_file_still_linked_outside_the_trash_frees_nothing(
     corbeille ne rendra pas un octet tant que ce lien existe."""
     enable_trash(session, settings, tmp_path)
     patch_client(monkeypatch, FakeTorrentClient())
-    media = Media(media_type=MediaType.movie, title="Titre")
+    media = Media(media_type=MediaType.movie, title="Titre", emby_item_id="item-525")
     session.add(media)
     session.commit()
     library = tmp_path / "Film.mkv"
@@ -478,7 +533,7 @@ def test_a_file_still_linked_outside_the_trash_frees_nothing(
     session.add(row)
     session.commit()
 
-    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_ids=[row.id])))
+    asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(media_file_paths=[row.path])))
 
     listed = admin_client.get("/api/trash").json()
     assert listed[0]["items"][0]["size"] == 1000  # la taille du fichier reste affichée
@@ -527,7 +582,7 @@ def test_nothing_in_the_trash_looks_like_a_video_to_cross_seed(session, settings
 
     asyncio.run(
         execute_media_delete(
-            session, media, settings, MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id])
+            session, media, settings, MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash])
         )
     )
 

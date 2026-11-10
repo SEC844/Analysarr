@@ -106,14 +106,44 @@ TEST_EVENT = "Test"
 # Enregistrement d'une notification : Sonarr/Radarr attend la réponse de son
 # propre test (un appel vers Analysarr) avant de répondre.
 SAVE_TIMEOUT = 60.0
-# Un média signalé par webhook n'est pas réanalysé une seconde fois quand le
-# suivi en lecture seule retrouve le même événement dans l'historique.
+# Un événement livré par webhook n'est pas réanalysé une seconde fois quand
+# le suivi en lecture seule retrouve LE MÊME événement dans l'historique.
 DELIVERY_MEMORY_SECONDS = 600.0
 
+# Nature d'un événement, côté webhook (`eventType` de la charge) et côté
+# historique (`eventType` de `/api/v3/history`, vérifié dans
+# `EpisodeHistoryEventType` / `MovieHistoryEventType`) : seuls ces événements
+# existent des deux côtés.
+WEBHOOK_EVENT_KINDS = {
+    "Grab": "grab",
+    "Download": "import",
+    "EpisodeFileDelete": "delete",
+    "MovieFileDelete": "delete",
+    "Rename": "rename",
+}
+HISTORY_EVENT_KINDS = {
+    "grabbed": "grab",
+    "downloadFolderImported": "import",
+    "seriesFolderImported": "import",
+    "movieFolderImported": "import",
+    "episodeFileDeleted": "delete",
+    "movieFileDeleted": "delete",
+    "episodeFileRenamed": "rename",
+    "movieFileRenamed": "rename",
+}
+
+# Événement : (service, instance, nature, téléchargement ou fiche).
+EventKey = tuple[str, int, str, str]
+
 # En mémoire, modifiés dans la boucle asyncio uniquement : dernier appel reçu
-# de chaque instance, et de chaque média signalé.
+# de chaque instance ; événements reçus en attente de l'analyse de leur média
+# (par clé de média), puis confirmés une fois l'analyse réussie.
 _received_at: dict[tuple[str, int], float] = {}
-_delivered_at: dict[tuple[str, int, int], float] = {}
+_awaiting: dict[str, list[tuple[EventKey, float]]] = {}
+_delivered_at: dict[EventKey, float] = {}
+# Instances dont Sonarr/Radarr a suspendu le webhook d'Analysarr (voir
+# suspended_by_service) : plus rien n'arrive par là.
+_suspended: set[tuple[str, int]] = set()
 
 
 class WebhookError(RuntimeError):
@@ -145,25 +175,120 @@ def _digest(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
-def note_received(service: str, instance_id: int, arr_id: int | None) -> None:
+def note_received(service: str, instance_id: int) -> None:
     """Appel authentifié reçu de cette instance (test compris) : il prouve
-    qu'elle joint Analysarr, et le média signalé est retenu."""
+    qu'elle joint Analysarr."""
+    _received_at[(service, instance_id)] = time.monotonic()
+
+
+def event_key(
+    service: str, instance_id: int, kind: str | None, download_id: Any, arr_id: int | None
+) -> EventKey | None:
+    """Un événement précis : son téléchargement quand il en a un (grab et
+    import d'une même release partagent le téléchargement, pas la nature),
+    sinon sa fiche. Bug réel : le dédoublonnage par fiche seule faisait
+    écarter l'import d'une série parce que son GRAB était arrivé par webhook."""
+    if kind is None:
+        return None
+    if isinstance(download_id, str) and download_id:
+        return (service, instance_id, kind, f"download:{download_id.lower()}")
+    if arr_id is None:
+        return None
+    return (service, instance_id, kind, f"arr:{arr_id}")
+
+
+def note_delivery(media_key: str, key: EventKey | None) -> None:
+    """Événement reçu par webhook pour ce média : il ne compte comme livré
+    qu'une fois l'analyse du média réussie (`confirm_deliveries`). Si elle
+    échoue, le suivi en lecture seule le reprendra depuis l'historique."""
+    if key is None:
+        return
     now = time.monotonic()
-    _received_at[(service, instance_id)] = now
-    if arr_id is not None:
-        _delivered_at[(service, instance_id, arr_id)] = now
-        for key in [k for k, at in _delivered_at.items() if now - at > DELIVERY_MEMORY_SECONDS]:
-            del _delivered_at[key]
+    _awaiting.setdefault(media_key, []).append((key, now))
+    for media in list(_awaiting):
+        kept = [(k, at) for k, at in _awaiting[media] if now - at <= DELIVERY_MEMORY_SECONDS]
+        if kept:
+            _awaiting[media] = kept
+        else:
+            del _awaiting[media]
 
 
-def recently_delivered(service: str, instance_id: int, arr_id: int) -> bool:
-    at = _delivered_at.get((service, instance_id, arr_id))
+def confirm_deliveries(media_key: str) -> None:
+    """Analyse du média réussie : ses événements reçus sont livrés."""
+    now = time.monotonic()
+    for key, _received in _awaiting.pop(media_key, []):
+        _delivered_at[key] = now
+    for key in [k for k, at in _delivered_at.items() if now - at > DELIVERY_MEMORY_SECONDS]:
+        del _delivered_at[key]
+
+
+def recently_delivered(key: EventKey | None) -> bool:
+    if key is None:
+        return False
+    service, instance_id = key[0], key[1]
+    if (service, instance_id) in _suspended:
+        return False  # webhook coupé : le suivi en lecture seule ne doit rien écarter
+    at = _delivered_at.get(key)
     return at is not None and time.monotonic() - at <= DELIVERY_MEMORY_SECONDS
 
 
 def forget_deliveries() -> None:
     _received_at.clear()
+    _awaiting.clear()
     _delivered_at.clear()
+    _suspended.clear()
+
+
+def mark_suspended(service: str, instance_id: int, suspended: bool) -> bool:
+    """Retient l'état ; vrai si la suspension vient de commencer."""
+    key = (service, instance_id)
+    started = suspended and key not in _suspended
+    if suspended:
+        _suspended.add(key)
+    else:
+        _suspended.discard(key)
+    return started
+
+
+def is_suspended(service: str, instance_id: int) -> bool:
+    return (service, instance_id) in _suspended
+
+
+# Contrôle de santé de Sonarr/Radarr qui signale une notification coupée
+# (vérifié dans leur code, `NotificationStatusCheck`) : après 5 min d'échecs
+# d'envoi, la notification est désactivée par paliers (1 min à 24 h) et plus
+# rien n'est envoyé. Avertissement « … : nom1, nom2 » quand une partie des
+# notifications est coupée ; erreur sans aucun nom quand elles le sont toutes.
+NOTIFICATION_HEALTH_SOURCE = "NotificationStatusCheck"
+
+
+def suspended_in(health: list[dict[str, Any]], name: str = WEBHOOK_NAME) -> bool:
+    """Le bilan de santé désigne-t-il ce webhook ? Message traduit selon la
+    langue de leur interface : seuls les noms (jamais traduits) sont lus."""
+    for check in health:
+        if not isinstance(check, dict) or check.get("source") != NOTIFICATION_HEALTH_SOURCE:
+            continue
+        if str(check.get("type", "")).lower() == "error":
+            return True  # toutes les notifications coupées, celle d'Analysarr comprise
+        message = str(check.get("message") or "")
+        names = message.rsplit(":", 1)[-1] if ":" in message else ""
+        if name in (part.strip() for part in names.split(",")):
+            return True
+    return False
+
+
+def suspended_message(target: ArrTarget) -> str:
+    return (
+        f"{target.name} a suspendu le webhook d'Analysarr après des échecs d'envoi : il n'envoie plus rien "
+        "jusqu'à son prochain essai. Le suivi en lecture seule prend le relais ; vérifiez que "
+        f"{target.name} joint toujours Analysarr."
+    )
+
+
+async def suspended_by_service(target: ArrTarget) -> bool:
+    """Sonarr/Radarr a-t-il coupé le webhook d'Analysarr ? Une erreur réseau
+    remonte (rien n'est prouvé)."""
+    return suspended_in(await _client(target).get_health())
 
 
 # --- Réception ------------------------------------------------------------------
@@ -197,6 +322,8 @@ class WebhookEvent:
     event_type: str
     # Film ou série concernés (identifiant Sonarr/Radarr), s'il y en a un.
     arr_id: int | None
+    # Téléchargement concerné (grab, import), s'il y en a un.
+    download_id: str | None = None
 
 
 def parse_event(service: str, body: Any) -> WebhookEvent | None:
@@ -207,7 +334,8 @@ def parse_event(service: str, body: Any) -> WebhookEvent | None:
     holder = body.get("series" if service == "sonarr" else "movie")
     raw_id = holder.get("id") if isinstance(holder, dict) else None
     arr_id = raw_id if isinstance(raw_id, int) and not isinstance(raw_id, bool) and raw_id > 0 else None
-    return WebhookEvent(body["eventType"], arr_id)
+    download_id = body.get("downloadId")
+    return WebhookEvent(body["eventType"], arr_id, download_id if isinstance(download_id, str) else None)
 
 
 # --- Branchement ----------------------------------------------------------------

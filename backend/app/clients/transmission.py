@@ -11,7 +11,15 @@ from typing import Any
 
 import httpx
 
-from app.clients.torrent_base import Fingerprint, TorrentAuthError, TorrentClient, content_path_for, fingerprint
+from app.clients.torrent_base import (
+    STATE_ERROR,
+    STATE_OK,
+    Fingerprint,
+    TorrentAuthError,
+    TorrentClient,
+    content_path_for,
+    fingerprint,
+)
 
 SESSION_HEADER = "X-Transmission-Session-Id"
 FIELDS = [
@@ -32,7 +40,10 @@ FIELDS = [
     "isPrivate",
 ]
 # Temps réel : de quoi calculer l'empreinte, rien de plus.
-WATCH_FIELDS = ["id", "hashString", "name", "downloadDir", "labels", "percentDone"]
+WATCH_FIELDS = ["id", "hashString", "name", "downloadDir", "labels", "percentDone", "error"]
+# `error` de Transmission : 3 = erreur locale (données introuvables, disque),
+# 1 et 2 ne concernent que le tracker.
+LOCAL_ERROR = 3
 
 
 class TransmissionClient(TorrentClient):
@@ -96,6 +107,7 @@ class TransmissionClient(TorrentClient):
             "save_path": save_path,
             "content_path": content_path_for(save_path, paths),
             "category": labels[0] if labels else None,
+            "tags": ", ".join(labels[1:]) or None,
             "size": torrent.get("totalSize"),
             "ratio": torrent.get("uploadRatio"),
             "num_seeds": torrent.get("peersSendingToUs"),
@@ -131,6 +143,7 @@ class TransmissionClient(TorrentClient):
                 None,
                 next(iter(t.get("labels") or []), None),
                 (t.get("percentDone") or 0) >= 1,
+                STATE_ERROR if t.get("error") == LOCAL_ERROR else STATE_OK,
             )
             for torrent_hash, t in self._watch.items()
         }
@@ -179,6 +192,10 @@ class TransmissionClient(TorrentClient):
         else:
             raise ValueError("Ni fichier .torrent ni magnet fourni.")
         await self._rpc("torrent-add", payload)
+
+    async def recheck(self, hashes: list[str]) -> None:
+        if hashes:
+            await self._rpc("torrent-verify", {"ids": hashes})
 
     async def delete_torrents(self, hashes: list[str], delete_files: bool) -> None:
         if not hashes:

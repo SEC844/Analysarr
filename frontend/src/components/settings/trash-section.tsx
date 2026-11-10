@@ -16,6 +16,7 @@ import {
   useTrashQuery,
   useTrashSettingsQuery,
 } from "@/hooks/use-trash"
+import { useSettingsQuery } from "@/hooks/use-settings"
 import { useI18n } from "@/i18n"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -131,9 +132,10 @@ function ActionRow({ action }: { action: TrashAction }) {
 }
 
 export function TrashSection() {
-  const { t } = useI18n()
+  const { t, rich } = useI18n()
   const { data: settings, isLoading } = useTrashSettingsQuery()
-  const { data: actions } = useTrashQuery()
+  const { data: appSettings } = useSettingsQuery()
+  const { data: actions, isLoading: actionsLoading } = useTrashQuery()
   const saveMutation = useSaveTrashSettingsMutation()
   const emptyMutation = useEmptyTrashMutation()
   const [days, setDays] = useState<string | null>(null)
@@ -202,6 +204,16 @@ export function TrashSection() {
 
           <p className="text-muted-foreground text-xs">{t("trash.scopeHelp")}</p>
           <p className="text-muted-foreground text-xs">{t("trash.ratioHelp")}</p>
+          {/* cross-seed désactivé : aucune trace dans l'interface. */}
+          {appSettings?.cross_seed.enabled && (
+            <p className="text-muted-foreground text-xs">
+              {rich("trash.crossSeedHelp", {
+                option: <code>includeNonVideos</code>,
+                rule: <code>folder:.analysarr-trash</code>,
+                blockList: <code>blockList</code>,
+              })}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -246,7 +258,11 @@ export function TrashSection() {
           </div>
         </CardHeader>
         <CardContent>
-          {actions && actions.length > 0 ? (
+          {/* Jamais « vide » pendant le chargement : la liste mesure chaque
+              fichier sur le disque et peut prendre quelques secondes. */}
+          {actionsLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : actions && actions.length > 0 ? (
             <ul className="divide-border divide-y text-sm">
               {actions.map((action) => (
                 <ActionRow key={action.id} action={action} />

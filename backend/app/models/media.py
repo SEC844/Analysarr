@@ -156,6 +156,9 @@ class Torrent(SQLModel, table=True):
     # autres à détecter les torrents ajoutés par cross-seed (voir
     # TorrentRead.is_cross_seed dans schemas/media.py).
     category: str | None = None
+    # Étiquettes du client (qBittorrent `tags`, libellés suivants de
+    # Transmission), séparées par des virgules.
+    tags: str | None = None
     size: int | None = None
 
     inode: int | None = None

@@ -52,6 +52,8 @@ def _webhook_state(
             return "error", error  # retrait refusé
         return ("removing", None) if row is not None else ("disabled", None)
     if webhooks.is_connected(row, wanted.target, settings.analysarr_url, wanted.instance_id):
+        if webhooks.is_suspended(wanted.target.kind, wanted.instance_id):
+            return "suspended", error
         return "connected", None
     if not settings.analysarr_url:
         return "no_address", None

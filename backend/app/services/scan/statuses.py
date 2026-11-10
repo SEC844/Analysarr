@@ -9,7 +9,7 @@ from app.services.queue_issues import IMPORT_KIND, STALLED_KIND
 
 # Liste fermée des statuts qu'un média peut porter : elle borne le filtre de
 # l'API et sert de référence à l'interface (types/media.ts).
-MEDIA_STATUSES = (
+MEDIA_STATUSES: tuple[str, ...] = (
     "doublon",
     "orphelin_qbit",
     "non_hardlink",
@@ -26,7 +26,7 @@ MEDIA_STATUSES = (
 # Statuts purement informatifs : couverture tracker, et saisons téléchargées
 # mais pas encore importées. Ils n'empêchent jamais un média d'être sain
 # (voir `is_healthy`).
-INFO_STATUSES = frozenset({"tracker_unique", "cross_seed", "non_importe"})
+INFO_STATUSES: frozenset[str] = frozenset({"tracker_unique", "cross_seed", "non_importe"})
 
 
 def alert_statuses(statuses: set[str] | list[str]) -> set[str]:

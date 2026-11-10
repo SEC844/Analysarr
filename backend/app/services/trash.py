@@ -102,8 +102,8 @@ def _move_into(path: str, trash_dir: str) -> str:
 # sans exclure les dossiers cachés. Il trouvait les épisodes d'une série
 # supprimée dans `.analysarr-trash`, les recherchait sur les trackers et
 # injectait de nouveaux torrents hardlinkés vers la corbeille — la série
-# revenait, et la purge ne libérait plus rien. Vérifié dans son code
-# (`dataFiles.ts`, `preFilter.ts::filterByContent`) : un fichier sans
+# revenait, et la purge ne libérait plus rien. Vérifié dans son code, v6 et
+# v7.0.0 (`dataFiles.ts`, `preFilter.ts::filterByContent`) : un fichier sans
 # extension vidéo n'est jamais une racine de recherche, et toute recherche dont
 # plus de `fuzzySizeThreshold` (2 %) des octets ne sont pas de la vidéo est
 # écartée (`includeNonVideos` désactivé, son défaut), flux RSS compris. Chaque
@@ -185,20 +185,25 @@ def conceal_existing() -> None:
         session.commit()
 
 
-def _trash_dir_for(settings: Settings | None, path: str) -> str:
-    """Corbeille où ira probablement `path` : celle de la racine de la
-    bibliothèque si elle est sur le même disque (même règle que
-    `move_to_trash`, qui ne se replie que sur EXDEV), sinon celle posée à côté
-    de l'élément."""
+def _trash_dirs_for(settings: Settings | None, path: str) -> list[str]:
+    """Corbeilles par lesquelles `path` peut passer, dans l'ordre de
+    `move_to_trash` : celle de la racine de la bibliothèque est TOUJOURS
+    essayée d'abord (seul EXDEV fait passer à la suivante, toute autre erreur
+    arrête), puis celle posée à côté de l'élément s'il est sur un autre
+    disque — ou si on ne sait pas le dire. Bug réel possible : décidée sur le
+    seul `st_dev` (incohérent sous FUSE, shfs d'Unraid), la vérification
+    pouvait regarder l'autre corbeille que celle réellement utilisée."""
     source_dir = os.path.dirname(path.rstrip("/\\"))
+    sibling = os.path.join(source_dir, TRASH_DIR_NAME)
     root = (settings.emby_library_path or "").strip() if settings else ""
-    if root:
-        try:
-            if os.stat(source_dir).st_dev == os.stat(root).st_dev:
-                return os.path.join(root, TRASH_DIR_NAME)
-        except OSError:
-            return os.path.join(root, TRASH_DIR_NAME)  # inconnu : la racine est essayée d'abord
-    return os.path.join(source_dir, TRASH_DIR_NAME)
+    if not root:
+        return [sibling]
+    try:
+        same_disk = os.stat(source_dir).st_dev == os.stat(root).st_dev
+    except OSError:
+        same_disk = False  # inconnu : les deux corbeilles peuvent servir
+    root_trash = os.path.join(root, TRASH_DIR_NAME)
+    return [root_trash] if same_disk else [root_trash, sibling]
 
 
 def staging_blockers(settings: Settings | None, path: str) -> list[str]:
@@ -214,9 +219,7 @@ def staging_blockers(settings: Settings | None, path: str) -> list[str]:
         blocked.append(os.path.dirname(stripped))
     if os.path.isdir(stripped) and not os.path.islink(stripped) and not writable_dir(stripped):
         blocked.append(stripped)
-    destination = _trash_dir_for(settings, stripped)
-    if not creatable_dir(destination):
-        blocked.append(destination)
+    blocked += [destination for destination in _trash_dirs_for(settings, stripped) if not creatable_dir(destination)]
     return blocked
 
 
@@ -583,9 +586,18 @@ def purge_action(session: Session, action: TrashAction) -> None:
 def purge_expired(session: Session, settings: Settings | None) -> int:
     limit = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=retention_days(settings))
     expired = session.exec(select(TrashAction).where(TrashAction.created_at < limit)).all()
+    purged = 0
     for action in expired:
-        purge_action(session, action)
-    return len(expired)
+        # Un élément qui refuse (droits, disque) ne bloque jamais la purge des
+        # autres : l'action reste dans la corbeille et sera retentée.
+        try:
+            purge_action(session, action)
+        except OSError:
+            session.rollback()
+            logger.warning("Purge impossible pour « %s », retentée plus tard", action.media_title, exc_info=True)
+            continue
+        purged += 1
+    return purged
 
 
 # --- Restauration -------------------------------------------------------------

@@ -74,6 +74,7 @@ NOTIFICATION_EVENTS = (
     "automation",
     "update_available",
     "automations_paused",
+    "webhook_suspended",
     "weekly_summary",
 )
 DISCORD_WEBHOOK_PREFIXES = (
@@ -159,6 +160,11 @@ _TEXT: dict[str, dict[str, str]] = {
         "rule": "Règle",
         "trigger": "Déclencheur",
         "automations_paused": "Automatisations mises en pause",
+        "webhook_suspended": "Webhook suspendu",
+        "webhook_suspended_summary": (
+            "{name} a coupé le webhook d'Analysarr après des échecs d'envoi. Le suivi en "
+            "lecture seule prend le relais ; vérifiez que {name} joint toujours Analysarr."
+        ),
         "automations_paused_summary": (
             "Un scan a fait basculer une part anormale de la bibliothèque : les "
             "règles sont suspendues jusqu'à une reprise manuelle."
@@ -251,6 +257,11 @@ _TEXT: dict[str, dict[str, str]] = {
         "rule": "Rule",
         "trigger": "Trigger",
         "automations_paused": "Automations paused",
+        "webhook_suspended": "Webhook suspended",
+        "webhook_suspended_summary": (
+            "{name} turned off Analysarr's webhook after failed deliveries. Read-only "
+            "tracking takes over; check that {name} can still reach Analysarr."
+        ),
         "automations_paused_summary": (
             "A scan flipped an unusual share of the library: rules "
             "are suspended until you resume them."
@@ -517,6 +528,18 @@ def automations_paused_notification(
             (text["guard_change"], f"{previous} → {current}"),
             (text["guard_share"], f"{percent} %"),
         ],
+        colon=text["colon"],
+    )
+
+
+def webhook_suspended_notification(language: str, name: str) -> Notification:
+    """Sonarr/Radarr a coupé le webhook d'Analysarr (voir
+    realtime/webhooks.py::suspended_in)."""
+    text = _TEXT[language]
+    return Notification(
+        title=text["webhook_suspended"],
+        description=text["webhook_suspended_summary"].format(name=name),
+        level="warning",
         colon=text["colon"],
     )
 

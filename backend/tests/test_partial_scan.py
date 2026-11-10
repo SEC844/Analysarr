@@ -131,6 +131,74 @@ def test_torrent_scope_detects_a_new_torrent_and_keeps_media_ids(fake_http, fake
         assert run.qbittorrent_torrent_count == 1 and run.qbittorrent_matched_count == 1
 
 
+def _matrix(hash_: str, name: str = "Matrix") -> dict:
+    return {
+        "hash": hash_,
+        "name": name,
+        "save_path": f"/data/torrents/{name}",
+        "content_path": f"/data/torrents/{name}/{name}.mkv",
+        "size": 10,
+        "added_on": 1_700_000_000,
+        "completion_on": 1_700_000_100,
+    }
+
+
+def _counting(handler, detail: list[str]):
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        if request.url.path in ("/api/v2/torrents/trackers", "/api/v2/torrents/files"):
+            detail.append(request.url.params.get("hash", ""))
+        return handler(request)
+
+    return wrapped
+
+
+def test_a_new_torrent_only_reads_its_own_detail(fake_http, fake_inodes, settings, tmp_path):
+    """Bug réel : chaque torrent ajouté par cross-seed relisait trackers et
+    fichiers de TOUS les torrents (près de 3 000 requêtes pour 1 470)."""
+    seed_library(tmp_path)
+    fake_inodes[os.path.join("/data/torrents/Matrix", "Matrix.mkv")] = LIBRARY_INODE
+    torrents = [_matrix("AAAA")]
+    detail: list[str] = []
+    fake_http["http://qbit"] = _counting(qbit_handler(torrents), detail)
+    asyncio.run(run_service_scan("torrents"))
+    assert sorted(detail) == ["AAAA", "AAAA"]
+
+    detail.clear()
+    torrents.append(_matrix("BBBB", "Matrix.Copie"))
+    asyncio.run(run_service_scan("torrents"))
+
+    assert sorted(detail) == ["BBBB", "BBBB"]  # AAAA, inchangé, reprend le cache
+    with Session(engine) as session:
+        aaaa = session.exec(select(Torrent).where(Torrent.hash == "AAAA")).one()
+        assert aaaa.is_hardlinked is True and "tracker.example" in aaaa.trackers_json
+
+
+def test_unreadable_files_keep_what_the_cache_knew(fake_http, fake_inodes, settings, tmp_path):
+    """Une lecture des fichiers en échec vidait le torrent : il perdait son
+    hardlink et le média basculait « non seedé »."""
+    movie_id, _ = seed_library(tmp_path)
+    fake_inodes[os.path.join("/data/torrents/Matrix", "Matrix.mkv")] = LIBRARY_INODE
+    torrents = [_matrix("AAAA")]
+    fake_http["http://qbit"] = qbit_handler(torrents)
+    asyncio.run(run_service_scan("torrents"))
+
+    torrents[0]["size"] = 11  # modifié : le détail est relu…
+    base = qbit_handler(torrents)
+
+    def broken_files(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v2/torrents/files":
+            return httpx.Response(500)  # …mais la lecture échoue
+        return base(request)
+
+    fake_http["http://qbit"] = broken_files
+    asyncio.run(run_service_scan("torrents"))
+
+    with Session(engine) as session:
+        aaaa = session.exec(select(Torrent).where(Torrent.hash == "AAAA")).one()
+        assert aaaa.is_hardlinked is True
+        assert "manquant_qbit" not in session.get(Media, movie_id).statuses.split(",")
+
+
 def test_torrent_scope_never_steals_a_torrent_from_another_media(fake_http, fake_inodes, settings, tmp_path):
     movie_id, series_id = seed_library(tmp_path)
     with Session(engine) as session:

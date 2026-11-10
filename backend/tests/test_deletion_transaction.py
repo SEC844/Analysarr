@@ -19,6 +19,7 @@ from app.models.trash import TrashAction, TrashItem
 from app.schemas.media import MediaDeleteSelection
 from app.services import trash as trash_service
 from app.services.cascade_delete import execute_delete
+from app.services.ignores import media_key
 from app.services.media_delete import execute_media_delete
 from app.services.path_guard import MountUnavailableError, PathNotWritableError
 from app.services.trash import item_available, restore_action
@@ -46,7 +47,7 @@ def radarr(calls, *, delete_status=200):
 
 
 def whole_movie(row, torrent):
-    return MediaDeleteSelection(media_file_ids=[row.id], torrent_ids=[torrent.id], remove_from_arr=True)
+    return MediaDeleteSelection(media_file_paths=[row.path], torrent_hashes=[torrent.hash], remove_from_arr=True)
 
 
 @pytest.mark.parametrize("trash_enabled", [False, True])
@@ -114,7 +115,9 @@ def test_the_api_answers_409_with_the_reason(admin_client, fake_http, session, s
     library_dir = os.path.dirname(row.path)
     monkeypatch.setattr(trash_service, "writable_dir", lambda directory: directory != library_dir)
 
-    response = admin_client.post(f"/api/media/{media.id}/delete-selection", json={"media_file_ids": [row.id]})
+    response = admin_client.post(
+        f"/api/media/{media.id}/delete-selection", json={"media_file_paths": [row.path], "media_key": media_key(media)}
+    )
 
     assert response.status_code == 409
     assert "Aucune modification" in response.json()["detail"]
@@ -128,7 +131,7 @@ def test_torrent_data_out_of_reach(session, settings, tmp_path, monkeypatch):
     media, _row = add_movie(session, tmp_path)
     torrent, data = add_torrent(session, media, tmp_path)
     os.remove(data)
-    selection = MediaDeleteSelection(torrent_ids=[torrent.id])
+    selection = MediaDeleteSelection(torrent_hashes=[torrent.hash])
 
     asyncio.run(execute_media_delete(session, media, settings, selection))
     assert client.deleted == [(["abc123"], True)]
@@ -138,7 +141,7 @@ def test_torrent_data_out_of_reach(session, settings, tmp_path, monkeypatch):
     os.remove(data)
     enable_trash(session, settings, tmp_path)
     with pytest.raises(MountUnavailableError):
-        asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(torrent_ids=[torrent.id])))
+        asyncio.run(execute_media_delete(session, media, settings, MediaDeleteSelection(torrent_hashes=[torrent.hash])))
 
 
 def test_an_interrupted_episode_deletion_is_monitored_again(fake_http, session, settings, tmp_path, monkeypatch):
@@ -163,7 +166,7 @@ def test_an_interrupted_episode_deletion_is_monitored_again(fake_http, session, 
     session.commit()
     torrent, _data = add_torrent(session, media, tmp_path)
     # Un épisode sur deux : la série reste dans Sonarr, l'épisode est démonitoré.
-    selection = MediaDeleteSelection(media_file_ids=[first.id], torrent_ids=[torrent.id], remove_from_arr=True)
+    selection = MediaDeleteSelection(media_file_paths=[first.path], torrent_hashes=[torrent.hash], remove_from_arr=True)
 
     asyncio.run(execute_media_delete(session, media, settings, selection))
 

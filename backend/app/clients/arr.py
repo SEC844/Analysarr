@@ -69,6 +69,11 @@ class ArrClient:
     async def get_notification(self, notification_id: int) -> dict[str, Any]:
         return await self._get(f"/api/v3/notification/{notification_id}")
 
+    async def get_health(self) -> list[dict[str, Any]]:
+        """Bilan de santé (même route chez Sonarr et Radarr)."""
+        result = await self._get("/api/v3/health")
+        return result if isinstance(result, list) else []
+
     async def save_notification(self, body: dict[str, Any], *, timeout: float = 30.0) -> dict[str, Any]:
         """Crée (sans `id`) ou met à jour la notification. Sonarr/Radarr la
         TESTE avant de l'enregistrer : l'adresse doit déjà répondre."""

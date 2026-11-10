@@ -259,6 +259,7 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
     ) in rows:
         media_type = MediaType(raw_type)
         arr_id = sonarr_id if media_type == MediaType.series else radarr_id
+        key = media_key_of(media_type, arr_id, instance_id, emby_item_id)
         seen = watch.get(media_id)
         facts.append(
             CandidateFacts(
@@ -267,6 +268,7 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
                 title=title,
                 year=year,
                 reclaimable_bytes=reclaimable,
+                media_key=key,
                 date_added=date_added,
                 last_played_at=last_played_at,
                 watched_undated=last_played_at is None and bool(played_count or in_progress_count),
@@ -278,7 +280,7 @@ def collect_facts(session: Session, now: datetime | None = None) -> tuple[list[C
                 unwatched_requesters=tuple(sorted(unwatched[media_id])) if media_id in unwatched else (),
                 unknown_requester=media_id in unknown,
                 seed_obligation=seed.get(media_id),
-                excluded=bool(excluded) and media_key_of(media_type, arr_id, instance_id, emby_item_id) in excluded,
+                excluded=bool(excluded) and key in excluded,
                 has_poster=has_poster,
                 poster_image_tag=poster_image_tag,
                 arr_instance_name=names.get(instance_id) if instance_id is not None else None,
@@ -310,6 +312,7 @@ def _read(evaluation: Evaluation, rank: float) -> CleanupCandidateRead:
     facts = evaluation.facts
     return CleanupCandidateRead(
         media_id=facts.media_id,
+        media_key=facts.media_key,
         media_type=facts.media_type,
         title=facts.title,
         year=facts.year,

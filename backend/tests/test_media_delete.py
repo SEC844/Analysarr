@@ -2,10 +2,11 @@ import asyncio
 import os
 
 import httpx
+import pytest
 
 from app.models.media import Media, MediaFile, MediaRequest, MediaType
 from app.schemas.media import MediaDeleteSelection
-from app.services.media_delete import execute_media_delete
+from app.services.media_delete import StaleSelectionError, execute_media_delete
 
 
 def recorder(calls, status=200):
@@ -25,6 +26,10 @@ def add_media(session, tmp_path, media_type, files=1, **fields):
     media = Media(media_type=media_type, title="Titre", **fields)
     session.add(media)
     session.commit()
+    if media.radarr_id is None and media.sonarr_id is None:
+        # Média non suivi : son identité stable est son item du serveur multimédia.
+        media.emby_item_id = f"item-{media.id}"
+        session.commit()
     rows = []
     for i in range(files):
         path = tmp_path / f"{media_type.value}-{media.id}-{i}.mkv"
@@ -41,7 +46,7 @@ def test_whole_movie_is_removed_from_radarr_without_exclusion(fake_http, session
     fake_http["http://radarr"] = recorder(calls)
     media, files = add_media(session, tmp_path, MediaType.movie, radarr_id=42)
 
-    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True)
+    selection = MediaDeleteSelection(media_file_paths=[f.path for f in files], remove_from_arr=True)
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
     # Fiche lue d'abord (pour pouvoir la recréer), puis retrait sans que Radarr
@@ -58,7 +63,7 @@ def test_partial_series_selection_never_deletes_the_series(fake_http, session, s
     fake_http["http://sonarr"] = recorder(calls)
     media, files = add_media(session, tmp_path, MediaType.series, files=3, sonarr_id=7)
 
-    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files[:2]], remove_from_arr=True)
+    selection = MediaDeleteSelection(media_file_paths=[f.path for f in files[:2]], remove_from_arr=True)
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
     assert not any(path.startswith("/api/v3/series") for _, path, _ in calls)
@@ -74,7 +79,7 @@ def test_a_failed_library_deletion_is_reported(fake_http, session, settings, tmp
     session.add(MediaRequest(media_id=media.id, seer_request_id=1, seer_media_id=100, status="approved"))
     session.commit()
 
-    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files], remove_from_arr=True)
+    selection = MediaDeleteSelection(media_file_paths=[f.path for f in files], remove_from_arr=True)
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
     assert seer_calls == []  # Analysarr ne touche jamais aux demandes Seer
@@ -86,10 +91,11 @@ def test_selection_is_limited_to_the_media_files(fake_http, session, settings, t
     media, _ = add_media(session, tmp_path, MediaType.movie)
     other, other_files = add_media(session, tmp_path, MediaType.movie)
 
-    selection = MediaDeleteSelection(media_file_ids=[other_files[0].id])
-    asyncio.run(execute_media_delete(session, media, settings, selection))
+    selection = MediaDeleteSelection(media_file_paths=[other_files[0].path])
+    with pytest.raises(StaleSelectionError):
+        asyncio.run(execute_media_delete(session, media, settings, selection))
 
-    assert os.path.exists(other_files[0].path)  # un id d'un autre média est ignoré
+    assert os.path.exists(other_files[0].path)  # le fichier d'un autre média n'est jamais touché
 
 
 def test_a_file_already_gone_is_not_an_error(fake_http, session, settings, tmp_path):
@@ -103,7 +109,7 @@ def test_a_file_already_gone_is_not_an_error(fake_http, session, settings, tmp_p
     session.commit()
     os.remove(files[0].path)
 
-    selection = MediaDeleteSelection(media_file_ids=[f.id for f in files])
+    selection = MediaDeleteSelection(media_file_paths=[f.path for f in files])
     result = asyncio.run(execute_media_delete(session, media, settings, selection))
 
     # 404 côté Sonarr = fichier déjà retiré de son côté : aucune erreur affichée.

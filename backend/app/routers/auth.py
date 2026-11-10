@@ -38,6 +38,7 @@ from app.services.security import (
     hash_password,
     hash_token,
     parse_trusted_proxies,
+    verify_dummy_password,
     verify_password,
 )
 from app.services.totp import (
@@ -208,6 +209,7 @@ def login(
     user = session.exec(select(User).where(User.username == payload.username)).first()
     generic_error = "Nom d'utilisateur ou mot de passe incorrect."
     if user is None:
+        verify_dummy_password(payload.password)  # même durée qu'un nom existant
         record_attempt(session, username=payload.username, ip=ip, success=False, reason="unknown_user")
         raise HTTPException(401, generic_error)
 
